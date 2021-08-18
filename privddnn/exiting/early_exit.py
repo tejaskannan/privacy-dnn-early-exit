@@ -3,6 +3,7 @@ from collections import namedtuple
 from typing import List, Tuple
 
 from privddnn.utils.metrics import compute_entropy
+from privddnn.utils.constants import BIG_NUMBER
 
 
 EarlyExitResult = namedtuple('EarlyExitResult', ['preds', 'output_counts'])
@@ -71,8 +72,8 @@ def entropy_exit(probs: np.ndarray, rates: List[float]) -> EarlyExitResult:
     # Compute the thresholds. For now, we use the given data to get 'perfect' rates.
     pred_entropy = compute_entropy(probs, axis=-1)  # [B, L]
 
-    t0 = np.quantile(pred_entropy[:, 0], q=1.0 - rates[0])
-    thresholds = [t0, 0.0]
+    t0 = np.quantile(pred_entropy[:, 0], q=rates[0])
+    thresholds = [t0, BIG_NUMBER]
 
     # Get the predictions
     predictions: List[int] = []
@@ -80,7 +81,7 @@ def entropy_exit(probs: np.ndarray, rates: List[float]) -> EarlyExitResult:
 
     for sample_idx in range(num_samples):
         sample_entropy = pred_entropy[sample_idx]  # [L]
-        stop_comparison = np.greater(sample_entropy, thresholds)
+        stop_comparison = np.less(sample_entropy, thresholds)
         stopped_idx = np.argmax(stop_comparison)
         pred = np.argmax(probs[sample_idx, stopped_idx])
 
