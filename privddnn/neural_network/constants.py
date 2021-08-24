@@ -7,12 +7,16 @@ class OpName(Enum):
     LOSS = auto()
     OPTIMIZE = auto()
     PROBS = auto()
+    STATE = auto()
 
 
 class PhName(Enum):
     INPUTS = auto()
     LABELS = auto()
     DROPOUT_KEEP_RATE = auto()
+    LOSS_WEIGHT = auto()
+    MODEL_CORRECT = auto()
+    STOP_RATES = auto()
 
 
 class MetaName(Enum):
@@ -32,3 +36,4 @@ EARLY_STOP_PATIENCE = 'early_stop_patience'
 DECAY_PATIENCE = 'decay_patience'
 TRAIN_FRAC = 'train_frac'
 DROPOUT_KEEP_RATE = 'dropout_keep_rate'
+STOP_RATES = 'stop_rates'

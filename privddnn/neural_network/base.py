@@ -7,7 +7,7 @@ from collections import OrderedDict
 from datetime import datetime
 from typing import Dict, Union, Any, Tuple, List
 
-from utils.file_utils import make_dir, save_json_gz, save_pickle_gz, read_pickle_gz
+from privddnn.utils.file_utils import make_dir, save_json_gz, save_pickle_gz, read_pickle_gz
 from .constants import OpName, PhName, MetaName, NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE, DECAY_PATIENCE
 from .constants import LEARNING_RATE_DECAY, GRADIENT_CLIP, EARLY_STOP_PATIENCE, TRAIN_FRAC, DROPOUT_KEEP_RATE
 
@@ -284,8 +284,10 @@ class NeuralNetwork:
         self._rand.shuffle(sample_idx)
 
         split_idx = int(num_samples * self.hypers[TRAIN_FRAC])
-        train_inputs, train_labels = inputs[:split_idx], labels[:split_idx]
-        val_inputs, val_labels = inputs[split_idx:], labels[split_idx:]
+        train_idx, val_idx = sample_idx[:split_idx], sample_idx[split_idx:]
+
+        train_inputs, train_labels = inputs[train_idx], labels[train_idx]
+        val_inputs, val_labels = inputs[val_idx], labels[val_idx]
 
         # Load the metadata for these inputs
         self.load_metadata(train_inputs=train_inputs, train_labels=train_labels)
@@ -300,7 +302,7 @@ class NeuralNetwork:
 
         # Make the save folder and get the file name based on the current time
         current_time = datetime.now()
-        model_name = '{}-{}'.format(self.name, current_time.strftime('%d-%m-%Y-%H-%M-%S'))
+        model_name = '{}_{}'.format(self.name, current_time.strftime('%d-%m-%Y-%H-%M-%S'))
 
         make_dir(save_folder)
 
@@ -444,7 +446,7 @@ class NeuralNetwork:
 
         return save_path
 
-    def predict(self, inputs: np.ndarray, return_probs: bool) -> np.ndarray:
+    def predict(self, inputs: np.ndarray, pred_op: OpName) -> np.ndarray:
         """
         Computes the predictions on the given (unscaled) inputs.
         """
@@ -454,8 +456,6 @@ class NeuralNetwork:
 
         # Scale the inputs
         inputs = self.normalize_inputs(inputs=inputs)
-
-        pred_op = OpName.PROBS if return_probs else OpName.PREDICTIONS
 
         for start in range(0, num_samples, batch_size):
             batch_inputs = inputs[start:start+batch_size]

@@ -4,6 +4,7 @@ import numpy as np
 
 from .base import NeuralNetwork
 from .layers import conv2d, dense, bottleneck_block
+from .constants import OpName
 
 
 class BranchyNetCNN(NeuralNetwork):
@@ -78,6 +79,8 @@ class BranchyNetCNN(NeuralNetwork):
         output_two = tf2.expand_dims(output_two, axis=1)  # [B, 1, K]
 
         logits = tf2.concat([output_one, output_two], axis=1)  # [B, 2, K]
+
+        self._ops[OpName.STATE] = flattened_one
 
         return logits
 
