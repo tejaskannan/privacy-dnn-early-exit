@@ -8,13 +8,14 @@ from datetime import datetime
 from typing import Dict, Union, Any, Tuple, List
 
 from privddnn.utils.file_utils import make_dir, save_json_gz, save_pickle_gz, read_pickle_gz
-from .constants import OpName, PhName, MetaName, NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE, DECAY_PATIENCE
-from .constants import LEARNING_RATE_DECAY, GRADIENT_CLIP, EARLY_STOP_PATIENCE, TRAIN_FRAC, DROPOUT_KEEP_RATE
+from privddnn.dataset import Dataset
+from .constants import OpName, PhName, MetaName, ModelMode, NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE, DECAY_PATIENCE
+from .constants import LEARNING_RATE_DECAY, GRADIENT_CLIP, EARLY_STOP_PATIENCE, TRAIN_FRAC, DROPOUT_KEEP_RATE, STOP_RATES
 
 
 class NeuralNetwork:
 
-    def __init__(self, hypers: OrderedDict):
+    def __init__(self, dataset_name: str, hypers: OrderedDict):
         # Load the default hyper-parameters and override values when needed
         self._hypers = self.default_hypers
         self._hypers.update(**hypers)
@@ -30,6 +31,10 @@ class NeuralNetwork:
         # Variables to track state of model creation
         self._is_metadata_loaded = False
         self._is_model_made = False
+        self._is_init = False
+
+        # Load the dataset
+        self._dataset = Dataset(dataset_name=dataset_name)
 
         # Set random seeds to ensure reproducible results
         self._rand = np.random.RandomState(seed=23789)
@@ -42,7 +47,7 @@ class NeuralNetwork:
         raise NotImplementedError()
 
     @property
-    def default_hypers(self) -> Dict[str, Union[float, int]]:
+    def default_hypers(self) -> Dict[str, Any]:
         return {
             NUM_EPOCHS: 2,
             BATCH_SIZE: 32,
@@ -52,7 +57,8 @@ class NeuralNetwork:
             GRADIENT_CLIP: 1.0,
             EARLY_STOP_PATIENCE: 2,
             DECAY_PATIENCE: 2,
-            DROPOUT_KEEP_RATE: 0.8
+            DROPOUT_KEEP_RATE: 0.8,
+            STOP_RATES: [0.5, 0.5]
         }
 
     @property
@@ -72,6 +78,10 @@ class NeuralNetwork:
         return self._metadata
 
     @property
+    def dataset(self) -> Dataset:
+        return self._dataset
+
+    @property
     def sess(self) -> tf1.Session:
         return self._sess
 
@@ -82,6 +92,10 @@ class NeuralNetwork:
     @property
     def is_model_made(self) -> bool:
         return self._is_model_made
+
+    @property
+    def is_init(self) -> bool:
+        return self._is_init
 
     def make_placeholders(self, input_shape: Tuple[int, ...]) -> Dict[PhName, tf1.placeholder]:
         """
@@ -108,7 +122,7 @@ class NeuralNetwork:
             PhName.DROPOUT_KEEP_RATE: dropout_keep_rate_ph
         }
 
-    def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf1.placeholder, num_labels: int) -> tf2.Tensor:
+    def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf1.placeholder, num_labels: int, model_mode: ModelMode) -> tf2.Tensor:
         """
         Creates the computational graph.
 
@@ -116,18 +130,20 @@ class NeuralNetwork:
             inputs: A placeholder ([B, ...]) representing the input values
             dropout_keep_rate: A placeholder holding the dropout keep rate
             num_labels: The number of labels (K)
+            model_mode: The mode (train or fine tune)
         Returns:
             The raw logits for this model, generally of size [B, K]
         """
         raise NotImplementedError()
 
-    def make_loss(self, logits: tf2.Tensor, labels: tf1.placeholder) -> tf2.Tensor:
+    def make_loss(self, logits: tf2.Tensor, labels: tf1.placeholder, model_mode: ModelMode) -> tf2.Tensor:
         """
         Creates the loss function for this model.
 
         Args:
             logits: The log probabilities, generally [B, K]
             labels: The labels, [B]
+            model_mode: The mode (train or fine tune)
         """
         raise NotImplementedError()
 
@@ -158,7 +174,7 @@ class NeuralNetwork:
 
         return optimizer_op
 
-    def make(self):
+    def make(self, model_mode: ModelMode):
         """
         Builds this model.
         """
@@ -174,11 +190,13 @@ class NeuralNetwork:
             # Make the computational graph
             logits = self.make_model(inputs=self._placeholders[PhName.INPUTS],
                                      dropout_keep_rate=self._placeholders[PhName.DROPOUT_KEEP_RATE],
-                                     num_labels=self.metadata[MetaName.NUM_LABELS])
+                                     num_labels=self.metadata[MetaName.NUM_LABELS],
+                                     model_mode=model_mode)
 
             # Make the loss function
             loss = self.make_loss(logits=logits,
-                                  labels=self._placeholders[PhName.LABELS])
+                                  labels=self._placeholders[PhName.LABELS],
+                                  model_mode=model_mode)
 
             # Make the optimization step
             optimizer_op = self.make_optimizer_op(loss=loss)
@@ -215,8 +233,13 @@ class NeuralNetwork:
         """
         Initializes the variables in the given computational graph.
         """
+        if self.is_init:
+            return
+
         with self.sess.graph.as_default():
             self.sess.run(tf1.global_variables_initializer())
+
+        self._is_init = True
 
     def execute(self, feed_dict: Dict[tf1.placeholder, np.ndarray], ops: List[OpName]) -> Dict[OpName, np.ndarray]:
         """
@@ -229,7 +252,7 @@ class NeuralNetwork:
         return { OpName[name]: value for name, value in results.items() }
 
 
-    def load_metadata(self, train_inputs: np.ndarray, train_labels: np.ndarray):
+    def load_metadata(self):
         """
         Extracts the input shape and fits the data scaler
         """
@@ -237,73 +260,34 @@ class NeuralNetwork:
         if self.is_metadata_loaded:
             return
 
-        # Fit the data scaler
-        #reshaped_inputs = train_inputs.reshape(train_inputs.shape[0], -1)
-        #mean = np.average(reshaped_inputs, axis=0)  # [D]
-        #std = np.std(reshaped_inputs, axis=0)  # [D]
-        input_max = np.max(train_inputs)
-        input_min = np.min(train_inputs)
-
-        # Get the number of labels
-        num_labels = np.amax(train_labels) + 1
+        # Normalize the data
+        self._dataset.fit_normalizer()
+        self._dataset.normalize_data()
 
         # Save the metadata
-        self._metadata[MetaName.INPUT_SHAPE] = train_inputs.shape[1:]
-        self._metadata[MetaName.INPUT_MEAN] = input_max
-        self._metadata[MetaName.INPUT_STD] = input_min
-        self._metadata[MetaName.NUM_LABELS] = num_labels
+        self._metadata[MetaName.INPUT_SHAPE] = self._dataset.input_shape
+        self._metadata[MetaName.NUM_LABELS] = self._dataset.num_labels
+        self._metadata[MetaName.DATASET_NAME] = self._dataset.dataset_name
 
         self._is_metadata_loaded = True
 
-    def normalize_inputs(self, inputs: np.ndarray) -> np.ndarray:
-        """
-        Normalizes the given inputs
-        """
-        assert self.is_metadata_loaded, 'Must first load the metadata'
-
-        input_max = self._metadata[MetaName.INPUT_MEAN]
-        input_min = self._metadata[MetaName.INPUT_STD]
-
-        return (inputs - input_min) / (input_max - input_min)
-
-        #input_shape = inputs.shape
-        #reshaped_inputs = inputs.reshape(input_shape[0], -1)
-        #scaled_inputs = (reshaped_inputs - self.metadata[MetaName.INPUT_MEAN]) / (self.metadata[MetaName.INPUT_STD])
-
-        #return scaled_inputs.reshape(input_shape)
-
-    def train(self, inputs: np.ndarray, labels: np.ndarray, save_folder: str):
+    def train(self, save_folder: str, model_mode: ModelMode):
         """
         Trains the neural network on the given data.
         """
-        assert inputs.shape[0] == labels.shape[0], 'Must provide same number of inputs ({}) as labels ({})'.format(inputs.shape[0], labels.shape[0])
-
-        # Split the training inputs into train / validation folds
-        num_samples = inputs.shape[0]
-        sample_idx = np.arange(num_samples)
-        self._rand.shuffle(sample_idx)
-
-        split_idx = int(num_samples * self.hypers[TRAIN_FRAC])
-        train_idx, val_idx = sample_idx[:split_idx], sample_idx[split_idx:]
-
-        train_inputs, train_labels = inputs[train_idx], labels[train_idx]
-        val_inputs, val_labels = inputs[val_idx], labels[val_idx]
-
         # Load the metadata for these inputs
-        self.load_metadata(train_inputs=train_inputs, train_labels=train_labels)
-
-        # Scale the data
-        train_inputs = self.normalize_inputs(train_inputs)
-        val_inputs = self.normalize_inputs(val_inputs)
+        self.load_metadata()
 
         # Make the model
-        self.make()
+        self.make(model_mode=model_mode)
         self.init()
 
         # Make the save folder and get the file name based on the current time
         current_time = datetime.now()
         model_name = '{}_{}'.format(self.name, current_time.strftime('%d-%m-%Y-%H-%M-%S'))
 
+        make_dir(save_folder)
+        save_folder = os.path.join(save_folder, self._dataset.dataset_name)
         make_dir(save_folder)
 
         save_folder = os.path.join(save_folder, current_time.strftime('%d-%m-%Y'))
@@ -315,9 +299,8 @@ class NeuralNetwork:
         batch_size = self.hypers[BATCH_SIZE]
         num_epochs = self.hypers[NUM_EPOCHS]
 
-        num_train = train_inputs.shape[0]
-        num_val = val_inputs.shape[0]
-        train_idx = np.arange(num_train)
+        num_train = self._dataset.num_train
+        num_val = self._dataset.num_val
 
         train_ops = [OpName.OPTIMIZE, OpName.LOSS, OpName.PREDICTIONS]
         val_ops = [OpName.LOSS, OpName.PREDICTIONS]
@@ -339,18 +322,13 @@ class NeuralNetwork:
             print('===== Epoch {} ====='.format(epoch))
 
             # Execute Model Training
-            self._rand.shuffle(train_idx)
-
             train_correct = 0.0
             train_loss = 0.0
             num_train_samples = 0.0
 
-            for batch_num, start in enumerate(range(0, num_train, batch_size)):
-                # Make the batch
-                batch_idx = train_idx[start:start+batch_size]
-                batch_inputs = train_inputs[batch_idx]
-                batch_labels = train_labels[batch_idx]
-
+            train_batch_generator = self._dataset.generate_train_batches(batch_size=batch_size)
+            for batch_num, (batch_inputs, batch_labels) in enumerate(train_batch_generator):
+                # Make the feed dict
                 feed_dict = self.batch_to_feed_dict(inputs=batch_inputs,
                                                     labels=batch_labels,
                                                     dropout_keep_rate=self.hypers[DROPOUT_KEEP_RATE])
@@ -387,11 +365,9 @@ class NeuralNetwork:
             val_loss = 0.0
             num_val_samples = 0.0
 
-            for batch_num, start in enumerate(range(0, num_val, batch_size)):
-                # Make the batch
-                batch_inputs = val_inputs[start:start+batch_size]
-                batch_labels = val_labels[start:start+batch_size]
-
+            val_batch_generator = self._dataset.generate_val_batches(batch_size=batch_size)
+            for batch_num, (batch_inputs, batch_labels) in enumerate(val_batch_generator):
+                # Make the feed dict
                 feed_dict = self.batch_to_feed_dict(inputs=batch_inputs,
                                                     labels=batch_labels,
                                                     dropout_keep_rate=1.0)
@@ -446,27 +422,28 @@ class NeuralNetwork:
 
         return save_path
 
-    def predict(self, inputs: np.ndarray, pred_op: OpName) -> np.ndarray:
+    def test(self, op: OpName) -> np.ndarray:
         """
         Computes the predictions on the given (unscaled) inputs.
         """
         pred_list: List[np.ndarray] = []
         batch_size = self.hypers[BATCH_SIZE]
-        num_samples = inputs.shape[0]
+        num_samples = self._dataset.num_test
 
-        # Scale the inputs
-        inputs = self.normalize_inputs(inputs=inputs)
+        # Normalize the data
+        self._dataset.fit_normalizer()
+        self._dataset.normalize_data()
 
-        for start in range(0, num_samples, batch_size):
-            batch_inputs = inputs[start:start+batch_size]
+        test_batch_generator = self._dataset.generate_test_batches(batch_size=batch_size)
 
+        for (batch_inputs, _) in test_batch_generator:
             feed_dict = {
                 self._placeholders[PhName.INPUTS]: batch_inputs,
                 self._placeholders[PhName.DROPOUT_KEEP_RATE]: 1.0
             }
 
-            batch_result = self.execute(feed_dict=feed_dict, ops=[pred_op])
-            pred_list.append(batch_result[pred_op])
+            batch_result = self.execute(feed_dict=feed_dict, ops=[op])
+            pred_list.append(batch_result[op])
 
         return np.concatenate(pred_list, axis=0)
 
@@ -491,7 +468,7 @@ class NeuralNetwork:
         save_pickle_gz(output_data, path)
 
     @classmethod
-    def restore(cls, path: str):
+    def restore(cls, path: str, model_mode: ModelMode):
         """
         Restores the model saved at the given path
         """
@@ -503,12 +480,12 @@ class NeuralNetwork:
         model_weights = serialized_data['weights']
 
         # Build the model
-        model = cls(hypers=hypers)
+        model = cls(hypers=hypers, dataset_name=metadata[MetaName.DATASET_NAME])
 
         model._metadata = metadata
         model._is_metadata_loaded = True
 
-        model.make()
+        model.make(model_mode=model_mode)
         model.init()
 
         # Set the model weights

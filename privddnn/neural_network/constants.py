@@ -8,6 +8,7 @@ class OpName(Enum):
     OPTIMIZE = auto()
     PROBS = auto()
     STATE = auto()
+    STOP_PROBS = auto()
 
 
 class PhName(Enum):
@@ -21,9 +22,14 @@ class PhName(Enum):
 
 class MetaName(Enum):
     INPUT_SHAPE = auto()
-    INPUT_MEAN = auto()
-    INPUT_STD = auto()
     NUM_LABELS = auto()
+    DATASET_NAME = auto()
+
+
+class ModelMode(Enum):
+    TRAIN = auto()
+    TEST = auto()
+    FINE_TUNE = auto()
 
 
 # Hyperparameter keys

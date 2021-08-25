@@ -6,16 +6,24 @@ from collections import defaultdict
 from enum import Enum, auto
 from typing import List, Tuple, DefaultDict
 
-from neural_network.branchynet_cnn import BranchyNetCNN
-from neural_network.branchynet_dnn import BranchyNetDNN
-from exiting.early_exit import random_exit, entropy_exit, max_prob_exit
-from utils.metrics import compute_accuracy, compute_mutual_info
+from neural_network import restore_model, NeuralNetwork, OpName, ModelMode
+from exiting.early_exit import random_exit, entropy_exit, max_prob_exit, even_max_prob_exit
+from privddnn.utils.metrics import compute_accuracy, compute_mutual_info
 
 
 class ExitStrategy(Enum):
     RANDOM = auto()
     MAX_PROB = auto()
     ENTROPY = auto()
+    EVEN_MAX_PROB = auto()
+
+
+COLORS = {
+    ExitStrategy.RANDOM: '#8da0cb',
+    ExitStrategy.MAX_PROB: '#66c2a5',
+    ExitStrategy.ENTROPY: '#fc8d62',
+    ExitStrategy.EVEN_MAX_PROB: 'black'
+}
 
 
 def execute_for_rate(probs: np.ndarray, rate: float, labels: np.ndarray, strategy: ExitStrategy, rand: np.random.RandomState) -> Tuple[float, float]:
@@ -26,6 +34,8 @@ def execute_for_rate(probs: np.ndarray, rate: float, labels: np.ndarray, strateg
         result = entropy_exit(probs=model_probs, rates=[1.0 - rate, rate])
     elif strategy == ExitStrategy.RANDOM:
         result = random_exit(probs=model_probs, rates=[1.0 - rate, rate], rand=rand)
+    elif strategy == ExitStrategy.EVEN_MAX_PROB:
+        result = even_max_prob_exit(probs=model_probs, rates=[1.0 - rate, rate], labels=labels)
     else:
         raise ValueError('Unknown exit strategy: {}'.format(strategy))
 
@@ -42,47 +52,38 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Restore the model
-    model = BranchyNetCNN.restore(path=args.model_path)
-
-    # Get the dataset
-    _, (test_inputs, test_labels) = tf2.keras.datasets.cifar10.load_data()
-    test_labels = test_labels.reshape(-1)
+    model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
 
     # Get the predictions from the models
-    model_probs = model.predict(inputs=test_inputs, return_probs=True)  # [B, K]
+    model_probs = model.test(op=OpName.PROBS)  # [B, K]
+    test_labels = model.dataset.get_test_labels()
 
-    rates = np.arange(0.1, 1.01, 0.1)
+    rates = list(sorted(np.arange(0.1, 1.01, 0.1)))
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
     accuracy_dict: DefaultDict[ExitStrategy, List[float]] = defaultdict(list)
     info_dict: DefaultDict[ExitStrategy, List[float]] = defaultdict(list)
 
-    for rate in rates:
-        rand_acc, rand_mi = execute_for_rate(model_probs, rate=rate, labels=test_labels, strategy=ExitStrategy.RANDOM, rand=rand)
-        max_acc, max_mi = execute_for_rate(model_probs, rate=rate, labels=test_labels, strategy=ExitStrategy.MAX_PROB, rand=rand)
-        ent_acc, ent_mi = execute_for_rate(model_probs, rate=rate, labels=test_labels, strategy=ExitStrategy.ENTROPY, rand=rand)
+    strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.EVEN_MAX_PROB]
 
-        # Log the accuracy values
-        accuracy_dict[ExitStrategy.RANDOM].append(rand_acc)
-        accuracy_dict[ExitStrategy.MAX_PROB].append(max_acc)
-        accuracy_dict[ExitStrategy.ENTROPY].append(ent_acc)
+    for strategy in strategies:
+        for rate in rates:
+            accuracy, information = execute_for_rate(model_probs, rate=rate, labels=test_labels, strategy=strategy, rand=rand)
 
-        # Log the information values
-        info_dict[ExitStrategy.RANDOM].append(rand_mi)
-        info_dict[ExitStrategy.MAX_PROB].append(max_mi)
-        info_dict[ExitStrategy.ENTROPY].append(ent_mi)
+            if strategy == ExitStrategy.RANDOM:
+                print('Rate: {}, Accuracy: {}'.format(rate, accuracy))
+
+            # Log the results
+            accuracy_dict[strategy].append(accuracy)
+            info_dict[strategy].append(information)
 
     with plt.style.context('seaborn-ticks'):
         fig, (ax1, ax2) = plt.subplots(figsize=(6, 4), nrows=1, ncols=2)
 
-        ax1.plot(rates, accuracy_dict[ExitStrategy.RANDOM], label='Random', linewidth=3, marker='o', markersize=8, color='#8da0cb')
-        ax1.plot(rates, accuracy_dict[ExitStrategy.MAX_PROB], label='Max Prob', linewidth=3, marker='o', markersize=8, color='#66c2a5')
-        ax1.plot(rates, accuracy_dict[ExitStrategy.ENTROPY], label='Entropy', linewidth=3, marker='o', markersize=8, color='#fc8d62')
-
-        ax2.plot(rates, info_dict[ExitStrategy.RANDOM], label='Random', linewidth=3, marker='o', markersize=8, color='#8da0cb')
-        ax2.plot(rates, info_dict[ExitStrategy.MAX_PROB], label='Max Prob', linewidth=3, marker='o', markersize=8, color='#66c2a5')
-        ax2.plot(rates, info_dict[ExitStrategy.ENTROPY], label='Entropy', linewidth=3, marker='o', markersize=8, color='#fc8d62')
+        for strategy in strategies:
+            ax1.plot(rates, accuracy_dict[strategy], label=strategy.name.capitalize(), linewidth=3, marker='o', markersize=8, color=COLORS[strategy])
+            ax2.plot(rates, info_dict[strategy], label=strategy.name.capitalize(), linewidth=3, marker='o', markersize=8, color=COLORS[strategy])
 
         ax1.legend()
         ax1.set_xlabel('Frac Stopping at 1st Output')

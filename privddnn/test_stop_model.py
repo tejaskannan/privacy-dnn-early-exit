@@ -5,8 +5,7 @@ from collections import defaultdict
 from enum import Enum, auto
 from typing import List, Tuple, DefaultDict
 
-from neural_network import restore_model, NeuralNetwork, OpName
-from neural_network.stop_dnn import StopDNN
+from neural_network import restore_model, NeuralNetwork, OpName, ModelMode
 from exiting.early_exit import entropy_exit
 from privddnn.utils.metrics import compute_accuracy, compute_mutual_info
 
@@ -19,7 +18,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Restore the model
-    model: NeuralNetwork = restore_model(path=args.model_path)
+    model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
 
     # Get the dataset
     _, (test_inputs, test_labels) = tf2.keras.datasets.cifar10.load_data()
@@ -27,16 +26,11 @@ if __name__ == '__main__':
 
     # Get the predictions from the models
     model_preds = model.predict(inputs=test_inputs, pred_op=OpName.PREDICTIONS)  # [B, K]
-    model_states = model.predict(inputs=test_inputs, pred_op=OpName.STATE)  # [B, K, D]
+    stop_probs = model.predict(inputs=test_inputs, pred_op=OpName.STOP_PROBS)  # [B, K]
 
-    model_correct = np.isclose(np.expand_dims(test_labels, axis=-1), model_preds).astype(int)  # [B, K]
-
-    stop_model = StopDNN.restore('saved_models/24-08-2021/stop-dnn_24-08-2021-13-40-33.pkl.gz')
-    stop_probs = stop_model.predict(inputs=model_states, pred_op=OpName.PROBS)  # [B, L]
-
-    output_indices = defaultdict(list)
     num_correct = 0.0
     num_total = 0.0
+    output_indices = defaultdict(list)
 
     rand = np.random.RandomState(seed=7894)
     for idx in range(len(test_labels)):
@@ -49,7 +43,8 @@ if __name__ == '__main__':
         r = rand.uniform()
         stop_idx = int(r > stop_rates[0])
 
-        num_correct += model_correct[idx, stop_idx]
+        pred = model_preds[idx, stop_idx]
+        num_correct += int(np.isclose(pred, label))
         num_total += 1.0
 
         output_indices[label].append(stop_idx)
