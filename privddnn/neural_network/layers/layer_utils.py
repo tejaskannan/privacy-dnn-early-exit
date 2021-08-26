@@ -29,3 +29,12 @@ def differentiable_abs(x: tf2.Tensor) -> tf2.Tensor:
         return dy * factor
 
     return tf2.abs(x), grad
+
+
+def dropout(x: tf2.Tensor, keep_rate: tf2.Tensor) -> tf2.Tensor:
+    rand_mask = tf1.random.stateless_uniform(shape=tf2.shape(x), minval=0.0, maxval=1.0, seed=(381, 1031))
+    rand_mask = tf2.stop_gradient(rand_mask)
+    mask = tf2.cast(rand_mask < keep_rate, dtype=x.dtype)
+
+    masked_x = x * mask
+    return masked_x * (1.0 / keep_rate)

@@ -5,7 +5,7 @@ import math
 import os.path
 from collections import OrderedDict
 from datetime import datetime
-from typing import Dict, Union, Any, Tuple, List
+from typing import Dict, Union, Any, Tuple, List, Iterable
 
 from privddnn.utils.file_utils import make_dir, save_json_gz, save_pickle_gz, read_pickle_gz
 from privddnn.dataset import Dataset
@@ -19,6 +19,8 @@ class NeuralNetwork:
         # Load the default hyper-parameters and override values when needed
         self._hypers = self.default_hypers
         self._hypers.update(**hypers)
+
+        self._learning_rate = self._hypers[LEARNING_RATE]
 
         # Initialize operations and placeholders
         self._ops: Dict[OpName, tf2.Tensor] = dict()
@@ -51,7 +53,6 @@ class NeuralNetwork:
         return {
             NUM_EPOCHS: 2,
             BATCH_SIZE: 32,
-            TRAIN_FRAC: 0.8,
             LEARNING_RATE: 0.001,
             LEARNING_RATE_DECAY: 0.9,
             GRADIENT_CLIP: 1.0,
@@ -64,6 +65,10 @@ class NeuralNetwork:
     @property
     def hypers(self) -> Dict[str, Any]:
         return self._hypers
+
+    @property
+    def learning_rate(self) -> float:
+        return self._learning_rate
 
     @property
     def ops(self) -> Dict[OpName, tf2.Tensor]:
@@ -116,10 +121,14 @@ class NeuralNetwork:
                                                dtype=tf2.float32,
                                                name=PhName.DROPOUT_KEEP_RATE.name.lower())
 
+        learning_rate_ph = tf1.placeholder(shape=(),
+                                           dtype=tf2.float32,
+                                           name=PhName.LEARNING_RATE.name.lower())
         return {
             PhName.INPUTS: inputs_ph,
             PhName.LABELS: labels_ph,
-            PhName.DROPOUT_KEEP_RATE: dropout_keep_rate_ph
+            PhName.DROPOUT_KEEP_RATE: dropout_keep_rate_ph,
+            PhName.LEARNING_RATE: learning_rate_ph
         }
 
     def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf1.placeholder, num_labels: int, model_mode: ModelMode) -> tf2.Tensor:
@@ -166,10 +175,15 @@ class NeuralNetwork:
         clipped_gradients, _ = tf2.clip_by_global_norm(gradients, self.hypers[GRADIENT_CLIP])
 
         # Prune None values from the set of gradients and apply gradient weights
-        pruned_gradients = [(grad, var) for grad, var in zip(clipped_gradients, trainable_vars) if grad is not None]
+        pruned_gradients = []
+        for grad, var in zip(clipped_gradients, trainable_vars):
+            if grad is not None:
+                pruned_gradients.append((grad, var))
+            else:
+                print('WARNING: Gradient is None for {}'.format(var.name))
 
         # Apply clipped gradients
-        self._optimizer = tf1.train.AdamOptimizer(learning_rate=self.hypers[LEARNING_RATE])
+        self._optimizer = tf1.train.AdamOptimizer(learning_rate=self._placeholders[PhName.LEARNING_RATE])
         optimizer_op = self._optimizer.apply_gradients(pruned_gradients)
 
         return optimizer_op
@@ -226,7 +240,8 @@ class NeuralNetwork:
         return {
             self.placeholders[PhName.INPUTS]: inputs,
             self.placeholders[PhName.LABELS]: labels,
-            self.placeholders[PhName.DROPOUT_KEEP_RATE]: dropout_keep_rate
+            self.placeholders[PhName.DROPOUT_KEEP_RATE]: dropout_keep_rate,
+            self.placeholders[PhName.LEARNING_RATE]: self.learning_rate
         }
 
     def init(self):
@@ -309,7 +324,9 @@ class NeuralNetwork:
         num_val_batches = int(math.ceil(num_val / batch_size))
 
         best_val_accuracy = 0.0
+        best_val_loss = 1e7
         num_not_improved = 0
+        num_not_improved_lr = 0
 
         train_log: Dict[str, List[float]] = {
             'train_loss': [],
@@ -404,17 +421,31 @@ class NeuralNetwork:
             train_log['val_loss'].append(epoch_val_loss)
             train_log['val_accuracy'].append(epoch_val_acc)
 
-            if (epoch_val_acc > best_val_accuracy):
+            # Check for model improvement and save accordingly
+            did_improve = False
+            if model_mode == ModelMode.TRAIN:
+                did_improve = (epoch_val_acc > best_val_accuracy)
+            else:
+                did_improve = (epoch_val_loss < best_val_loss)
+
+            if did_improve:
                 best_val_accuracy = epoch_val_acc
+                best_val_loss = epoch_val_loss
                 num_not_improved = 0
+                num_not_improved_lr = 0
                 self.save(path=save_path)
                 print('Saving...')
             else:
                 num_not_improved += 1
+                num_not_improved_lr += 1
 
             if num_not_improved >= self.hypers[EARLY_STOP_PATIENCE]:
                 print('Quitting due to early stoping')
                 break
+
+            if num_not_improved_lr >= self.hypers[DECAY_PATIENCE]:
+                self._learning_rate *= self.hypers[LEARNING_RATE_DECAY]
+                num_not_improved_lr = 0
 
         # Save the training log
         train_log_path = os.path.join(save_folder, '{}_train-log.json.gz'.format(model_name))
@@ -424,19 +455,26 @@ class NeuralNetwork:
 
     def test(self, op: OpName) -> np.ndarray:
         """
+        Runs the given operation on the test set.
+        """
+        test_batch_generator = self._dataset.generate_test_batches(batch_size=self.hypers[BATCH_SIZE])
+        return self.execute_op(data_generator=test_batch_generator, op=op)
+
+    def validate(self, op: OpName) -> np.ndarray:
+        """
+        Runs the given operation on the validation set.
+        """
+        val_batch_generator = self._dataset.generate_val_batches(batch_size=self.hypers[BATCH_SIZE])
+        return self.execute_op(data_generator=val_batch_generator, op=op)
+
+    def execute_op(self, data_generator: Iterable[Tuple[np.ndarray, np.ndarray]], op: OpName) -> np.ndarray:
+        """
         Computes the predictions on the given (unscaled) inputs.
         """
         pred_list: List[np.ndarray] = []
-        batch_size = self.hypers[BATCH_SIZE]
         num_samples = self._dataset.num_test
 
-        # Normalize the data
-        self._dataset.fit_normalizer()
-        self._dataset.normalize_data()
-
-        test_batch_generator = self._dataset.generate_test_batches(batch_size=batch_size)
-
-        for (batch_inputs, _) in test_batch_generator:
+        for (batch_inputs, _) in data_generator:
             feed_dict = {
                 self._placeholders[PhName.INPUTS]: batch_inputs,
                 self._placeholders[PhName.DROPOUT_KEEP_RATE]: 1.0
@@ -484,6 +522,9 @@ class NeuralNetwork:
 
         model._metadata = metadata
         model._is_metadata_loaded = True
+
+        model.dataset.fit_normalizer()
+        model.dataset.normalize_data()
 
         model.make(model_mode=model_mode)
         model.init()

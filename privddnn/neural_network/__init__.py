@@ -1,18 +1,30 @@
 import os.path
 from collections import OrderedDict
+from typing import Type
 
 from .base import NeuralNetwork
 from .branchynet_cnn import BranchyNetCNN
+from .anytime_cnn import AnytimeCNN
+from .independent_cnn import IndependentCNN
 from .constants import OpName, ModelMode
 
 
-def make_model(name: str, dataset_name: str, hypers: OrderedDict) -> NeuralNetwork:
+def get_model_class(name: str) -> Type[NeuralNetwork]:
     name = name.lower()
 
     if name == 'branchynet-cnn':
-        return BranchyNetCNN(hypers=hypers, dataset_name=dataset_name)
+        return BranchyNetCNN
+    elif name == 'anytime-cnn':
+        return AnytimeCNN
+    elif name == 'independent-cnn':
+        return IndependentCNN
     else:
         raise ValueError('Unknown neural network with name: {}'.format(name))
+
+
+def make_model(name: str, dataset_name: str, hypers: OrderedDict) -> NeuralNetwork:
+    model_cls = get_model_class(name=name)
+    return model_cls(hypers=hypers, dataset_name=dataset_name)
 
 
 def restore_model(path: str, model_mode: ModelMode) -> NeuralNetwork:
@@ -22,9 +34,5 @@ def restore_model(path: str, model_mode: ModelMode) -> NeuralNetwork:
     model_name = components[0].lower()
 
     # Restore the model
-    if model_name == 'branchynet-cnn':
-        model_cls = BranchyNetCNN
-    else:
-        raise ValueError('Unknown neural network with name: {}'.format(model_name))
-
+    model_cls = get_model_class(name=model_name)
     return model_cls.restore(path, model_mode=model_mode)

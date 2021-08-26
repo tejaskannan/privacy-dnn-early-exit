@@ -1,7 +1,61 @@
 import tensorflow as tf2
 import tensorflow.compat.v1 as tf1
+from typing import Tuple
 
 from .layer_utils import get_activation_fn
+
+
+def fitnet_block(inputs: tf2.Tensor, num_filters: int, pool_size: int, pool_stride: int, name: str) -> Tuple[tf2.Tensor, tf2.Tensor, tf2.Tensor]:
+    with tf1.variable_scope(name):
+        # Create the convolution layers
+        block_one = conv2d(inputs=inputs,
+                           filter_size=3,
+                           stride=1,
+                           num_filters=num_filters,
+                           activation='relu',
+                           name='conv1')
+
+        block_two = conv2d(inputs=block_one,
+                           filter_size=3,
+                           stride=1,
+                           num_filters=num_filters,
+                           activation='relu',
+                           name='conv2')
+
+        pooled = tf2.nn.max_pool(input=block_two,
+                                 ksize=pool_size,
+                                 strides=[1, pool_stride, pool_stride, 1],
+                                 padding='SAME')
+
+        return pooled, block_one, block_two
+
+
+
+def weighted_add(x: tf2.Tensor, y: tf2.Tensor, name: str) -> tf2.Tensor:
+    """
+    Returns the sum w1 * x + w2 * y where w1 and w2 are trainable parameters.
+
+    Args:
+        x: A [B, H, W, C] tensor
+        y: A [B, H, W, C] tensor
+        name: The name of this layer
+    Returns:
+        A [B, H, W, C] tensor
+    """
+    with tf1.variable_scope(name):
+        w1 = tf1.get_variable(shape=(),
+                              dtype=x.dtype,
+                              trainable=True,
+                              initializer=tf1.glorot_uniform_initializer(),
+                              name='weight-one')
+
+        w2 = tf1.get_variable(shape=(),
+                              dtype=x.dtype,
+                              trainable=True,
+                              initializer=tf1.glorot_uniform_initializer(),
+                              name='weight-two')
+
+        return w1 * x + w2 * y
 
 
 def bottleneck_block(inputs: tf2.Tensor, filter_size: int, filter_stride: int, channel_mult: int, expand_size: int, squeeze_size: int, name: str) -> tf2.Tensor:

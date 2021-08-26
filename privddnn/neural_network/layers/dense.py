@@ -2,7 +2,7 @@ import tensorflow as tf2
 import tensorflow.compat.v1 as tf1
 from typing import Union
 
-from .layer_utils import get_activation_fn
+from .layer_utils import get_activation_fn, dropout
 
 
 def dense(inputs: Union[tf2.Tensor, tf1.placeholder],
@@ -49,6 +49,6 @@ def dense(inputs: Union[tf2.Tensor, tf1.placeholder],
 
         # Apply drppout if needed
         if use_dropout:
-            return tf1.nn.dropout(transformed, keep_prob=dropout_keep_rate)
+            return dropout(transformed, keep_rate=dropout_keep_rate)
 
         return transformed

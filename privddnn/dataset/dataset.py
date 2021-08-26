@@ -103,6 +103,12 @@ class Dataset:
     def num_test(self) -> int:
         return self._test_inputs.shape[0]
 
+    def get_train_labels(self) -> np.ndarray:
+        return self._train_labels
+
+    def get_val_labels(self) -> np.ndarray:
+        return self._val_labels
+
     def get_test_labels(self) -> np.ndarray:
         return self._test_labels
 

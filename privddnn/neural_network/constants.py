@@ -16,8 +16,8 @@ class PhName(Enum):
     LABELS = auto()
     DROPOUT_KEEP_RATE = auto()
     LOSS_WEIGHT = auto()
-    MODEL_CORRECT = auto()
     STOP_RATES = auto()
+    LEARNING_RATE = auto()
 
 
 class MetaName(Enum):
@@ -30,6 +30,7 @@ class ModelMode(Enum):
     TRAIN = auto()
     TEST = auto()
     FINE_TUNE = auto()
+    FINE_TUNE_EVEN = auto()
 
 
 # Hyperparameter keys
