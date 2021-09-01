@@ -1,11 +1,13 @@
 import numpy as np
+import os.path
 from collections import namedtuple, defaultdict
 from enum import Enum, auto
 from sklearn.ensemble import AdaBoostClassifier
-from typing import List, Tuple, Dict, DefaultDict
+from typing import List, Tuple, Dict, DefaultDict, Optional
 
 from privddnn.utils.metrics import compute_entropy
-from privddnn.utils.constants import BIG_NUMBER
+from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
+from privddnn.utils.file_utils import read_json
 from .even_optimizer import fit_thresholds
 
 
@@ -24,6 +26,7 @@ class ExitStrategy(Enum):
     MAX_PROB = auto()
     LABEL_ENTROPY = auto()
     LABEL_MAX_PROB = auto()
+    OPTIMIZED_MAX_PROB = auto()
 
 
 def validate_args(probs: np.ndarray, rates: List[float]):
@@ -213,6 +216,9 @@ class LabelThresholdExiter(EarlyExiter):
         return self._thresholds
 
     def init_thresholds(self, num_labels: int):
+        if self._thresholds is not None:
+            return
+
         self._thresholds = np.zeros(shape=(self.num_outputs, num_labels))
 
     def set_threshold(self, t: float, level: int, label: int):
@@ -255,8 +261,6 @@ class LabelThresholdExiter(EarlyExiter):
             self.set_threshold(t=t, level=0, label=pred)
             self.set_threshold(t=0.0, level=1, label=pred)
 
-        #self._thresholds[0] = fit_thresholds(probs=val_probs, labels=val_labels, rate=self.rates[0], start_thresholds=self.thresholds[0])
-
 class LabelMaxProbExit(LabelThresholdExiter):
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
@@ -297,7 +301,65 @@ class LabelEntropyExit(LabelThresholdExiter):
         return int(first_entropy > t)
 
 
-def make_policy(strategy: ExitStrategy, rates: List[float]) -> EarlyExiter:
+class OptimizedMaxProb(LabelMaxProbExit):
+
+    def __init__(self, rates: List[float], path: Optional[str]):
+        super().__init__(rates=rates)
+
+        self._thresholds: Optional[np.ndarray] = None
+        self._trials = 3
+
+        self._rand = np.random.RandomState(seed=2890)
+        self._noise_scale = 0.1
+
+        if path is not None:
+            folder, file_name = os.path.split(path)
+            model_name = file_name.split('.')[0]
+            thresholds_path = os.path.join(folder, '{}_max-prob-thresholds.json'.format(model_name))
+
+            saved_thresholds = read_json(thresholds_path)
+            key = str(round(rates[0], 2))
+            self._thresholds = np.array(saved_thresholds[key])
+
+    def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
+        if self._thresholds is not None:
+            return
+
+        super().fit(val_probs=val_probs, val_labels=val_labels)
+
+        best_loss = BIG_NUMBER
+        best_thresholds = self.thresholds[0]
+
+        for i in range(self._trials):
+            start_thresholds = np.copy(self.thresholds[0])
+
+            if i > 0:
+                noise = self._rand.uniform(low=-1 * self._noise_scale, high=self._noise_scale, size=start_thresholds.shape)
+                start_thresholds += noise
+
+            thresholds, loss = fit_thresholds(probs=val_probs,
+                                              labels=val_labels,
+                                              rate=self.rates[0],
+                                              start_thresholds=start_thresholds)
+
+            if loss < best_loss:
+                best_loss = loss
+                best_thresholds = thresholds
+
+            print('Best Loss: {}'.format(best_loss))
+
+            if best_loss < SMALL_NUMBER:
+                break
+
+        self._thresholds[0] = best_thresholds
+
+        #self._thresholds[0] = fit_thresholds(probs=val_probs,
+        #                                     labels=val_labels,
+        #                                     rate=self.rates[0],
+        #                                     start_thresholds=self.thresholds[0])
+
+
+def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> EarlyExiter:
     if strategy == ExitStrategy.RANDOM:
         return RandomExit(rates=rates)
     elif strategy == ExitStrategy.ENTROPY:
@@ -308,5 +370,7 @@ def make_policy(strategy: ExitStrategy, rates: List[float]) -> EarlyExiter:
         return LabelMaxProbExit(rates=rates)
     elif strategy == ExitStrategy.LABEL_ENTROPY:
         return LabelEntropyExit(rates=rates)
+    elif strategy == ExitStrategy.OPTIMIZED_MAX_PROB:
+        return OptimizedMaxProb(rates=rates, path=model_path)
     else:
         raise ValueError('No policy {}'.format(strategy))

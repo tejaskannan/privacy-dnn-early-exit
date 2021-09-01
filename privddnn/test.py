@@ -17,7 +17,7 @@ COLORS = {
     ExitStrategy.MAX_PROB: '#3182bd',
     ExitStrategy.ENTROPY: '#31a354',
     ExitStrategy.LABEL_MAX_PROB: '#9ecae1',
-    ExitStrategy.LABEL_ENTROPY: '#a1d99b'
+    ExitStrategy.LABEL_ENTROPY: '#a1d99b',
 }
 
 
@@ -26,10 +26,11 @@ def execute_for_rate(test_probs: np.ndarray,
                      test_labels: np.ndarray,
                      val_labels: np.ndarray,
                      rate: float,
+                     model_path: str,
                      strategy: ExitStrategy) -> Tuple[float, float]:
     # Make the exit policy
     rates = [rate, 1.0 - rate]
-    policy = make_policy(strategy=strategy, rates=rates)
+    policy = make_policy(strategy=strategy, rates=rates, model_path=model_path)
     policy.fit(val_probs=val_probs, val_labels=val_labels)
 
     # Run the policy on the test set
@@ -81,8 +82,7 @@ if __name__ == '__main__':
     attack_dict: DefaultDict[str, List[float]] = defaultdict(list)
 
     #strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY]
-    strategies = [ExitStrategy.LABEL_MAX_PROB, ExitStrategy.RANDOM]
-    rates = [0.4, 0.5]
+    strategies = [ExitStrategy.OPTIMIZED_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
 
     for strategy in strategies:
         for rate in reversed(rates):
@@ -91,6 +91,7 @@ if __name__ == '__main__':
                                                                                 test_labels=test_labels,
                                                                                 val_labels=val_labels,
                                                                                 rate=rate,
+                                                                                model_path=args.model_path,
                                                                                 strategy=strategy)
 
             # Log the results

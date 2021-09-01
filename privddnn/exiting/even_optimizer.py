@@ -6,9 +6,11 @@ from privddnn.utils.constants import SMALL_NUMBER
 
 
 MAX_ITERS = 50
-PATIENCE = 5
+PATIENCE = 15
 NEIGHBORHOOD = 10
 PRECISION = 64
+POPULATION_SIZE = 5
+MERGE_STEPS = 5
 
 DataSplit = namedtuple('DataSplit', ['probs', 'labels'])
 EvalResult = namedtuple('EvalResult', ['num_correct', 'num_samples', 'level_counts', 'label_counts'])
@@ -74,13 +76,17 @@ def get_stop_rates(pred_evals: Dict[int, EvalResult], num_labels: int) -> np.nda
     return level_counts / (label_counts + SMALL_NUMBER)
 
 
-def loss_fn(pred_evals: Dict[int, EvalResult], num_labels: int, target: float) -> Tuple[float, int]:
+def loss_fn(pred_evals: Dict[int, EvalResult], num_labels: int, target: float, should_print: bool = False) -> Tuple[float, int]:
     avg_level = get_stop_rates(pred_evals, num_labels=num_labels)
+
+    #if should_print:
+    #    print(avg_level)
+
     diff = np.abs(avg_level - target)
     return np.sum(diff), np.argmax(diff)
 
 
-def fit_thresholds(probs: np.ndarray, labels: np.ndarray, rate: float, start_thresholds: np.ndarray) -> np.ndarray:
+def fit_thresholds(probs: np.ndarray, labels: np.ndarray, rate: float, start_thresholds: np.ndarray) -> Tuple[np.ndarray, float]:
     """
     Fits thresholds to get all labels to stop at the first level with the given rate.
     """
@@ -91,24 +97,40 @@ def fit_thresholds(probs: np.ndarray, labels: np.ndarray, rate: float, start_thr
     # Split the dataset by prediction
     splits = split_by_prediction(probs=probs, labels=labels)
 
-    prev_thresholds = np.copy(start_thresholds)
+    # Copy the starting thresholds (so we can make non-destructive changes)
     thresholds = np.copy(start_thresholds)
+    #thresholds = np.expand_dims(np.copy(start_thresholds), axis=0)  # [1, L]
+    #thresholds = np.tile(thresholds, reps=(POPULATION_SIZE, 1))  # [P, L]
+
+    ## Perturb the initial thresholds (all but first)
+    rand = np.random.RandomState(seed=148)
+    #noise = rand.uniform(low=-0.1, high=0.1, shape=thresholds.shape)
+    #noise[0, :] = 0.0
+    #thresholds += noise
 
     # Evaluate the initial thresholds
+    pop_evals: List[Dict[int, EvalResult]] = []
+    prev_losses: List[float] = []
+    worst_preds: List[float] = []
+
     pred_evals: Dict[int, EvalResult] = dict()
     for pred, data_split in splits.items():
         pred_evals[pred] = eval_on_split(data_split, threshold=thresholds[pred])
 
-    rand = np.random.RandomState(seed=148)
-    prev_loss, worst_pred = loss_fn(pred_evals, num_labels, target=target)
-    num_not_improved = 0
+    prev_loss, worst_pred = loss_fn(pred_evals, num_labels, target=target, should_print=True)
+    pred = worst_pred
+    final_loss = prev_loss
 
-    for _ in range(MAX_ITERS):
-        pred = worst_pred
+    num_not_improved = 0
+    neighborhood = NEIGHBORHOOD
+
+    for i in range(MAX_ITERS):
         best_t = thresholds[pred]
         best_loss = prev_loss
 
-        for n in range(-1 * NEIGHBORHOOD, NEIGHBORHOOD):
+        #print('Selected Pred: {}'.format(pred))
+
+        for n in range(-1 * neighborhood, neighborhood):
             t = thresholds[pred] + (n / PRECISION)
             eval_result = eval_on_split(splits[pred], threshold=t)
 
@@ -123,19 +145,22 @@ def fit_thresholds(probs: np.ndarray, labels: np.ndarray, rate: float, start_thr
         best_eval = eval_on_split(splits[pred], threshold=best_t)
         pred_evals[pred] = best_eval
 
-        prev_loss, worst_pred = loss_fn(pred_evals, num_labels=num_labels, target=target)
+        final_loss, worst_pred = loss_fn(pred_evals, num_labels=num_labels, target=target, should_print=True)
 
         print('Loss: {}'.format(prev_loss), end='\r')
 
-        if np.sum(np.abs(thresholds, prev_thresholds)) < 1e-5:
+        if abs(final_loss - prev_loss) < 1e-5:
             num_not_improved += 1
+            pred = rand.randint(0, num_labels)
         else:
             num_not_improved = 0
+            pred = worst_pred
 
-        prev_thresholds = np.copy(thresholds)
+        prev_loss = final_loss
+        neighborhood = max(neighborhood - 1, NEIGHBORHOOD)
 
         if num_not_improved >= PATIENCE:
-            print('Converged')
+            print('\nConverged')
             break
 
-    return thresholds
+    return thresholds, final_loss
