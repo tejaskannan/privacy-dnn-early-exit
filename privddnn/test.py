@@ -1,6 +1,5 @@
-import tensorflow as tf2
 import numpy as np
-import matplotlib.pyplot as plt
+import os.path
 from argparse import ArgumentParser
 from collections import defaultdict
 from enum import Enum, auto
@@ -10,14 +9,15 @@ from neural_network import restore_model, NeuralNetwork, OpName, ModelMode
 from exiting.early_exit import ExitStrategy, EarlyExiter, make_policy
 from privddnn.utils.metrics import compute_accuracy, compute_mutual_info
 from privddnn.utils.plotting import to_label
+from privddnn.utils.file_utils import save_json
 
 
 COLORS = {
-    ExitStrategy.RANDOM: '#8da0cb',
-    ExitStrategy.MAX_PROB: '#66c2a5',
-    ExitStrategy.ENTROPY: '#fc8d62',
-    ExitStrategy.LABEL_MAX_PROB: 'black',
-    ExitStrategy.LABEL_ENTROPY: 'blue'
+    ExitStrategy.RANDOM: '#756bb1',
+    ExitStrategy.MAX_PROB: '#3182bd',
+    ExitStrategy.ENTROPY: '#31a354',
+    ExitStrategy.LABEL_MAX_PROB: '#9ecae1',
+    ExitStrategy.LABEL_ENTROPY: '#a1d99b'
 }
 
 
@@ -40,7 +40,19 @@ def execute_for_rate(test_probs: np.ndarray,
     mutual_information = compute_mutual_info(result.output_levels, test_labels)
     observed_rate = result.observed_rates[1]  # Fraction stopping at the larger model
 
-    return accuracy, mutual_information, observed_rate
+    # Fit the attack model
+    val_result = policy.test(test_probs=val_probs)
+    policy.fit_attack_model(val_outputs=val_result.output_levels,
+                            val_labels=val_labels,
+                            window_size=10,
+                            num_samples=1000)
+
+    attack_accuracy = policy.test_attack_model(test_outputs=result.output_levels,
+                                               test_labels=test_labels,
+                                               window_size=10,
+                                               num_samples=1000)
+
+    return accuracy, mutual_information, observed_rate, attack_accuracy
 
 
 if __name__ == '__main__':
@@ -63,47 +75,41 @@ if __name__ == '__main__':
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
-    accuracy_dict: DefaultDict[ExitStrategy, List[float]] = defaultdict(list)
-    info_dict: DefaultDict[ExitStrategy, List[float]] = defaultdict(list)
-    rates_dict: DefaultDict[ExitStrategy, List[float]] = defaultdict(list)
+    accuracy_dict: DefaultDict[str, List[float]] = defaultdict(list)
+    info_dict: DefaultDict[str, List[float]] = defaultdict(list)
+    rates_dict: DefaultDict[str, List[float]] = defaultdict(list)
+    attack_dict: DefaultDict[str, List[float]] = defaultdict(list)
 
-    #strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.EVEN_MAX_PROB]
-    strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY]
+    #strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY]
+    strategies = [ExitStrategy.LABEL_MAX_PROB, ExitStrategy.RANDOM]
+    rates = [0.4, 0.5]
 
     for strategy in strategies:
         for rate in reversed(rates):
-            accuracy, information, obs_rate = execute_for_rate(test_probs=test_probs,
-                                                               val_probs=val_probs,
-                                                               test_labels=test_labels,
-                                                               val_labels=val_labels,
-                                                               rate=rate,
-                                                               strategy=strategy)
+            accuracy, information, obs_rate, attack_accuracy = execute_for_rate(test_probs=test_probs,
+                                                                                val_probs=val_probs,
+                                                                                test_labels=test_labels,
+                                                                                val_labels=val_labels,
+                                                                                rate=rate,
+                                                                                strategy=strategy)
 
             # Log the results
-            accuracy_dict[strategy].append(accuracy)
-            info_dict[strategy].append(information)
-            rates_dict[strategy].append(obs_rate)
+            strategy_name = strategy.name.lower()
+            accuracy_dict[strategy_name].append(accuracy)
+            info_dict[strategy_name].append(information)
+            rates_dict[strategy_name].append(obs_rate)
+            attack_dict[strategy_name].append(attack_accuracy)
 
-    with plt.style.context('seaborn-ticks'):
-        fig, (ax1, ax2) = plt.subplots(figsize=(6, 4), nrows=1, ncols=2)
+    # Save the results into the test log
+    file_name = os.path.basename(args.model_path).split('.')[0]
+    test_log_name = '{}_test-log.json'.format(file_name)
+    test_log_path = os.path.join(os.path.dirname(args.model_path), test_log_name)
 
-        for strategy in strategies:
-            observed_rates = rates_dict[strategy]
-            ax1.plot(observed_rates, accuracy_dict[strategy], label=to_label(strategy.name), linewidth=3, marker='o', markersize=8, color=COLORS[strategy])
-            ax2.plot(observed_rates, info_dict[strategy], label=to_label(strategy.name), linewidth=3, marker='o', markersize=8, color=COLORS[strategy])
+    test_log = {
+        'accuracy': accuracy_dict,
+        'mutual_information': info_dict,
+        'observed_rates': rates_dict,
+        'attack_accuracy': attack_dict
+    }
 
-        ax1.legend()
-        ax1.set_xlabel('Frac Stopping at 2nd Output')
-        ax1.set_ylabel('Accuracy')
-        ax1.set_title('Model Accuracy')
-
-        ax2.set_xlabel('Frac Stopping at 2nd Output')
-        ax2.set_ylabel('Mutual Information')
-        ax2.set_title('Output vs Label Mut Inf')
-
-        plt.tight_layout()
-
-        if args.output_path is None:
-            plt.show()
-        else:
-            plt.savefig(args.output_path, bbox_inches='tight', transparent=True)
+    save_json(test_log, test_log_path)

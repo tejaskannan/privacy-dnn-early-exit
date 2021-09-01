@@ -6,6 +6,7 @@ from typing import List, Tuple, Dict, DefaultDict
 
 from privddnn.utils.metrics import compute_entropy
 from privddnn.utils.constants import BIG_NUMBER
+from .even_optimizer import fit_thresholds
 
 
 EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'observed_rates'])
@@ -55,7 +56,7 @@ def make_attack_dataset(outputs: np.ndarray, labels: np.ndarray, window_size: in
             input_list.append(np.expand_dims([mean, std, median], axis=0))
             output_list.append(label)
 
-    return np.vstack(input_list), np.vstack(output_list)
+    return np.vstack(input_list), np.vstack(output_list).reshape(-1)
 
 
 class EarlyExiter:
@@ -254,6 +255,7 @@ class LabelThresholdExiter(EarlyExiter):
             self.set_threshold(t=t, level=0, label=pred)
             self.set_threshold(t=0.0, level=1, label=pred)
 
+        #self._thresholds[0] = fit_thresholds(probs=val_probs, labels=val_labels, rate=self.rates[0], start_thresholds=self.thresholds[0])
 
 class LabelMaxProbExit(LabelThresholdExiter):
 
