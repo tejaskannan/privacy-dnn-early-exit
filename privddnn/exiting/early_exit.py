@@ -8,7 +8,7 @@ from typing import List, Tuple, Dict, DefaultDict, Optional
 from privddnn.utils.metrics import compute_entropy
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.file_utils import read_json
-from .even_optimizer import fit_thresholds
+from .even_optimizer import fit_thresholds, fit_temperature
 
 
 EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'observed_rates'])
@@ -266,7 +266,7 @@ class LabelMaxProbExit(LabelThresholdExiter):
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return np.max(probs, axis=-1)
 
-    def get_quantile(self, level: int) -> int:
+    def get_quantile(self, level: int) -> float:
         return 1.0 - self.rates[level]
 
     def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
@@ -286,7 +286,7 @@ class LabelEntropyExit(LabelThresholdExiter):
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_entropy(probs, axis=-1)
 
-    def get_quantile(self, level: int) -> int:
+    def get_quantile(self, level: int) -> float:
         return self.rates[level]
 
     def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
@@ -307,10 +307,11 @@ class OptimizedMaxProb(LabelMaxProbExit):
         super().__init__(rates=rates)
 
         self._thresholds: Optional[np.ndarray] = None
-        self._trials = 3
+        self._observed_rates: Optional[np.ndarray] = None
+        self._trials = 1
 
         self._rand = np.random.RandomState(seed=2890)
-        self._noise_scale = 0.1
+        self._noise_scale = 0.01
 
         if path is not None:
             folder, file_name = os.path.split(path)
@@ -319,7 +320,33 @@ class OptimizedMaxProb(LabelMaxProbExit):
 
             saved_thresholds = read_json(thresholds_path)
             key = str(round(rates[0], 2))
-            self._thresholds = np.array(saved_thresholds[key])
+            self._thresholds = np.array(saved_thresholds['thresholds'][key])
+            self._observed_rates = np.array(saved_thresholds['rates'][key])
+
+    def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
+        # Get the maximum probabilities
+        max_probs = np.max(sample_probs, axis=-1)  # [L]
+        first_prob = float(max_probs[0])
+
+        # Get the threshold
+        first_pred = int(np.argmax(sample_probs[0, :]))
+        t = self.get_threshold(level=0, label=first_pred)
+
+        # Get randomization parameters
+        r = self._observed_rates[first_pred]  # Fraction in which we stop at the 2nd output
+        rate_diff = self.rates[1] - r  # Positive if observed is too small, negative otherwise
+
+        threshold_output = int(first_prob < t)
+
+        if self.rates[0] > 0.05 and self.rates[0] < 0.95 and (self._rand.uniform() < 0.05):
+            return int(self._rand.uniform() > self.rates[0])
+
+        #if (threshold_output == 0) and (rate_diff > 0) and (self._rand.uniform() < rate_diff):
+        #    return int(self._rand.uniform() > self.rates[0])
+        #elif (threshold_output == 1) and (rate_diff < 0) and (self._rand.uniform() < abs(rate_diff)):
+        #    return int(self._rand.uniform() > self.rates[0])
+
+        return int(first_prob < t)
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
         if self._thresholds is not None:
@@ -332,15 +359,18 @@ class OptimizedMaxProb(LabelMaxProbExit):
 
         for i in range(self._trials):
             start_thresholds = np.copy(self.thresholds[0])
+            temperature = np.zeros_like(start_thresholds)
 
             if i > 0:
                 noise = self._rand.uniform(low=-1 * self._noise_scale, high=self._noise_scale, size=start_thresholds.shape)
                 start_thresholds += noise
 
-            thresholds, loss = fit_thresholds(probs=val_probs,
-                                              labels=val_labels,
-                                              rate=self.rates[0],
-                                              start_thresholds=start_thresholds)
+            thresholds, loss, rates = fit_thresholds(probs=val_probs,
+                                                     labels=val_labels,
+                                                     rate=self.rates[0],
+                                                     start_thresholds=start_thresholds,
+                                                     temperature=temperature)
+
 
             if loss < best_loss:
                 best_loss = loss
@@ -352,6 +382,7 @@ class OptimizedMaxProb(LabelMaxProbExit):
                 break
 
         self._thresholds[0] = best_thresholds
+        self._observed_rates = rates
 
         #self._thresholds[0] = fit_thresholds(probs=val_probs,
         #                                     labels=val_labels,

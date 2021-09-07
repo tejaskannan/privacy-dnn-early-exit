@@ -22,6 +22,7 @@ if __name__ == '__main__':
     rates = list([(x / 10.0) for x in range(11)])
     #rates = [0.2]
     thresholds_dict: Dict[float, List[List[float]]] = dict()
+    rates_dict: Dict[float, List[List[float]]] = dict()
 
     for rate in rates:
         print('===== Rate {:.2f} ====='.format(rate))
@@ -30,7 +31,13 @@ if __name__ == '__main__':
         exit_policy.fit(val_probs=val_probs, val_labels=val_labels)
 
         thresholds_dict[round(rate, 2)] = exit_policy.thresholds.tolist()
+        rates_dict[round(rate, 2)] = exit_policy._observed_rates.tolist()
         print()
+
+    result = {
+        'thresholds': thresholds_dict,
+        'rates': rates_dict
+    }
 
     # Get the model file name
     folder = os.path.dirname(args.model_path)
@@ -39,4 +46,4 @@ if __name__ == '__main__':
     out_file_name = '{}_max-prob-thresholds.json'.format(model_name)
 
     # Save the result
-    save_json(thresholds_dict, os.path.join(folder, out_file_name))
+    save_json(result, os.path.join(folder, out_file_name))

@@ -3,17 +3,31 @@ from collections import namedtuple, defaultdict, Counter
 from typing import Dict, DefaultDict, List, Tuple
 
 from privddnn.utils.constants import SMALL_NUMBER
+from privddnn.utils.metrics import softmax
 
 
 MAX_ITERS = 50
 PATIENCE = 15
-NEIGHBORHOOD = 10
+NEIGHBORHOOD = 15
 PRECISION = 64
-POPULATION_SIZE = 5
-MERGE_STEPS = 5
+TEMP_PRECISION = 64
 
-DataSplit = namedtuple('DataSplit', ['probs', 'labels'])
 EvalResult = namedtuple('EvalResult', ['num_correct', 'num_samples', 'level_counts', 'label_counts'])
+
+
+class DataSplit:
+
+    def __init__(self, probs: np.ndarray, labels: np.ndarray):
+        self.probs = probs
+        self.labels = labels
+        self.original_probs = np.copy(probs)
+        self.logits = np.log(np.maximum(probs, 1e-5))
+
+    def apply_temperature(self, temp: float):
+        self.probs = softmax(self.logits - temp, axis=-1)
+
+    def revert(self):
+        self.probs = self.original_probs
 
 
 def split_by_prediction(probs: np.ndarray, labels: np.ndarray) -> Dict[int, DataSplit]:
@@ -83,39 +97,34 @@ def loss_fn(pred_evals: Dict[int, EvalResult], num_labels: int, target: float, s
     #    print(avg_level)
 
     diff = np.abs(avg_level - target)
-    return np.sum(diff), np.argmax(diff)
+    mean_diff = np.abs(avg_level - np.average(avg_level))
+    loss = diff + mean_diff
+
+    return np.sum(loss), np.argmax(loss), avg_level
 
 
-def fit_thresholds(probs: np.ndarray, labels: np.ndarray, rate: float, start_thresholds: np.ndarray) -> Tuple[np.ndarray, float]:
+def fit_temperature(probs: np.ndarray, labels: np.ndarray, rate: float, start_temp: np.ndarray, thresholds: np.ndarray) -> Tuple[np.ndarray, float]:
     """
-    Fits thresholds to get all labels to stop at the first level with the given rate.
+    Fits temperature values to get all labels to stop at the first level with the given rate.
     """
-    assert len(start_thresholds.shape) == 1, 'Must provide a 1d thresholds array'
+    assert len(start_temp.shape) == 1, 'Must provide a 1d temperature array'
+    assert len(thresholds.shape) == 1, 'Must provide a 1d thresholds array'
     num_labels = probs.shape[-1]
     target = 1.0 - rate
+
+    rand = np.random.RandomState(89109)
 
     # Split the dataset by prediction
     splits = split_by_prediction(probs=probs, labels=labels)
 
-    # Copy the starting thresholds (so we can make non-destructive changes)
-    thresholds = np.copy(start_thresholds)
-    #thresholds = np.expand_dims(np.copy(start_thresholds), axis=0)  # [1, L]
-    #thresholds = np.tile(thresholds, reps=(POPULATION_SIZE, 1))  # [P, L]
-
-    ## Perturb the initial thresholds (all but first)
-    rand = np.random.RandomState(seed=148)
-    #noise = rand.uniform(low=-0.1, high=0.1, shape=thresholds.shape)
-    #noise[0, :] = 0.0
-    #thresholds += noise
-
-    # Evaluate the initial thresholds
-    pop_evals: List[Dict[int, EvalResult]] = []
-    prev_losses: List[float] = []
-    worst_preds: List[float] = []
+    # Evaluate the initial temperature
+    temperature = np.copy(start_temp)
 
     pred_evals: Dict[int, EvalResult] = dict()
     for pred, data_split in splits.items():
+        data_split.apply_temperature(temperature[pred])
         pred_evals[pred] = eval_on_split(data_split, threshold=thresholds[pred])
+        data_split.revert()
 
     prev_loss, worst_pred = loss_fn(pred_evals, num_labels, target=target, should_print=True)
     pred = worst_pred
@@ -125,24 +134,31 @@ def fit_thresholds(probs: np.ndarray, labels: np.ndarray, rate: float, start_thr
     neighborhood = NEIGHBORHOOD
 
     for i in range(MAX_ITERS):
-        best_t = thresholds[pred]
+        best_temp = temperature[pred]
         best_loss = prev_loss
 
-        #print('Selected Pred: {}'.format(pred))
-
         for n in range(-1 * neighborhood, neighborhood):
-            t = thresholds[pred] + (n / PRECISION)
-            eval_result = eval_on_split(splits[pred], threshold=t)
+            temp = temperature[pred] + (n / TEMP_PRECISION)
+
+            splits[pred].apply_temperature(temp)
+            eval_result = eval_on_split(splits[pred], threshold=thresholds[pred])
+            splits[pred].revert()
 
             pred_evals[pred] = eval_result
             loss, _ = loss_fn(pred_evals, num_labels=num_labels, target=target)
 
             if loss < best_loss:
-                best_t = t
+                best_temp = temp
                 best_loss = loss
 
-        thresholds[pred] = best_t
-        best_eval = eval_on_split(splits[pred], threshold=best_t)
+        temperature[pred] = best_temp
+
+        print('\nBEST TEMP: {}, Pred: {}'.format(best_temp, pred))
+
+        splits[pred].apply_temperature(temp)
+        best_eval = eval_on_split(splits[pred], threshold=thresholds[pred])
+        splits[pred].revert()
+
         pred_evals[pred] = best_eval
 
         final_loss, worst_pred = loss_fn(pred_evals, num_labels=num_labels, target=target, should_print=True)
@@ -163,4 +179,75 @@ def fit_thresholds(probs: np.ndarray, labels: np.ndarray, rate: float, start_thr
             print('\nConverged')
             break
 
-    return thresholds, final_loss
+    return temperature, final_loss
+
+def fit_thresholds(probs: np.ndarray, labels: np.ndarray, rate: float, start_thresholds: np.ndarray, temperature: np.ndarray) -> Tuple[np.ndarray, float]:
+    """
+    Fits thresholds to get all labels to stop at the first level with the given rate.
+    """
+    assert len(start_thresholds.shape) == 1, 'Must provide a 1d thresholds array'
+    assert len(temperature.shape) == 1, 'Must provide a 1d temperature array'
+    num_labels = probs.shape[-1]
+    target = 1.0 - rate
+
+    # Split the dataset by prediction
+    splits = split_by_prediction(probs=probs, labels=labels)
+
+    # Scale all the probabilities by the temperature (this doesn't change later on)
+    for pred, data_split in splits.items():
+        data_split.apply_temperature(temperature[pred])
+
+    # Copy the starting thresholds (so we can make non-destructive changes)
+    thresholds = np.copy(start_thresholds)
+    rand = np.random.RandomState(seed=148)
+
+    # Evaluate the initial thresholds
+    pred_evals: Dict[int, EvalResult] = dict()
+    for pred, data_split in splits.items():
+        pred_evals[pred] = eval_on_split(data_split, threshold=thresholds[pred])
+
+    prev_loss, worst_pred, obs_rates = loss_fn(pred_evals, num_labels, target=target, should_print=True)
+    pred = worst_pred
+    final_loss = prev_loss
+
+    num_not_improved = 0
+    neighborhood = NEIGHBORHOOD
+
+    for i in range(MAX_ITERS):
+        best_t = thresholds[pred]
+        best_loss = prev_loss
+
+        for n in range(-1 * neighborhood, neighborhood):
+            t = thresholds[pred] + (n / PRECISION)
+            eval_result = eval_on_split(splits[pred], threshold=t)
+
+            pred_evals[pred] = eval_result
+            loss, _, _ = loss_fn(pred_evals, num_labels=num_labels, target=target)
+
+            if loss < best_loss:
+                best_t = t
+                best_loss = loss
+
+        thresholds[pred] = best_t
+        best_eval = eval_on_split(splits[pred], threshold=best_t)
+        pred_evals[pred] = best_eval
+
+        final_loss, worst_pred, obs_rates = loss_fn(pred_evals, num_labels=num_labels, target=target, should_print=True)
+
+        print('Loss: {}'.format(prev_loss), end='\r')
+
+        if abs(final_loss - prev_loss) < 1e-5:
+            num_not_improved += 1
+            pred = rand.randint(0, num_labels)
+        else:
+            num_not_improved = 0
+            pred = worst_pred
+
+        prev_loss = final_loss
+        neighborhood = max(neighborhood - 1, NEIGHBORHOOD)
+
+        if num_not_improved >= PATIENCE:
+            print('\nConverged')
+            break
+
+    return thresholds, final_loss, obs_rates

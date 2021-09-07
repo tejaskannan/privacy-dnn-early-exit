@@ -17,6 +17,7 @@ COLORS = {
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--test-log', type=str, required=True)
+    parser.add_argument('--output-file', type=str)
     args = parser.parse_args()
 
     test_log = read_json(args.test_log)
@@ -48,4 +49,8 @@ if __name__ == '__main__':
         ax2.tick_params(axis='both', which='major', labelsize=12)
 
         plt.tight_layout()
-        plt.show()
+
+        if args.output_file is None:
+            plt.show()
+        else:
+            plt.savefig(args.output_file, bbox_inches='tight', transparent=True)
