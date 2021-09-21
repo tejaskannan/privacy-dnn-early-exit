@@ -9,7 +9,7 @@ def compute_average_rates_per_label(rates: tf2.Tensor, labels: tf2.Tensor) -> tf
         rates: A [B, K] tensor of stop probabilities for each output (K)
         labels: A [B] tensor of the labels for each batch sample (B)
     Returns:
-        A [K] tensor with the average rate per class
+        A [L, K] tensor with the average rate per class
     """
     num_labels = tf2.reduce_max(labels) + 1
     average_rates = tf2.math.unsorted_segment_mean(data=rates,

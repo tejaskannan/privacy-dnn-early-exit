@@ -8,7 +8,7 @@ from typing import List, Tuple, Dict, DefaultDict, Optional
 from privddnn.utils.metrics import compute_entropy
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.file_utils import read_json
-from .even_optimizer import fit_thresholds, fit_temperature
+from .even_optimizer import fit_thresholds, fit_threshold_randomization
 
 
 EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'observed_rates'])
@@ -261,6 +261,7 @@ class LabelThresholdExiter(EarlyExiter):
             self.set_threshold(t=t, level=0, label=pred)
             self.set_threshold(t=0.0, level=1, label=pred)
 
+
 class LabelMaxProbExit(LabelThresholdExiter):
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
@@ -307,11 +308,12 @@ class OptimizedMaxProb(LabelMaxProbExit):
         super().__init__(rates=rates)
 
         self._thresholds: Optional[np.ndarray] = None
+        self._rand_rate: Optional[float] = None
         self._observed_rates: Optional[np.ndarray] = None
         self._trials = 1
 
         self._rand = np.random.RandomState(seed=2890)
-        self._noise_scale = 0.01
+        self._noise_scale = 0.1
 
         if path is not None:
             folder, file_name = os.path.split(path)
@@ -321,9 +323,17 @@ class OptimizedMaxProb(LabelMaxProbExit):
             saved_thresholds = read_json(thresholds_path)
             key = str(round(rates[0], 2))
             self._thresholds = np.array(saved_thresholds['thresholds'][key])
-            self._observed_rates = np.array(saved_thresholds['rates'][key])
+            self._rand_rate = float(saved_thresholds['rates'][key])
+            self._prob_std = float(saved_thresholds['prob_std'])
 
     def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
+        if self._rand_rate is None:
+            return super().select_output(sample_probs, sample_idx)
+
+        r = self._rand.uniform()
+        if r < self._rand_rate:
+            return int(self._rand.uniform() > self.rates[0])
+
         # Get the maximum probabilities
         max_probs = np.max(sample_probs, axis=-1)  # [L]
         first_prob = float(max_probs[0])
@@ -331,20 +341,7 @@ class OptimizedMaxProb(LabelMaxProbExit):
         # Get the threshold
         first_pred = int(np.argmax(sample_probs[0, :]))
         t = self.get_threshold(level=0, label=first_pred)
-
-        # Get randomization parameters
-        r = self._observed_rates[first_pred]  # Fraction in which we stop at the 2nd output
-        rate_diff = self.rates[1] - r  # Positive if observed is too small, negative otherwise
-
-        threshold_output = int(first_prob < t)
-
-        if self.rates[0] > 0.05 and self.rates[0] < 0.95 and (self._rand.uniform() < 0.05):
-            return int(self._rand.uniform() > self.rates[0])
-
-        #if (threshold_output == 0) and (rate_diff > 0) and (self._rand.uniform() < rate_diff):
-        #    return int(self._rand.uniform() > self.rates[0])
-        #elif (threshold_output == 1) and (rate_diff < 0) and (self._rand.uniform() < abs(rate_diff)):
-        #    return int(self._rand.uniform() > self.rates[0])
+        #t = self._rand.normal(t, scale=0.1 * self._prob_std)
 
         return int(first_prob < t)
 
@@ -356,6 +353,7 @@ class OptimizedMaxProb(LabelMaxProbExit):
 
         best_loss = BIG_NUMBER
         best_thresholds = self.thresholds[0]
+        best_rand_rate = 1.0
 
         for i in range(self._trials):
             start_thresholds = np.copy(self.thresholds[0])
@@ -364,6 +362,7 @@ class OptimizedMaxProb(LabelMaxProbExit):
             if i > 0:
                 noise = self._rand.uniform(low=-1 * self._noise_scale, high=self._noise_scale, size=start_thresholds.shape)
                 start_thresholds += noise
+                start_tresholds = np.clip(start_thresholds, a_min=0.0, a_max=1.0)
 
             thresholds, loss, rates = fit_thresholds(probs=val_probs,
                                                      labels=val_labels,
@@ -371,23 +370,27 @@ class OptimizedMaxProb(LabelMaxProbExit):
                                                      start_thresholds=start_thresholds,
                                                      temperature=temperature)
 
-
             if loss < best_loss:
                 best_loss = loss
                 best_thresholds = thresholds
 
-            print('Best Loss: {}'.format(best_loss))
-
+            # If we get to 0 loss, no need to continue
             if best_loss < SMALL_NUMBER:
                 break
 
-        self._thresholds[0] = best_thresholds
-        self._observed_rates = rates
+        rand_rate, final_loss, final_rates = fit_threshold_randomization(probs=val_probs,
+                                                                         labels=val_labels,
+                                                                         rate=self.rates[0],
+                                                                         thresholds=best_thresholds,
+                                                                         epsilon=0.01)
 
-        #self._thresholds[0] = fit_thresholds(probs=val_probs,
-        #                                     labels=val_labels,
-        #                                     rate=self.rates[0],
-        #                                     start_thresholds=self.thresholds[0])
+        self._thresholds[0] = best_thresholds
+        self._rand_rate = rand_rate
+
+        print('Best Loss: {}'.format(final_loss))
+        print('Rates: {}'.format(final_rates))
+        print('Thresholds: {}'.format(best_thresholds))
+        print('Rand Rate: {}'.format(rand_rate))
 
 
 def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> EarlyExiter:

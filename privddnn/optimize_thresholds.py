@@ -1,4 +1,5 @@
 import os.path
+import numpy as np
 from argparse import ArgumentParser
 from typing import List, Dict
 
@@ -20,9 +21,9 @@ if __name__ == '__main__':
 
     # Make the policy
     rates = list([(x / 10.0) for x in range(11)])
-    #rates = [0.2]
+
     thresholds_dict: Dict[float, List[List[float]]] = dict()
-    rates_dict: Dict[float, List[List[float]]] = dict()
+    rates_dict: Dict[float, float] = dict()
 
     for rate in rates:
         print('===== Rate {:.2f} ====='.format(rate))
@@ -31,12 +32,13 @@ if __name__ == '__main__':
         exit_policy.fit(val_probs=val_probs, val_labels=val_labels)
 
         thresholds_dict[round(rate, 2)] = exit_policy.thresholds.tolist()
-        rates_dict[round(rate, 2)] = exit_policy._observed_rates.tolist()
+        rates_dict[round(rate, 2)] = exit_policy._rand_rate
         print()
 
     result = {
         'thresholds': thresholds_dict,
-        'rates': rates_dict
+        'rates': rates_dict,
+        'prob_std': float(np.std(np.max(val_probs[:, 0, :], axis=-1)))
     }
 
     # Get the model file name

@@ -1,4 +1,6 @@
 import numpy as np
+import math
+from typing import List
 from .constants import SMALL_NUMBER
 
 
@@ -33,6 +35,26 @@ def get_joint_distribution(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
     joint_counts = np.histogram2d(X, Y, bins=[bins_x, bins_y])[0]
     joint_probs = joint_counts / np.sum(joint_counts)
     return joint_probs
+
+
+def compute_kl_divergence(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+    """
+    Computes the (empirical) KL divergence between the samples from X and Y.
+    This function returns D(X || Y).
+    """
+    # Validate the arguments
+    assert np.max(X) == np.max(Y), 'X and Y must have the same maximum value'
+    assert np.min(X) == np.min(Y), 'X and Y must have the same minimum value'
+
+    joint_distribution = get_joint_distribution(X=X, Y=Y)
+
+    probs_x = np.sum(joint_distribution, axis=-1)
+    probs_y = np.sum(joint_distribution, axis=0)
+
+    assert len(probs_x) == len(probs_y), 'P(x) and P(y) must have the same length'
+
+    log_ratio = np.log(probs_x / (probs_y + SMALL_NUMBER) + SMALL_NUMBER)
+    return np.sum(probs_x * log_ratio)
 
 
 def compute_conditional_entropy(joint_distribution: np.ndarray) -> np.ndarray:
@@ -95,3 +117,57 @@ def softmax(logits: np.ndarray, axis: int) -> np.ndarray:
     max_logit = np.max(logits, axis=axis, keepdims=True)
     exp_logits = np.exp(logits - max_logit)
     return exp_logits / np.sum(exp_logits, axis=axis, keepdims=True)
+
+
+def compute_avg_level_per_class(output_levels: List[int], labels: List[int]) -> List[float]:
+    """
+    Computes the average output level between 0 and 1 stratified by the label.
+    """
+    num_labels = max(labels) + 1
+    result: List[float] = []
+
+    for label in range(num_labels):
+        mask = np.equal(labels, label).astype(int)
+        masked_levels = np.multiply(output_levels, mask).astype(int)
+
+        levels_sum = np.sum(masked_levels)
+        label_count = np.sum(mask)
+        avg_level = levels_sum / label_count
+        result.append(avg_level)
+
+    return result
+
+
+def compute_max_likelihood_ratio(label_stop_probs: List[float], window_size: int) -> float:
+    """
+    Gets the maximum likelihood ratio across all counts assuming each stopping pattern
+    follows bernoulli trials with the given stopping probabilties (for each label).
+    """
+    num_labels = len(label_stop_probs)
+    highest_ratio = 0.0
+
+    for label1 in range(num_labels):
+
+        weighted_ratios: List[float] = []
+
+        for n in range(window_size):
+
+            prob1 = label_stop_probs[label1]
+            w_choose_n = math.factorial(window_size) / (math.factorial(window_size - n) * math.factorial(n))
+            p1 = np.power(prob1, n) * np.power(1.0 - prob1, window_size - n)
+            prob_n = w_choose_n * p1
+
+            comp_ratio = 0.0  # Highest ratio over all OTHER labels
+
+            for label2 in range(label1 + 1, num_labels):
+                prob2 = label_stop_probs[label2]
+                p2 = np.power(prob2, n) * np.power(1.0 - prob2, window_size - n)
+
+                ratio = 1.0 - p2 / p1
+                comp_ratio = max(comp_ratio, ratio)
+
+            weighted_ratios.append(prob_n * comp_ratio)
+
+        highest_ratio = max(highest_ratio, np.sum(weighted_ratios))
+
+    return highest_ratio
