@@ -5,6 +5,7 @@ from typing import List, Dict
 
 from neural_network import restore_model, NeuralNetwork, OpName, ModelMode
 from exiting.early_exit import OptimizedMaxProb
+from privddnn.utils.metrics import create_confusion_matrix
 from privddnn.utils.file_utils import save_json
 
 
@@ -20,7 +21,8 @@ if __name__ == '__main__':
     val_labels = model.dataset.get_val_labels()
 
     # Make the policy
-    rates = list([(x / 10.0) for x in range(11)])
+    #rates = list([(x / 10.0) for x in range(11)])
+    rates = [0.3]
 
     thresholds_dict: Dict[float, List[List[float]]] = dict()
     rates_dict: Dict[float, float] = dict()
@@ -35,10 +37,14 @@ if __name__ == '__main__':
         rates_dict[round(rate, 2)] = exit_policy._rand_rate
         print()
 
+    sample_probs = create_confusion_matrix(predictions=np.argmax(val_probs[:, 0, :], axis=-1),
+                                           labels=val_labels)
+
     result = {
         'thresholds': thresholds_dict,
         'rates': rates_dict,
-        'prob_std': float(np.std(np.max(val_probs[:, 0, :], axis=-1)))
+        'prob_std': float(np.std(np.max(val_probs[:, 0, :], axis=-1))),
+        'sample_probs': sample_probs.astype(float).tolist()
     }
 
     # Get the model file name

@@ -5,7 +5,7 @@ from enum import Enum, auto
 from sklearn.ensemble import AdaBoostClassifier
 from typing import List, Tuple, Dict, DefaultDict, Optional
 
-from privddnn.utils.metrics import compute_entropy
+from privddnn.utils.metrics import compute_entropy, create_confusion_matrix
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.file_utils import read_json
 from .even_optimizer import fit_thresholds, fit_threshold_randomization
@@ -229,6 +229,10 @@ class LabelThresholdExiter(EarlyExiter):
         assert self._thresholds is not None, 'Must call init_thresholds() first'
         return self._thresholds[level, label]
 
+    def get_thresholds(self, level: int) -> np.ndarray:
+        assert self._thresholds is not None, 'Must call init_thresholds() first'
+        return self._thresholds[level]
+
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         raise NotImplementedError()
 
@@ -310,7 +314,7 @@ class OptimizedMaxProb(LabelMaxProbExit):
         self._thresholds: Optional[np.ndarray] = None
         self._rand_rate: Optional[float] = None
         self._observed_rates: Optional[np.ndarray] = None
-        self._trials = 1
+        self._trials = 2
 
         self._rand = np.random.RandomState(seed=2890)
         self._noise_scale = 0.1
@@ -325,6 +329,7 @@ class OptimizedMaxProb(LabelMaxProbExit):
             self._thresholds = np.array(saved_thresholds['thresholds'][key])
             self._rand_rate = float(saved_thresholds['rates'][key])
             self._prob_std = float(saved_thresholds['prob_std'])
+            self._sample_probs = saved_thresholds['sample_probs']
 
     def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
         if self._rand_rate is None:
@@ -340,7 +345,9 @@ class OptimizedMaxProb(LabelMaxProbExit):
 
         # Get the threshold
         first_pred = int(np.argmax(sample_probs[0, :]))
-        t = self.get_threshold(level=0, label=first_pred)
+
+        t = self._rand.choice(self.get_thresholds(level=0), size=1, replace=False, p=self._sample_probs[first_pred])
+        #t = self.get_threshold(level=0, label=first_pred)
         #t = self._rand.normal(t, scale=0.1 * self._prob_std)
 
         return int(first_prob < t)
