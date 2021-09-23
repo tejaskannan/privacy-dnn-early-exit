@@ -19,6 +19,7 @@ if __name__ == '__main__':
         fig, ax = plt.subplots()
 
         rates = [round(r / 10.0, 2) for r in range(11)]
+        #rates = [0.7]
 
         for policy_name, accuracy in attack_accuracy.items():
 

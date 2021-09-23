@@ -7,6 +7,7 @@ from neural_network import restore_model, NeuralNetwork, OpName, ModelMode
 from exiting.early_exit import OptimizedMaxProb
 from privddnn.utils.metrics import create_confusion_matrix
 from privddnn.utils.file_utils import save_json
+from privddnn.utils.constants import SMALL_NUMBER
 
 
 if __name__ == '__main__':
@@ -21,8 +22,8 @@ if __name__ == '__main__':
     val_labels = model.dataset.get_val_labels()
 
     # Make the policy
-    #rates = list([(x / 10.0) for x in range(11)])
-    rates = [0.3]
+    rates = list([(x / 10.0) for x in range(11)])
+    #rates = [0.8]
 
     thresholds_dict: Dict[float, List[List[float]]] = dict()
     rates_dict: Dict[float, float] = dict()
@@ -34,11 +35,12 @@ if __name__ == '__main__':
         exit_policy.fit(val_probs=val_probs, val_labels=val_labels)
 
         thresholds_dict[round(rate, 2)] = exit_policy.thresholds.tolist()
-        rates_dict[round(rate, 2)] = exit_policy._rand_rate
+        rates_dict[round(rate, 2)] = exit_policy._rand_rates.tolist()
         print()
 
     sample_probs = create_confusion_matrix(predictions=np.argmax(val_probs[:, 0, :], axis=-1),
                                            labels=val_labels)
+    sample_probs /= (np.sum(sample_probs, axis=-1, keepdims=True) + SMALL_NUMBER)
 
     result = {
         'thresholds': thresholds_dict,

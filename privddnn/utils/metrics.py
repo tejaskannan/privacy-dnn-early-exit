@@ -1,6 +1,7 @@
 import numpy as np
 import math
-from typing import List
+from collections import defaultdict
+from typing import List, DefaultDict, Tuple
 from .constants import SMALL_NUMBER
 
 
@@ -12,6 +13,52 @@ def compute_accuracy(predictions: np.ndarray, labels: np.ndarray) -> float:
 
     correct = np.isclose(predictions, labels)
     return np.average(correct)
+
+
+def create_confusion_matrix(predictions: np.ndarray, labels: np.ndarray) -> np.ndarray:
+    """
+    Computes the L x L confusion matrix where [i][j] is the rate of elements predicted
+    as i that are actually label j
+    """
+    assert len(predictions.shape) == 1, 'Must provide a 1d predictions array'
+    assert predictions.shape == labels.shape, 'Must provide equal-sized predictions and labels'
+
+    num_labels = np.max(labels) + 1
+    confusion_mat = np.zeros(shape=(num_labels, num_labels), dtype=float)
+
+    for pred, label in zip(predictions, labels):
+        confusion_mat[pred, label] += 1.0
+
+    return confusion_mat
+
+    #confusion_mat /= (np.sum(confusion_mat, axis=-1, keepdims=True) + SMALL_NUMBER)
+    #return confusion_mat
+
+
+def create_metric_distributions(predictions: np.ndarray, labels: np.ndarray, metrics: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Comptutes the average and std deviation metric value condition on the (pred, label) pair
+    """
+    assert len(predictions.shape) == 1, 'Must provide a 1d predictions array'
+    assert predictions.shape == labels.shape, 'Must provide equal-sized predictions and labels'
+    assert predictions.shape == metrics.shape, 'Must provide equal-sized predictions and metrics'
+
+    num_labels = np.max(labels) + 1
+    distributions: DefaultDict[Tuple[int, int], List[float]] = defaultdict(list)
+
+    for pred, label, metric in zip(predictions, labels, metrics):
+        key = (pred, label)
+        distributions[key].append(metric)
+
+    means = np.zeros(shape=(num_labels, num_labels))
+    stds = np.zeros_like(means)
+
+    for (pred, label), metrics in distributions.items():
+        if len(metrics) > 0:
+            means[pred, label] = np.average(metrics)
+            stds[pred, label] = np.std(metrics)
+
+    return means, stds
 
 
 def compute_entropy(probs: np.ndarray, axis: int) -> np.ndarray:

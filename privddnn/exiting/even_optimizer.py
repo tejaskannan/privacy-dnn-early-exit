@@ -220,6 +220,7 @@ def fit_thresholds(probs: np.ndarray, labels: np.ndarray, rate: float, start_thr
     max_probs = np.max(probs[:, 0, :], axis=-1)
     preds = np.argmax(probs[:, 0, :], axis=-1)
     confusion_mat = create_confusion_matrix(predictions=preds, labels=labels)
+    confusion_mat /= (np.sum(confusion_mat, axis=-1, keepdims=True) + SMALL_NUMBER)
 
     # Copy the starting thresholds (so we can make non-destructive changes)
     thresholds = np.copy(start_thresholds)
@@ -311,142 +312,17 @@ def fit_thresholds(probs: np.ndarray, labels: np.ndarray, rate: float, start_thr
     return thresholds, best_loss, best_rates
 
 
-def fit_threshold_randomization(probs: np.ndarray, labels: np.ndarray, rate: float, thresholds: np.ndarray, epsilon: float) -> Tuple[np.ndarray, float]:
+def fit_threshold_randomization(target: float, elevation_rates: np.ndarray, epsilon: float) -> float:
     """
     Fits thresholds to get all labels to stop at the first level with the given rate.
     """
-    assert len(thresholds.shape) == 1, 'Must provide a 1d thresholds array'
-    num_labels = probs.shape[-1]
-    target = 1.0 - rate  # The target avg output
+    assert len(elevation_rates.shape) == 1, 'Must provide a 1d array of elevation rates'
 
-    # Get the prediction confusion matrix for the first level
-    preds = np.argmax(probs[:, 0, :], axis=-1)
-    max_probs = np.max(probs[:, 0, :], axis=-1)
-    confusion_mat = create_confusion_matrix(predictions=preds, labels=labels)
+    abs_diffs = np.abs(elevation_rates - target)
+    worst_idx = np.argmax(abs_diffs)
+    label_rate = elevation_rates[worst_idx]
 
-    sample_idx = np.arange(len(labels))
+    optimal_rate = 1.0 - abs(epsilon / (label_rate - target + SMALL_NUMBER))
+    optimal_rate = max(min(optimal_rate, 1.0), 0.0)  # Clip into the range [0, 1]
 
-    # Copy the starting thresholds (so we can make non-destructive changes)
-    rand = np.random.RandomState(seed=3928)
-    rand_rate = 0.0
-
-    # Evaluate the initial thresholds
-    loss_sum = 0.0
-    loss_count = 0.0
-
-    upper = 1.0
-    lower = 0.01
-    rand_rate = 0.01
-
-    window_size = 25
-    tolerance = (1.0 / num_labels) + epsilon
-
-    best_rate = 1.0
-    best_stop_rates = np.zeros_like(thresholds)
-
-    if abs(target) < SMALL_NUMBER or abs(1.0 - target) < SMALL_NUMBER:
-        return rand_rate, 0.0, np.zeros_like(thresholds) + target
-
-    while (upper > lower) and (upper - lower) > 1e-4:
-        loss_sum = 0.0
-        loss_count = 0.0
-
-        rand_stop_rates: List[float] = []
-
-        for _ in range(32):
-            batch_idx = rand.choice(sample_idx, size=512, replace=False)
-            batch_max_probs = max_probs[batch_idx]
-            batch_preds = preds[batch_idx]
-            batch_labels = labels[batch_idx]
-
-            # Evaluate this randomness rate
-            rates = evaluate_rand(max_probs=batch_max_probs,
-                                  preds=batch_preds,
-                                  labels=batch_labels,
-                                  thresholds=thresholds,
-                                  sample_probs=confusion_mat,
-                                  target=target,
-                                  rand_rate=rand_rate,
-                                  num_labels=num_labels,
-                                  rand=rand)
-
-            rand_stop_rates.append(np.expand_dims(rates, axis=0))
-
-        stop_rates_mat = np.vstack(rand_stop_rates)
-        avg_stop_rates = np.average(stop_rates_mat, axis=0)
-
-        print('==========')
-        print('Avg Stop Rates: {}'.format(avg_stop_rates))
-        print('Std Rates: {}'.format(np.std(stop_rates_mat, axis=0)))
-
-        # Compute the probability of getting 0 with the minimum rate
-        #worst_prob = 0.0
-        #r = np.average(avg_stop_rates)
-        #probs = np.zeros_like(avg_stop_rates)
-
-        #for w in range(window_size + 1):
-        #    p_w = n_choose_k(n=window_size, k=w) * np.power(r, w) * np.power(1.0 - r, window_size - w)
-
-        #    p_elevate = np.power(avg_stop_rates, w)
-        #    p_stay = np.power(1.0 - avg_stop_rates, window_size - w)
-        #    p_w = n_choose_k(n=window_size, k=w) * np.power(r, w) * np.power(1.0 - r, window_size - w)
-
-        #    denom = np.sum(p_elevate * p_stay)
-        #    worst_prob += p_w * np.max((p_elevate * p_stay) / denom)
-
-        #min_rate = np.min(avg_stop_rates)
-        #prob_min_rate = np.power(1.0 - min_rate, window_size) / np.sum(np.power(1.0 - avg_stop_rates, window_size))
-
-        # Compute the probabilty of getting W with the maximum rate
-        #max_rate = np.max(avg_stop_rates)
-        #prob_max_rate = np.power(max_rate, window_size) / np.sum(np.power(avg_stop_rates, window_size))
-
-        #worst_prob = max(prob_min_rate, prob_max_rate)
-
-        #is_diff = (worst_prob < tolerance)
-
-        #max_rate = np.max(avg_stop_rates)
-        #min_rate = np.min(avg_stop_rates)
-        #ratio = min(max_rate / min_rate, (1.0 - max_rate) / (1.0 - min_rate))
-
-        #is_diff = ratio >= (1.0 - epsilon)
-
-        #print('Ratio: {}, Min: {}, Max: {}'.format(ratio, min_rate, max_rate))
-        #print('Avg Rates: {}'.format(avg_stop_rates))
-
-        #print('Avg: {}'.format(np.average(stop_rates_mat, axis=0)))
-        #print('Std: {}'.format(np.std(stop_rates_mat, axis=0)))
-
-        is_diff = True
-
-        for label1 in range(num_labels):
-            dist1 = stop_rates_mat[:, label1]
-
-            for label2 in range(label1 + 1, num_labels):
-                dist2 = stop_rates_mat[:, label2]
-                t_stat, pvalue = stats.ttest_ind(dist1, dist2, equal_var=False)
-
-                #print('Label 1: {}, Label 2: {}, P Value: {}'.format(label1, label2, pvalue))
-
-                if pvalue < epsilon:
-                    is_diff = False
-                    break
-
-            if not is_diff:
-                break
-
-        print('Rand Rate: {:.5f}'.format(rand_rate), end='\n')
-
-        if is_diff:
-            upper = rand_rate
-
-            if rand_rate < best_rate:
-                best_rate = rand_rate
-                best_stop_rates = avg_stop_rates
-        else:
-            lower = rand_rate
-
-        rand_rate = (upper + lower) / 2
-
-    print()
-    return best_rate, 0.0, best_stop_rates
+    return optimal_rate
