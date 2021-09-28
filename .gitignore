@@ -130,3 +130,5 @@ dmypy.json
 
 # Skip saved models
 privddnn/saved_models/*
+
+.DS_Store
