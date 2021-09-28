@@ -362,17 +362,11 @@ class OptimizedMaxProb(LabelMaxProbExit):
 
         best_loss = BIG_NUMBER
         best_thresholds = self.thresholds[0]
-        best_rand_rate = 1.0
-        learning_rates = [1e-2, 1e-3, 1e-4, 1e-5]
-
+        learning_rates = [1e-2, 1e-3, 1e-4]
 
         for lr in learning_rates:
             start_thresholds = np.copy(self.thresholds[0])
-
-            #if i > 0:
-            #    noise = self._rand.uniform(low=-1 * self._noise_scale, high=self._noise_scale, size=start_thresholds.shape)
-            #    start_thresholds += noise
-            #    start_tresholds = np.clip(start_thresholds, a_min=0.0, a_max=1.0)
+            #start_thresholds += self._rand.uniform(low=-0.1, high=0.1, size=start_thresholds.shape)
 
             #thresholds, loss, rates = fit_thresholds(probs=val_probs,
             #                                         labels=val_labels,
@@ -380,11 +374,11 @@ class OptimizedMaxProb(LabelMaxProbExit):
             #                                         start_thresholds=start_thresholds,
             #                                         temperature=temperature)
             loss, thresholds, rates = fit_thresholds_grad(metrics=np.max(val_probs[:, 0, :], axis=-1),
-                                                   preds=np.argmax(val_probs[:, 0, :], axis=-1),
-                                                   labels=val_labels,
-                                                   target=1.0 - self.rates[0],
-                                                   start_thresholds=start_thresholds,
-                                                   learning_rate=lr)
+                                                          preds=np.argmax(val_probs[:, 0, :], axis=-1),
+                                                          labels=val_labels,
+                                                          target=1.0 - self.rates[0],
+                                                          start_thresholds=start_thresholds,
+                                                          learning_rate=lr)
 
             if loss < best_loss:
                 best_loss = loss
@@ -402,7 +396,7 @@ class OptimizedMaxProb(LabelMaxProbExit):
                                        labels=val_labels,
                                        thresholds=best_thresholds,
                                        target=1.0 - self.rates[0],
-                                       epsilon=0.01)
+                                       epsilon=0.002)
 
         self._thresholds[0] = best_thresholds
         self._rand_rates = rand_rates

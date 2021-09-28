@@ -1,7 +1,7 @@
 import numpy as np
 import math
 from collections import defaultdict
-from typing import List, DefaultDict, Tuple
+from typing import List, DefaultDict, Tuple, Union
 from .constants import SMALL_NUMBER
 
 
@@ -30,9 +30,6 @@ def create_confusion_matrix(predictions: np.ndarray, labels: np.ndarray) -> np.n
         confusion_mat[pred, label] += 1.0
 
     return confusion_mat
-
-    #confusion_mat /= (np.sum(confusion_mat, axis=-1, keepdims=True) + SMALL_NUMBER)
-    #return confusion_mat
 
 
 def create_metric_distributions(predictions: np.ndarray, labels: np.ndarray, metrics: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -218,3 +215,10 @@ def compute_max_likelihood_ratio(label_stop_probs: List[float], window_size: int
         highest_ratio = max(highest_ratio, np.sum(weighted_ratios))
 
     return highest_ratio
+
+
+def compute_geometric_mean(x: Union[List[float], np.ndarray]) -> np.ndarray:
+    assert all([val > 1e-4 for val in x]), 'All values must be > 1e-4'
+    prod = np.prod(x)
+    n = len(x)
+    return np.power(prod, 1.0 / n)

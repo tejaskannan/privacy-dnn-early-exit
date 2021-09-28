@@ -6,7 +6,7 @@ from typing import List
 
 from privddnn.dataset.dataset import Dataset
 from privddnn.utils.file_utils import read_json_gz
-from privddnn.utils.metrics import compute_accuracy, compute_mutual_info
+from privddnn.utils.metrics import compute_accuracy, compute_mutual_info, compute_geometric_mean
 from privddnn.utils.plotting import to_label, COLORS, MARKER, MARKER_SIZE, LINE_WIDTH
 from privddnn.utils.plotting import AXIS_FONT, TITLE_FONT, LABEL_FONT, LEGEND_FONT
 
@@ -44,7 +44,7 @@ if __name__ == '__main__':
                 mut_info.append(mi)
                 rates.append(str(round(1.0 - float(rate), 2)))
 
-            print('{} & {:.5f} & {:.5f}'.format(policy_name, np.average(accuracy), np.max(mut_info)))
+            print('{} & {:.5f} & {:.5f} & {:.5f} & {:.5f}'.format(policy_name, np.average(accuracy), compute_geometric_mean(accuracy), np.average(mut_info), np.max(mut_info)))
 
             ax1.plot(rates, accuracy, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
             ax2.plot(rates, mut_info, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])

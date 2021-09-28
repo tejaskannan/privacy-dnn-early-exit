@@ -19,11 +19,10 @@ if __name__ == '__main__':
         fig, ax = plt.subplots()
 
         rates = [round(r / 10.0, 2) for r in range(11)]
-        #rates = [0.7]
 
         for policy_name, accuracy in attack_accuracy.items():
 
-            print('{}: {}'.format(policy_name, sum(accuracy) / len(accuracy)))
+            print('{} & {:.5f} & {:.5f}'.format(policy_name, sum(accuracy) / len(accuracy), max(accuracy)))
 
             ax.plot(rates, list(map(lambda a : a * 100.0, accuracy)),
                     label=to_label(policy_name),

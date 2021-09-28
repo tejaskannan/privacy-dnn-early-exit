@@ -20,13 +20,10 @@ if __name__ == '__main__':
     # Restore the model
     model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
 
-    # Get the dataset
-    _, (test_inputs, test_labels) = tf2.keras.datasets.cifar10.load_data()
-    test_labels = test_labels.reshape(-1)  # [B]
-
     # Get the predictions from the models
-    model_preds = model.predict(inputs=test_inputs, pred_op=OpName.PREDICTIONS)  # [B, K]
-    stop_probs = model.predict(inputs=test_inputs, pred_op=OpName.STOP_PROBS)  # [B, K]
+    model_preds = model.test(op=OpName.PREDICTIONS)  # [B, K]
+    stop_probs = model.test(op=OpName.STOP_PROBS)  # [B, K]
+    test_labels = model.dataset.get_test_labels()
 
     num_correct = 0.0
     num_total = 0.0

@@ -76,6 +76,8 @@ class EarlyExitNeuralNetwork(NeuralNetwork):
             # Combine the loss terms
             sample_loss = tf2.add(sample_loss, 10.0 * rate_loss)
         else:
-            sample_loss = tf2.reduce_mean(pred_loss, axis=-1)
+            weights = tf2.constant([[0.3, 0.7]], dtype=pred_loss.dtype)
+            pred_loss = tf2.math.multiply(pred_loss, weights)
+            sample_loss = tf2.reduce_sum(pred_loss, axis=-1)
 
         return tf2.reduce_mean(sample_loss)  # Scalar

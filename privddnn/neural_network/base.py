@@ -336,7 +336,7 @@ class NeuralNetwork:
         }
 
         for epoch in range(num_epochs):
-            print('===== Epoch {} ====='.format(epoch))
+            print('===== Epoch {}/{} ====='.format(epoch + 1, num_epochs))
 
             # Execute Model Training
             train_correct = 0.0

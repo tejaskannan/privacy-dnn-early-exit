@@ -23,7 +23,6 @@ if __name__ == '__main__':
 
     # Make the policy
     rates = list([(x / 10.0) for x in range(11)])
-    #rates = [0.8]
 
     thresholds_dict: Dict[float, List[List[float]]] = dict()
     rates_dict: Dict[float, float] = dict()

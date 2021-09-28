@@ -1,26 +1,41 @@
 """
-This script computes the correlation between the per-label stopping
-rate on the validation and testing sets. A high correlation indicates
-exploitable trends.
+This script computes the expected KL divergence of the per-label stopping
+rate between the validation and testing sets. A low divergence indicates
+exploitable trend from validation to testing.
 """
 import scipy.stats as stats
 import os
+import numpy as np
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 from collections import Counter
 from typing import List
 
 from privddnn.dataset import Dataset
+from privddnn.utils.constants import SMALL_NUMBER
 from privddnn.utils.file_utils import read_json_gz
 
 
-def split_outputs_by_label(levels: List[int], labels: List[int]) -> DefaultDict[int, List[int]]:
-    label_dist: DefaultDict[int, List[int]] = defaultdict(list)
+def compute_avg_outputs(levels: List[int], labels: List[int]) -> np.ndarray:
+    num_labels = np.max(labels) + 1
+    level_counts = np.zeros(shape=(num_labels, 2))
+    total_counts = np.zeros(shape=(num_labels, 1))
 
     for level, label in zip(levels, labels):
-        label_dist[label].append(level)
+        level_counts[label, level] += 1
+        total_counts[label, 0] += 1
 
-    return label_dist
+    return level_counts / total_counts
+
+
+def binary_kl_divergence(p: np.ndarray, q: np.ndarray) -> float:
+    assert p.shape[0] == 2 and q.shape[0] == 2, 'Must provide 2-class inputs'
+
+    kl_div = 0.0
+    for p_val, q_val in zip(p, q):
+        kl_div += p_val * np.log(p_val / (q_val + SMALL_NUMBER) + SMALL_NUMBER)
+
+    return kl_div
 
 
 if __name__ == '__main__':
@@ -37,31 +52,44 @@ if __name__ == '__main__':
     val_labels = dataset.get_val_labels()
     test_labels = dataset.get_test_labels()
 
-    # Split the validation and test results by the label
-    rate = str(round(args.rate, 2))
+    label_counts = np.bincount(test_labels)
+    label_freq = label_counts / np.sum(label_counts)
 
     with plt.style.context('seaborn-ticks'):
         fig, ax = plt.subplots()
 
         for policy in sorted(test_log['val'].keys()):
-            # Get the validation results for this rate
-            val_outputs = test_log['val'][policy][rate]['output_levels']
-            test_outputs = test_log['test'][policy][rate]['output_levels']
 
-            # Compute the avg output level during both validation and testing
-            val_avg_levels = compute_avg_outputs(levels=val_outputs, labels=val_labels)
-            test_avg_levels = compute_avg_outputs(levels=test_outputs, labels=test_labels)
+            divergences: List[float] = []
+            data_ranges: List[float] = []
 
-            # Compute the correlation between the two
-            r, pvalue = stats.pearsonr(val_avg_levels, test_avg_levels)
+            for rate in sorted(test_log['val'][policy].keys()):
+                if rate in ('0.0', '1.0'):
+                    continue
 
-            ax.scatter(val_avg_levels, test_avg_levels, label=policy)
+                # Get the validation results for this rate
+                val_outputs = test_log['val'][policy][rate]['output_levels']
+                test_outputs = test_log['test'][policy][rate]['output_levels']
 
-            print('{} & {:.5f} & {:.5f}'.format(policy, r, pvalue))
+                # Compute the avg output level during both validation and testing
+                val_avg_levels = compute_avg_outputs(levels=val_outputs, labels=val_labels)
+                test_avg_levels = compute_avg_outputs(levels=test_outputs, labels=test_labels)
 
-        ax.set_xlabel('Validation Stopping Rate per Label')
-        ax.set_ylabel('Test Stopping Rate per Label')
-        ax.set_title('Relationship between Validation and Test Patterns')
-        ax.legend()
+                data_range = np.max(test_avg_levels[:, 0]) - np.min(test_avg_levels[:, 0])
 
-        plt.show()
+                correlation, pvalue = stats.pearsonr(val_avg_levels[: ,0], test_avg_levels[:, 0])
+
+                #expected_div = 0.0
+                #for label in range(len(label_counts)):
+                #    #kl_div = binary_kl_divergence(val_avg_levels[label], test_avg_levels[label])
+                #    div = np.linalg.norm(val_avg_levels[label] - test_avg_levels[label], ord=1)
+                #    expected_div += label_freq[label] * div
+                #expected_div = np.linalg.norm(val_avg_levels[:, 0] - test_avg_levels[:, 0], ord=1)
+                #expected_div /= data_range
+
+                divergences.append((correlation, pvalue))
+                data_ranges.append(data_range)
+
+            print('{} & {}'.format(policy, divergences))
+            print('{} & {}'.format(policy, data_ranges))
+            print('==========')

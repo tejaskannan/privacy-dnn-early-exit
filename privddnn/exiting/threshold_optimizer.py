@@ -4,9 +4,9 @@ from privddnn.utils.constants import SMALL_NUMBER
 from privddnn.utils.metrics import create_confusion_matrix
 
 
-MAX_ITERS = 150
-ANNEAL_RATE = 0.99
-PATIENCE = 10
+MAX_ITERS = 250
+ANNEAL_RATE = 0.9
+PATIENCE = 15
 
 
 class SharpenedSigmoid:
@@ -27,7 +27,7 @@ class ThresholdObjective:
     def __init__(self, target: float, num_labels: int):
         self._target = target
         self._num_labels = num_labels
-        self._sigmoid = SharpenedSigmoid(beta=15)
+        self._sigmoid = SharpenedSigmoid(beta=25)
 
     @property
     def target(self) -> float:
@@ -51,6 +51,10 @@ class ThresholdObjective:
 
     def derivative(self, metrics: np.ndarray, preds: np.ndarray, labels: np.ndarray, thresholds: np.ndarray, avg_rates: np.ndarray) -> float:
         per_label_diff = 100.0 * (avg_rates - self.target)
+        #max_idx = np.argmax(np.abs(per_label_diff))
+        #label_loss = np.zeros_like(per_label_diff)
+        #label_loss[max_idx] = per_label_diff[max_idx]
+
         #diff_sign = np.sign(per_label_diff)
         label_counts = np.bincount(labels, minlength=self.num_labels)
 
@@ -78,8 +82,9 @@ def fit_thresholds_grad(metrics: np.ndarray, preds: np.ndarray, labels: np.ndarr
     best_rates = rates
     num_not_improved = 0
 
-    print('TARGET: {}'.format(target))
-    print('START LOSS: {}'.format(loss))
+    expected_grad = np.zeros_like(thresholds)
+    gamma = 0.9
+    anneal_patience = 2
 
     for _ in range(MAX_ITERS):
         #batch_idx = rand.choice(sample_idx, size=256, replace=False)
@@ -89,10 +94,15 @@ def fit_thresholds_grad(metrics: np.ndarray, preds: np.ndarray, labels: np.ndarr
 
         loss, avg_rates = objective(metrics=metrics, preds=preds, labels=labels, thresholds=thresholds)
 
+        # Compute the gradients
         dthresholds = objective.derivative(metrics=metrics, preds=preds, labels=labels, thresholds=thresholds, avg_rates=avg_rates)
-        thresholds -= step_size * dthresholds
 
-        step_size *= ANNEAL_RATE
+        # Update the thresholds via RMSProp
+        expected_grad = gamma * expected_grad + (1.0 - gamma) * np.square(dthresholds)
+        scaled_step_size = step_size / np.sqrt(expected_grad + SMALL_NUMBER)
+        thresholds -= scaled_step_size * dthresholds
+
+        #step_size *= ANNEAL_RATE
 
         if loss < best_loss:
             best_loss = loss
@@ -102,13 +112,17 @@ def fit_thresholds_grad(metrics: np.ndarray, preds: np.ndarray, labels: np.ndarr
         else:
             num_not_improved += 1
 
-        print('Loss: {:.6f}'.format(loss), end='\r')
+        print('Loss: {:.6f}, Best Loss: {:.6f}'.format(loss, best_loss), end='\r')
+
+        if (num_not_improved + 1) % anneal_patience == 0:
+            step_size *= ANNEAL_RATE
 
         if num_not_improved > PATIENCE:
             print('\nConverged.')
             break
 
     print()
+    print('Final Rates: {}'.format(best_rates))
 
     return best_loss, best_thresholds, best_rates
 
@@ -126,7 +140,7 @@ def fit_randomization(metrics: np.ndarray, preds: np.ndarray, labels: np.ndarray
     observed_rates = elevation_counts / (total_counts + SMALL_NUMBER)
 
     # Get the confusion matrix, [i, j] is the number of elements classified as i that are actually j
-    confusion_mat = create_confusion_matrix(predictions=preds, labels=labels)
+    confusion_mat = create_confusion_matrix(predictions=preds, labels=labels) + 1  # Use +1 smoothing
     confusion_mat = confusion_mat / (np.sum(confusion_mat, axis=0, keepdims=True) + SMALL_NUMBER)
 
     # Create the constraint coefficient matrix
@@ -135,7 +149,7 @@ def fit_randomization(metrics: np.ndarray, preds: np.ndarray, labels: np.ndarray
     # Get the constraint bounds
     beta = np.diag(confusion_mat.T.dot(observed_rates))
     lower = (target - epsilon) - beta
-    upper = (target + epsilon) + beta
+    upper = (target + epsilon) - beta
 
     # Create the 'security' constraint
     constr1 = optimize.LinearConstraint(A=A, lb=lower, ub=upper)
@@ -150,5 +164,7 @@ def fit_randomization(metrics: np.ndarray, preds: np.ndarray, labels: np.ndarray
                                constraints=[constr1, constr2],
                                tol=1e-4)
 
-    print(result.x)
+    print('Adjusted Rates: {}'.format(A.dot(result.x) + beta))
+    print('Rand Rates: {}'.format(result.x))
+
     return result.x
