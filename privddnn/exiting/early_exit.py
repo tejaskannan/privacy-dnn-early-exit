@@ -194,8 +194,15 @@ class MaxProbExit(ThresholdExiter):
         # Comute the thresholds based on the quantile
         # TODO: Make this 'cumulative' by removing the samples stopped at the previous level(s)
         for level in range(self.num_outputs):
-            t = np.quantile(max_probs[:, level], q=1.0 - self.rates[level])
+            if np.isclose(self.rates[level], 1.0):
+                t = 0.0
+            elif np.isclose(self.rates[level], 0.0):
+                t = 1.0
+            else:
+                t = np.quantile(max_probs[:, level], q=1.0 - self.rates[level])
+            
             self.set_threshold(t, level)
+            print('Level: {}, Threshold: {}'.format(level, t))
 
         # Catch everything at the last level
         self.set_threshold(0.0, self.num_outputs - 1)
@@ -241,6 +248,9 @@ class LabelThresholdExiter(EarlyExiter):
     def get_quantile(self, level: int) -> float:
         raise NotImplementedError()
 
+    def get_max_threshold(self, num_labels: int) -> float:
+        raise NotImplementedError()
+
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
         num_samples, num_outputs, num_labels = val_probs.shape
 
@@ -262,7 +272,12 @@ class LabelThresholdExiter(EarlyExiter):
 
         # Set the thresholds according to the percentile in each prediction
         for pred, distribution in pred_distributions.items():
-            t = np.quantile(distribution, q=self.get_quantile(level=0))
+            if np.isclose(self.rates[0], 0.0):
+                t = self.get_max_threshold(num_labels=num_labels) + SMALL_NUMBER
+            elif np.isclose(self.rates[0], 1.0):
+                t = 0.0
+            else:
+                t = np.quantile(distribution, q=self.get_quantile(level=0))
 
             self.set_threshold(t=t, level=0, label=pred)
             self.set_threshold(t=0.0, level=1, label=pred)
@@ -275,6 +290,9 @@ class LabelMaxProbExit(LabelThresholdExiter):
 
     def get_quantile(self, level: int) -> float:
         return 1.0 - self.rates[level]
+
+    def get_max_threshold(self, num_labels: int) -> float:
+        return 1.0
 
     def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
         # Get the maximum probabilities
@@ -295,6 +313,10 @@ class LabelEntropyExit(LabelThresholdExiter):
 
     def get_quantile(self, level: int) -> float:
         return self.rates[level]
+
+    def get_max_threshold(self, num_labels: int) -> float:
+        dist = np.ones(shape=(num_labels, )) / num_labels
+        return float(compute_entropy(dist, axis=-1))
 
     def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
         # Get the maximum probabilities
