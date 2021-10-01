@@ -8,14 +8,16 @@ from datetime import datetime
 from typing import Dict, Union, Any, Tuple, List, Iterable
 
 from privddnn.utils.file_utils import make_dir, save_json_gz, save_pickle_gz, read_pickle_gz
-from privddnn.dataset import Dataset
-from .constants import OpName, PhName, MetaName, ModelMode, NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE, DECAY_PATIENCE
+from privddnn.classifier import OpName, ModelMode, BaseClassifier
+from .constants import PhName, MetaName, NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE, DECAY_PATIENCE
 from .constants import LEARNING_RATE_DECAY, GRADIENT_CLIP, EARLY_STOP_PATIENCE, TRAIN_FRAC, DROPOUT_KEEP_RATE, STOP_RATES
 
 
-class NeuralNetwork:
+class NeuralNetwork(BaseClassifier):
 
     def __init__(self, dataset_name: str, hypers: OrderedDict):
+        super().__init__(dataset_name=dataset_name)
+
         # Load the default hyper-parameters and override values when needed
         self._hypers = self.default_hypers
         self._hypers.update(**hypers)
@@ -34,9 +36,6 @@ class NeuralNetwork:
         self._is_metadata_loaded = False
         self._is_model_made = False
         self._is_init = False
-
-        # Load the dataset
-        self._dataset = Dataset(dataset_name=dataset_name)
 
         # Set random seeds to ensure reproducible results
         self._rand = np.random.RandomState(seed=23789)
@@ -81,10 +80,6 @@ class NeuralNetwork:
     @property
     def metadata(self) -> Dict[MetaName, Any]:
         return self._metadata
-
-    @property
-    def dataset(self) -> Dataset:
-        return self._dataset
 
     @property
     def sess(self) -> tf1.Session:
@@ -276,13 +271,13 @@ class NeuralNetwork:
             return
 
         # Normalize the data
-        self._dataset.fit_normalizer()
-        self._dataset.normalize_data()
+        self.dataset.fit_normalizer(is_global=True)
+        self.dataset.normalize_data()
 
         # Save the metadata
-        self._metadata[MetaName.INPUT_SHAPE] = self._dataset.input_shape
-        self._metadata[MetaName.NUM_LABELS] = self._dataset.num_labels
-        self._metadata[MetaName.DATASET_NAME] = self._dataset.dataset_name
+        self._metadata[MetaName.INPUT_SHAPE] = self.dataset.input_shape
+        self._metadata[MetaName.NUM_LABELS] = self.dataset.num_labels
+        self._metadata[MetaName.DATASET_NAME] = self.dataset.dataset_name
 
         self._is_metadata_loaded = True
 
@@ -302,7 +297,7 @@ class NeuralNetwork:
         model_name = '{}_{}'.format(self.name, current_time.strftime('%d-%m-%Y-%H-%M-%S'))
 
         make_dir(save_folder)
-        save_folder = os.path.join(save_folder, self._dataset.dataset_name)
+        save_folder = os.path.join(save_folder, self.dataset.dataset_name)
         make_dir(save_folder)
 
         save_folder = os.path.join(save_folder, current_time.strftime('%d-%m-%Y'))
@@ -314,8 +309,8 @@ class NeuralNetwork:
         batch_size = self.hypers[BATCH_SIZE]
         num_epochs = self.hypers[NUM_EPOCHS]
 
-        num_train = self._dataset.num_train
-        num_val = self._dataset.num_val
+        num_train = self.dataset.num_train
+        num_val = self.dataset.num_val
 
         train_ops = [OpName.OPTIMIZE, OpName.LOSS, OpName.PREDICTIONS]
         val_ops = [OpName.LOSS, OpName.PREDICTIONS]
@@ -343,7 +338,7 @@ class NeuralNetwork:
             train_loss = 0.0
             num_train_samples = 0.0
 
-            train_batch_generator = self._dataset.generate_train_batches(batch_size=batch_size)
+            train_batch_generator = self.dataset.generate_train_batches(batch_size=batch_size)
             for batch_num, (batch_inputs, batch_labels) in enumerate(train_batch_generator):
                 # Make the feed dict
                 feed_dict = self.batch_to_feed_dict(inputs=batch_inputs,
@@ -382,7 +377,7 @@ class NeuralNetwork:
             val_loss = 0.0
             num_val_samples = 0.0
 
-            val_batch_generator = self._dataset.generate_val_batches(batch_size=batch_size)
+            val_batch_generator = self.dataset.generate_val_batches(batch_size=batch_size)
             for batch_num, (batch_inputs, batch_labels) in enumerate(val_batch_generator):
                 # Make the feed dict
                 feed_dict = self.batch_to_feed_dict(inputs=batch_inputs,
@@ -457,14 +452,14 @@ class NeuralNetwork:
         """
         Runs the given operation on the test set.
         """
-        test_batch_generator = self._dataset.generate_test_batches(batch_size=self.hypers[BATCH_SIZE])
+        test_batch_generator = self.dataset.generate_test_batches(batch_size=self.hypers[BATCH_SIZE])
         return self.execute_op(data_generator=test_batch_generator, op=op)
 
     def validate(self, op: OpName) -> np.ndarray:
         """
         Runs the given operation on the validation set.
         """
-        val_batch_generator = self._dataset.generate_val_batches(batch_size=self.hypers[BATCH_SIZE])
+        val_batch_generator = self.dataset.generate_val_batches(batch_size=self.hypers[BATCH_SIZE])
         return self.execute_op(data_generator=val_batch_generator, op=op)
 
     def execute_op(self, data_generator: Iterable[Tuple[np.ndarray, np.ndarray]], op: OpName) -> np.ndarray:
@@ -472,7 +467,7 @@ class NeuralNetwork:
         Computes the predictions on the given (unscaled) inputs.
         """
         pred_list: List[np.ndarray] = []
-        num_samples = self._dataset.num_test
+        num_samples = self.dataset.num_test
 
         for (batch_inputs, _) in data_generator:
             feed_dict = {
@@ -523,7 +518,7 @@ class NeuralNetwork:
         model._metadata = metadata
         model._is_metadata_loaded = True
 
-        model.dataset.fit_normalizer()
+        model.dataset.fit_normalizer(is_global=True)
         model.dataset.normalize_data()
 
         model.make(model_mode=model_mode)

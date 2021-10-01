@@ -1,8 +1,12 @@
 import tensorflow as tf2
 import numpy as np
 import hashlib
+import os.path
 from enum import Enum, auto
 from typing import List, Tuple, Iterable
+
+from privddnn.utils.loading import load_h5_dataset
+from privddnn.utils.constants import SMALL_NUMBER
 
 
 MODULUS = 2**16
@@ -37,23 +41,29 @@ def get_split_indices(num_samples: int, frac: float) -> Tuple[List[int], List[in
 class Dataset:
 
     def __init__(self, dataset_name: str):
-        # Get the dataset by name
+        # Get the dataset by name and load the data
         dataset_name = dataset_name.lower()
+        dir_path = os.path.dirname(os.path.realpath(__file__))
 
         if dataset_name == 'mnist':
             tf_dataset = tf2.keras.datasets.mnist
+            (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
         elif dataset_name == 'fashion_mnist':
             tf_dataset = tf2.keras.datasets.fashion_mnist
+            (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
         elif dataset_name == 'cifar_10':
             tf_dataset = tf2.keras.datasets.cifar10
+            (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
+        elif dataset_name == 'pen_digits':
+            X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'train.h5'))
+            X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'test.h5'))
         else:
             raise ValueError('Unknown dataset with name: {}'.format(dataset_name))
 
         self._dataset_name = dataset_name
         self._rand = np.random.RandomState(58924)
 
-        # Load the data
-        (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
+        # Make sure we have 1d label arrays
         y_train = y_train.reshape(-1)
         y_test = y_test.reshape(-1)
 
@@ -103,21 +113,35 @@ class Dataset:
     def num_test(self) -> int:
         return self._test_inputs.shape[0]
 
+    def get_train_inputs(self) -> np.ndarray:
+        return self._train_inputs
+
     def get_train_labels(self) -> np.ndarray:
         return self._train_labels
+
+    def get_val_inputs(self) -> np.ndarray:
+        return self._val_inputs
 
     def get_val_labels(self) -> np.ndarray:
         return self._val_labels
 
+    def get_test_inputs(self) -> np.ndarray:
+        return self._test_inputs
+
     def get_test_labels(self) -> np.ndarray:
         return self._test_labels
 
-    def fit_normalizer(self):
+    def fit_normalizer(self, is_global: bool):
         if self._is_normalizer_fit:
             return
 
-        self._mean = np.average(self._train_inputs)
-        self._std = np.std(self._train_inputs)
+        if is_global:
+            self._mean = np.average(self._train_inputs)
+            self._std = np.std(self._train_inputs)
+        else:
+            self._mean = np.expand_dims(np.average(self._train_inputs, axis=0), axis=0)
+            self._std = np.expand_dims(np.std(self._train_inputs, axis=0), axis=0)
+
         self._is_normalizer_fit = True
 
     def normalize_data(self):
@@ -126,9 +150,9 @@ class Dataset:
 
         assert self._is_normalizer_fit, 'Must call fit_normalizer() first'
 
-        self._train_inputs = (self._train_inputs - self._mean) / self._std
-        self._val_inputs = (self._val_inputs - self._mean) / self._std
-        self._test_inputs = (self._test_inputs - self._mean) / self._std
+        self._train_inputs = (self._train_inputs - self._mean) / (self._std + SMALL_NUMBER)
+        self._val_inputs = (self._val_inputs - self._mean) / (self._std + SMALL_NUMBER)
+        self._test_inputs = (self._test_inputs - self._mean) / (self._std + SMALL_NUMBER)
 
         self._is_normalized = True
 

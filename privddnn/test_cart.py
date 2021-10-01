@@ -5,8 +5,9 @@ from collections import defaultdict
 from enum import Enum, auto
 from typing import List, Tuple, DefaultDict, Dict
 
-from neural_network import restore_model, NeuralNetwork, OpName, ModelMode
 from exiting.early_exit import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
+from privddnn.ensemble.adaboost import AdaBoostClassifier
+from privddnn.classifier import ModelMode, OpName
 from privddnn.utils.metrics import compute_accuracy, compute_mutual_info
 from privddnn.utils.plotting import to_label
 from privddnn.utils.file_utils import save_json_gz
@@ -42,34 +43,17 @@ def execute_for_rate(test_probs: np.ndarray,
         'test': dict(preds=test_result.predictions.tolist(), output_levels=test_result.output_levels.tolist()),
     }
 
-    ## Compute the result metrics
-    #accuracy = compute_accuracy(result.predictions, labels=test_labels)
-    #mutual_information = compute_mutual_info(result.output_levels, test_labels)
-    #observed_rate = result.observed_rates[1]  # Fraction stopping at the larger model
-
-    ## Fit the attack model
-    #val_result = policy.test(test_probs=val_probs)
-    #policy.fit_attack_model(val_outputs=val_result.output_levels,
-    #                        val_labels=val_labels,
-    #                        window_size=10,
-    #                        num_samples=1000)
-
-    #attack_accuracy = policy.test_attack_model(test_outputs=result.output_levels,
-    #                                           test_labels=test_labels,
-    #                                           window_size=10,
-    #                                           num_samples=1000)
-
-    #return accuracy, mutual_information, observed_rate, attack_accuracy
-
-
+   
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--model-path', type=str, required=True, help='Path to the saved model weights')
-    parser.add_argument('--output-path', type=str, help='Path to save the final plot')
+    parser.add_argument('--model-path', type=str, help='Path to the saved model file')
     args = parser.parse_args()
 
     # Restore the model
-    model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
+    #model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
+
+    # Fit the model
+    model = AdaBoostClassifier.restore(path=args.model_path, model_mode=ModelMode.TEST)
 
     # Get the predictions from the models
     test_probs = model.test(op=OpName.PROBS)  # [B, K]
@@ -78,8 +62,7 @@ if __name__ == '__main__':
     test_labels = model.dataset.get_test_labels()
     val_labels = model.dataset.get_val_labels()
 
-    #rates = list(sorted(np.arange(0.0, 1.01, 0.1)))
-    rates = [0.8]
+    rates = list(sorted(np.arange(0.0, 1.01, 0.1)))
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
@@ -94,6 +77,7 @@ if __name__ == '__main__':
         test_results: Dict[str, Dict[str, List[float]]] = dict()
 
         for rate in reversed(rates):
+
             rate_result = execute_for_rate(test_probs=test_probs,
                                            val_probs=val_probs,
                                            test_labels=test_labels,

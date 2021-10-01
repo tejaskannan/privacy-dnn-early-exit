@@ -3,8 +3,10 @@ import numpy as np
 from argparse import ArgumentParser
 from typing import List, Dict
 
-from neural_network import restore_model, NeuralNetwork, OpName, ModelMode
+from neural_network import restore_model, NeuralNetwork
 from exiting.early_exit import OptimizedMaxProb
+from privddnn.classifier import OpName, ModelMode
+from privddnn.ensemble.adaboost import AdaBoostClassifier
 from privddnn.utils.metrics import create_confusion_matrix
 from privddnn.utils.file_utils import save_json
 from privddnn.utils.constants import SMALL_NUMBER
@@ -16,7 +18,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Restore the model
-    model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
+    #model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
+    model = AdaBoostClassifier.restore(path=args.model_path, model_mode=ModelMode.TEST)
 
     val_probs = model.validate(op=OpName.PROBS)
     val_labels = model.dataset.get_val_labels()

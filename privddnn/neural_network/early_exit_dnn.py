@@ -1,9 +1,10 @@
 import tensorflow as tf2
 import tensorflow.compat.v1 as tf1
 
+from privddnn.classifier import OpName, ModelMode
 from privddnn.utils.constants import SMALL_NUMBER
 from .base import NeuralNetwork
-from .constants import OpName, ModelMode, STOP_RATES
+from .constants import STOP_RATES
 from .layers import dense
 from .layers.layer_utils import differentiable_abs
 

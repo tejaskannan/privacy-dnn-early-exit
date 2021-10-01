@@ -2,11 +2,11 @@ import os.path
 from collections import OrderedDict
 from typing import Type
 
+from privddnn.classifier import OpName, ModelMode
 from .base import NeuralNetwork
 from .branchynet_cnn import BranchyNetCNN
 from .anytime_cnn import AnytimeCNN
 from .independent_cnn import IndependentCNN
-from .constants import OpName, ModelMode
 
 
 def get_model_class(name: str) -> Type[NeuralNetwork]:

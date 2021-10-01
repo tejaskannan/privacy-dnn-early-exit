@@ -2,7 +2,7 @@ import tensorflow as tf2
 import tensorflow.compat.v1 as tf1
 import numpy as np
 
-from .constants import ModelMode
+from privddnn.classifier import ModelMode
 from .early_exit_dnn import EarlyExitNeuralNetwork
 from .layers import conv2d, dense, dropout, fitnet_block
 

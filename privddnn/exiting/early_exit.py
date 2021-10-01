@@ -202,7 +202,6 @@ class MaxProbExit(ThresholdExiter):
                 t = np.quantile(max_probs[:, level], q=1.0 - self.rates[level])
             
             self.set_threshold(t, level)
-            print('Level: {}, Threshold: {}'.format(level, t))
 
         # Catch everything at the last level
         self.set_threshold(0.0, self.num_outputs - 1)
@@ -338,7 +337,7 @@ class OptimizedMaxProb(LabelMaxProbExit):
         self._thresholds: Optional[np.ndarray] = None
         self._rand_rates: Optional[np.ndarray] = None
         self._observed_rates: Optional[np.ndarray] = None
-        self._trials = 1
+        self._trials = 2
 
         self._rand = np.random.RandomState(seed=2890)
         self._noise_scale = 0.1
@@ -366,15 +365,59 @@ class OptimizedMaxProb(LabelMaxProbExit):
         # Get the threshold
         first_pred = int(np.argmax(sample_probs[0, :]))
 
-        r = self._rand.uniform()
-        if r < self._rand_rates[first_pred]:
-            return int(self._rand.uniform() > self.rates[0])
+        threshold_probs = self._sample_probs[first_pred]
+        label_idx = self._rand.choice(np.arange(sample_probs.shape[-1]), size=1, p=threshold_probs)
+
+        t = self.get_threshold(level=0, label=label_idx)
+        level = int(first_prob < t)
+
+        should_act_randomly = int(self._rand.uniform() < self._rand_rates[first_pred])
+        rand_level = int(self._rand.uniform() > self.rates[0])
+
+        return should_act_randomly * rand_level + (1 - should_act_randomly) * level
+
+
+        ## Get the expected level
+        #expected_level = 0.0
+
+        #for label in range(sample_probs.shape[-1]):
+        #    t = self.get_threshold(level=0, label=label)
+        #    p = threshold_probs[label]
+        #    expected_level += p * int(first_prob < t)
+
+        ## Compute the random rate on-the-fly
+        #epsilon = 0.01
+        #rand_rate = 1.0
+        #target = 1.0 - self.rates[0]
+        #less_than = expected_level < (target - epsilon)
+        #greater_than = expected_level > (target + epsilon)
+
+        ## TODO: Pre-compute all of thse terms to avoid variable computation
+        #if not less_than and not greater_than:
+        #    rand_rate = 0.0
+        #elif less_than:
+        #    rand_rate = ((target - epsilon) - expected_level) / (target - expected_level)
+        #else:
+        #    rand_rate = ((target + epsilon) - expected_level) / (target - expected_level)
+
+        ## Clip into the range [0, 1]
+        #rand_rate = max(min(rand_rate, 1.0), 0.0)
+        #adjusted_level = (1.0 - rand_rate) * expected_level + rand_rate * target
+
+        #r = self._rand.uniform()
+        #should_act_randomly = r < rand_rate
+        #rand_level = int(self._rand.uniform() > self.rates[0])
+
+        #if should_act_randomly:
+        #    return rand_level
+        #
+        #return level
 
         #t = self._rand.choice(self.get_thresholds(level=0), size=1, replace=False, p=self._sample_probs[first_pred])
-        t = self.get_threshold(level=0, label=first_pred)
+        #t = self.get_threshold(level=0, label=first_pred)
         #t = self._rand.normal(t, scale=0.1 * self._prob_std)
 
-        return int(first_prob < t)
+        #return int(first_prob < t)
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
         if self._thresholds is not None:
@@ -384,37 +427,48 @@ class OptimizedMaxProb(LabelMaxProbExit):
 
         best_loss = BIG_NUMBER
         best_thresholds = self.thresholds[0]
-        learning_rates = [1e-2, 1e-3, 1e-4]
+        best_rates = np.zeros_like(best_thresholds)
+        learning_rates = [1e-2, 1e-3]
 
         for lr in learning_rates:
-            start_thresholds = np.copy(self.thresholds[0])
-            #start_thresholds += self._rand.uniform(low=-0.1, high=0.1, size=start_thresholds.shape)
+            for trial in range(self._trials):
+                start_thresholds = np.copy(self.thresholds[0])
 
-            #thresholds, loss, rates = fit_thresholds(probs=val_probs,
-            #                                         labels=val_labels,
-            #                                         rate=self.rates[0],
-            #                                         start_thresholds=start_thresholds,
-            #                                         temperature=temperature)
-            loss, thresholds, rates = fit_thresholds_grad(metrics=np.max(val_probs[:, 0, :], axis=-1),
-                                                          preds=np.argmax(val_probs[:, 0, :], axis=-1),
-                                                          labels=val_labels,
-                                                          target=1.0 - self.rates[0],
-                                                          start_thresholds=start_thresholds,
-                                                          learning_rate=lr)
+                if trial > 0:
+                    start_thresholds += self._rand.uniform(low=-0.1, high=0.1, size=start_thresholds.shape)
 
-            if loss < best_loss:
-                best_loss = loss
-                best_thresholds = thresholds
+                start_weights = self._rand.uniform(low=-0.7, high=0.7, size=(val_probs.shape[-1], val_probs.shape[-1]))
+
+                #thresholds, loss, rates = fit_thresholds(probs=val_probs,
+                #                                         labels=val_labels,
+                #                                         rate=self.rates[0],
+                #                                         start_thresholds=start_thresholds,
+                #                                         temperature=temperature)
+                loss, thresholds, rates = fit_thresholds_grad(probs=val_probs[:, 0, :],
+                                                              labels=val_labels,
+                                                              target=1.0 - self.rates[0],
+                                                              start_thresholds=start_thresholds,
+                                                              start_weights=start_weights,
+                                                              learning_rate=lr)
+
+                if loss < best_loss:
+                    best_loss = loss
+                    best_thresholds = thresholds
+                    best_rates = rates
+                    #best_weights = weights
+
+                # If we get to 0 loss, no need to continue
+                if best_loss < SMALL_NUMBER:
+                    break
 
             # If we get to 0 loss, no need to continue
             if best_loss < SMALL_NUMBER:
                 break
 
-        #rand_rate = fit_threshold_randomization(elevation_rates=rates,
+        #rand_rate = fit_threshold_randomization(elevation_rates=best_rates,
         #                                        target=1.0 - self.rates[0],
         #                                        epsilon=0.01)
-        rand_rates = fit_randomization(metrics=np.max(val_probs[:, 0, :], axis=-1),
-                                       preds=np.argmax(val_probs[:, 0, :], axis=-1),
+        rand_rates = fit_randomization(probs=val_probs[:, 0, :],
                                        labels=val_labels,
                                        thresholds=best_thresholds,
                                        target=1.0 - self.rates[0],

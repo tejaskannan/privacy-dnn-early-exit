@@ -3,10 +3,10 @@ import tensorflow.compat.v1 as tf1
 import numpy as np
 from typing import Tuple
 
+from privddnn.classifier import ModelMode
 from privddnn.utils.constants import SMALL_NUMBER
 from .early_exit_dnn import EarlyExitNeuralNetwork
 from .layers import conv2d, dense
-from .constants import ModelMode
 
 
 def interleaved_fitnet_block(layer_one_inputs: tf2.Tensor, layer_two_inputs: tf2.Tensor, num_filters: int, pool_size: int, pool_stride: int, name: str) -> Tuple[tf2.Tensor, tf2.Tensor]:

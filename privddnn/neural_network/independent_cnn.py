@@ -5,7 +5,7 @@ import os.path
 import h5py
 from collections import OrderedDict
 
-from .constants import ModelMode, OpName
+from privddnn.classifier import ModelMode, OpName
 from .base import NeuralNetwork
 from .layers import conv2d, dense, dropout, fitnet_block
 

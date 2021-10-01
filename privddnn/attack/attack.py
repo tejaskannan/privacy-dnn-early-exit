@@ -7,6 +7,7 @@ from typing import DefaultDict, List, Tuple
 
 from privddnn.dataset.dataset import Dataset
 from privddnn.utils.file_utils import read_json_gz, save_json_gz
+from privddnn.attack.nearest_index import make_similar_attack_dataset
 
 
 def make_attack_dataset(outputs: np.ndarray, labels: np.ndarray, window_size: int, num_samples: int, rand: np.random.RandomState, noise_rate: float) -> Tuple[np.ndarray, np.ndarray]:
@@ -89,12 +90,15 @@ if __name__ == '__main__':
     val_labels = dataset.get_val_labels()
     test_labels = dataset.get_test_labels()
 
+    val_index_path = '../data/{}/val'.format(dataset_name)
+    test_index_path = '../data/{}/test'.format(dataset_name)
+
     rates = [str(round(r / 10.0, 2)) for r in range(11)]
-    #rates = ['0.7']
     policy_names = ['random', 'max_prob', 'label_max_prob', 'optimized_max_prob']
     window_size = 25
     noise_rate = 0.2
-    num_samples = 2000
+    #num_samples = 2000
+    num_samples = 1200
 
     train_attack_results: DefaultDict[str, List[float]] = defaultdict(list)
     test_attack_results: DefaultDict[str, List[float]] = defaultdict(list)
@@ -118,6 +122,22 @@ if __name__ == '__main__':
                                                                           num_samples=num_samples,
                                                                           rand=rand,
                                                                           noise_rate=noise_rate)
+
+
+            #train_attack_inputs, train_attack_outputs = make_similar_attack_dataset(levels=val_outputs,
+            #                                                                labels=val_labels,
+            #                                                                window_size=window_size,
+            #                                                                num_samples=num_samples,
+            #                                                                rand=rand,
+            #                                                                path=val_index_path)
+
+            #test_attack_inputs, test_attack_outputs = make_similar_attack_dataset(levels=test_outputs,
+            #                                                              labels=test_labels,
+            #                                                              window_size=window_size,
+            #                                                              num_samples=num_samples,
+            #                                                              rand=rand,
+            #                                                              path=test_index_path)
+
 
             # Fit the model
             clf = MajorityClassifier()
