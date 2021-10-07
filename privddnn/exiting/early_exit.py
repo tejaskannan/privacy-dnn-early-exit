@@ -5,7 +5,7 @@ from enum import Enum, auto
 from sklearn.ensemble import AdaBoostClassifier
 from typing import List, Tuple, Dict, DefaultDict, Optional
 
-from privddnn.utils.metrics import compute_entropy, create_confusion_matrix
+from privddnn.utils.metrics import compute_entropy, create_confusion_matrix, sigmoid
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.file_utils import read_json
 from .even_optimizer import fit_thresholds, fit_threshold_randomization
@@ -337,7 +337,7 @@ class OptimizedMaxProb(LabelMaxProbExit):
         self._thresholds: Optional[np.ndarray] = None
         self._rand_rates: Optional[np.ndarray] = None
         self._observed_rates: Optional[np.ndarray] = None
-        self._trials = 2
+        self._trials = 1
 
         self._rand = np.random.RandomState(seed=2890)
         self._noise_scale = 0.1
@@ -358,23 +358,25 @@ class OptimizedMaxProb(LabelMaxProbExit):
         if self._rand_rates is None:
             return super().select_output(sample_probs, sample_idx)
 
-        # Get the maximum probabilities
-        max_probs = np.max(sample_probs, axis=-1)  # [L]
-        first_prob = float(max_probs[0])
+        # Get the maximum probability and prediction on the first output
+        first_pred = int(np.argmax(sample_probs[0, :]))
+        first_prob = float(sample_probs[0, first_pred])
 
         # Get the threshold
-        first_pred = int(np.argmax(sample_probs[0, :]))
+        t = self.get_threshold(level=0, label=first_pred)
 
-        threshold_probs = self._sample_probs[first_pred]
-        label_idx = self._rand.choice(np.arange(sample_probs.shape[-1]), size=1, p=threshold_probs)
+        # Compute the elevation probability
+        level_prob = sigmoid(5 * (t - first_prob))
+        level = int(self._rand.uniform() < level_prob)
 
-        t = self.get_threshold(level=0, label=label_idx)
-        level = int(first_prob < t)
+        return level
 
-        should_act_randomly = int(self._rand.uniform() < self._rand_rates[first_pred])
-        rand_level = int(self._rand.uniform() > self.rates[0])
+        #level = int(first_prob < t)
 
-        return should_act_randomly * rand_level + (1 - should_act_randomly) * level
+        #should_act_randomly = int(self._rand.uniform() < self._rand_rates[first_pred])
+        #rand_level = int(self._rand.uniform() > self.rates[0])
+
+        #return should_act_randomly * rand_level + (1 - should_act_randomly) * level
 
 
         ## Get the expected level
@@ -428,14 +430,14 @@ class OptimizedMaxProb(LabelMaxProbExit):
         best_loss = BIG_NUMBER
         best_thresholds = self.thresholds[0]
         best_rates = np.zeros_like(best_thresholds)
-        learning_rates = [1e-2, 1e-3]
+        learning_rates = [1e-2]
 
         for lr in learning_rates:
             for trial in range(self._trials):
                 start_thresholds = np.copy(self.thresholds[0])
 
                 if trial > 0:
-                    start_thresholds += self._rand.uniform(low=-0.1, high=0.1, size=start_thresholds.shape)
+                    start_thresholds += self._rand.uniform(low=-0.02, high=0.02, size=start_thresholds.shape)
 
                 start_weights = self._rand.uniform(low=-0.7, high=0.7, size=(val_probs.shape[-1], val_probs.shape[-1]))
 

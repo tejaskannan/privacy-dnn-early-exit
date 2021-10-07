@@ -44,7 +44,7 @@ class ThresholdObjective:
     def __init__(self, target: float, num_labels: int):
         self._target = target
         self._num_labels = num_labels
-        self._sigmoid = SharpenedSigmoid(beta=1)
+        self._sigmoid = SharpenedSigmoid(beta=5)
         self._threshold = ThresholdFunction()
 
     @property
@@ -63,9 +63,9 @@ class ThresholdObjective:
             pred = np.argmax(pred_probs)
             metric = pred_probs[pred]
 
-            #label_levels[label] += self._sigmoid(thresholds[pred] - stop_prob)
+            label_levels[label] += self._sigmoid(thresholds[pred] - metric)
             #label_levels[label] += int(stop_prob < thresholds[pred])
-            label_levels[label] += self._threshold(thresholds[pred] - metric)
+            #label_levels[label] += self._threshold(thresholds[pred] - metric)
             label_counts[label] += 1
 
         avg_rates = label_levels / (label_counts + SMALL_NUMBER)
@@ -87,8 +87,8 @@ class ThresholdObjective:
             pred = np.argmax(pred_probs)
             metric = pred_probs[pred]
 
-            #dL_dt = (per_label_diff[label] / label_counts[label]) * self._sigmoid.derivative(thresholds[pred] - stop_prob)
-            dL_dt = (per_label_diff[label] / label_counts[label]) * self._threshold.derivative(thresholds[pred] - metric)
+            dL_dt = (per_label_diff[label] / label_counts[label]) * self._sigmoid.derivative(thresholds[pred] - metric)
+            #dL_dt = (per_label_diff[label] / label_counts[label]) * self._threshold.derivative(thresholds[pred] - metric)
             #dL_ds = -1 * dL_dt
             #dL_dw = dL_ds * pred_probs[pred] * self._sigmoid.derivative(transform) * pred_probs
 
@@ -141,21 +141,22 @@ def fit_thresholds_grad(probs: np.ndarray, labels: np.ndarray, target: float, st
         # Compute the gradients
         dthresholds = objective.derivative(probs=probs, labels=labels, avg_rates=avg_rates, thresholds=thresholds)
 
-        #approx_grad = np.zeros_like(thresholds)
-        #epsilon = 1e-5
+        approx_grad = np.zeros_like(thresholds)
+        epsilon = 1e-5
 
-        #for i in range(num_labels):
-        #    thresholds[i] += epsilon
-        #    upper_loss = objective(probs=probs, labels=labels, sample_probs=sample_probs, thresholds=thresholds)
+        for i in range(num_labels):
+            thresholds[i] += epsilon
+            upper_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds)
 
-        #    thresholds[i] -= 2 * epsilon
-        #    lower_loss = objective(probs=probs, labels=labels, sample_probs=sample_probs, thresholds=thresholds)
+            thresholds[i] -= 2 * epsilon
+            lower_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds)
 
-        #    thresholds[i] += epsilon
-        #    approx_grad[i] = (upper_loss - lower_loss) / (2 * epsilon)
+            thresholds[i] += epsilon
+            approx_grad[i] = (upper_loss - lower_loss) / (2 * epsilon)
 
         #print('True: {}'.format(dthresholds))
         #print('Approx: {}'.format(approx_grad))
+        #print('==========')
 
         # Update the thresholds via RMSProp
         expected_threshold_grad = gamma * expected_threshold_grad + (1.0 - gamma) * np.square(dthresholds)
@@ -176,17 +177,18 @@ def fit_thresholds_grad(probs: np.ndarray, labels: np.ndarray, target: float, st
             num_not_improved = 0
         else:
             num_not_improved += 1
+  
 
-        print('Loss: {:.6f}, Best Loss: {:.6f}'.format(loss, best_loss), end='\r')
+        print('Loss: {:.6f}, Best Loss: {:.6f}'.format(loss, best_loss))
 
         if (num_not_improved + 1) % anneal_patience == 0:
             step_size *= ANNEAL_RATE
+            thresholds = np.copy(best_thresholds)
 
         if num_not_improved > PATIENCE:
             print('\nConverged.')
             break
 
-    print()
     print('Final Rates: {}'.format(best_rates))
 
     return best_loss, best_thresholds, best_rates
@@ -198,11 +200,13 @@ def fit_randomization(probs: np.ndarray, labels: np.ndarray, thresholds: np.ndar
     elevation_counts = np.zeros(shape=(num_labels, num_labels))
     total_counts = np.zeros_like(elevation_counts)
 
+    sigmoid = SharpenedSigmoid(beta=5)
+
     for pred_probs, label in zip(probs, labels):
         pred = np.argmax(pred_probs)
         metric = pred_probs[pred]
 
-        elevation_counts[pred, label] += int(thresholds[pred] > metric)
+        elevation_counts[pred, label] += sigmoid(thresholds[pred] - metric)
         total_counts[pred, label] += 1
 
     observed_rates = elevation_counts / (total_counts + SMALL_NUMBER)
