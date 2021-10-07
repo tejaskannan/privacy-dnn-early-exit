@@ -17,10 +17,8 @@ if __name__ == '__main__':
 
     # Restore the model
     model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.FINE_TUNE)
-
-    # Use larger batches to have better rate averaging
-    model.hypers['batch_size'] = 100
-    model.hypers['num_epochs'] = 10
+    model.hypers['num_epochs'] = 100
+    model.hypers['batch_size'] = 8
 
     # Get the predictions from the models
     model.train(model_mode=ModelMode.FINE_TUNE, save_folder='tuned_models')

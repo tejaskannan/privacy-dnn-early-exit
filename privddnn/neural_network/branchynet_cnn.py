@@ -19,11 +19,15 @@ class BranchyNetCNN(EarlyExitNeuralNetwork):
 
     def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf2.Tensor, num_labels: int, model_mode: ModelMode) -> tf2.Tensor:
         is_fine_tune = (model_mode == ModelMode.FINE_TUNE)
+        is_train = (model_mode == ModelMode.TRAIN)
+
+        if is_fine_tune:
+            inputs = self.perturb_inputs(inputs=inputs)
 
         # Create the convolution blocks
-        conv1_block, _, _ = fitnet_block(inputs=inputs, num_filters=16, pool_size=4, pool_stride=2, name='block1')
-        conv2_block, conv2_interm, _ = fitnet_block(inputs=conv1_block, num_filters=16, pool_size=4, pool_stride=2, name='block2')
-        conv3_block, _, _ = fitnet_block(inputs=conv2_block, num_filters=12, pool_size=2, pool_stride=1, name='block3')
+        conv1_block, _, _ = fitnet_block(inputs=inputs, num_filters=16, pool_size=4, pool_stride=2, trainable=is_train, name='block1')
+        conv2_block, conv2_interm, _ = fitnet_block(inputs=conv1_block, num_filters=16, pool_size=4, pool_stride=2, trainable=is_train, name='block2')
+        conv3_block, _, _ = fitnet_block(inputs=conv2_block, num_filters=12, pool_size=2, pool_stride=1, trainable=is_train, name='block3')
 
         # Create the first output layer. We use global average pooling here to reduce the number of parameters
         flattened_one = tf2.reduce_mean(conv2_interm, axis=[1, 2])  # [B, C]
@@ -32,6 +36,7 @@ class BranchyNetCNN(EarlyExitNeuralNetwork):
                            use_dropout=False,
                            dropout_keep_rate=dropout_keep_rate,
                            activation='linear',
+                           trainable=is_train,
                            name='output1')  # [B, K]
 
         # Create the second output layer by first flattening out the pixels
@@ -43,6 +48,7 @@ class BranchyNetCNN(EarlyExitNeuralNetwork):
                            use_dropout=False,
                            dropout_keep_rate=dropout_keep_rate,
                            activation='linear',
+                           trainable=is_train,
                            name='output2')  # [B, K]
 
         # Stack the logits together
@@ -50,10 +56,4 @@ class BranchyNetCNN(EarlyExitNeuralNetwork):
         output_two = tf2.expand_dims(output_two, axis=1)  # [B, 1, K]
 
         logits = tf2.concat([output_one, output_two], axis=1)  # [B, 2, K]
-
-        if is_fine_tune:
-            logits = tf2.stop_gradient(logits)
-
-        self.create_stop_layer(logits=logits)
-
         return logits

@@ -11,8 +11,11 @@ LEGEND_FONT = 12
 COLORS = {
     'max_prob': '#a1dab4',
     'label_max_prob': '#41b6c4',
-    'optimized_max_prob': '#225ea8',
-    'random': 'black'
+    'hybrid_max_prob': '#225ea8',
+    'random': 'black',
+    'entropy': '#9ebcda',
+    'label_entropy': '#8c96c6',
+    'hybrid_entropy': '#810f7c'
 }
 
 def to_label(name: str) -> str:

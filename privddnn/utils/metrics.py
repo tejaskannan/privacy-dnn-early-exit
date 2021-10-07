@@ -62,7 +62,7 @@ def compute_entropy(probs: np.ndarray, axis: int) -> np.ndarray:
     """
     Computes the (empirical) entropy of the given distributions along the given axis.
     """
-    log_probs = np.log2(probs + SMALL_NUMBER)
+    log_probs = np.log(probs + SMALL_NUMBER)
     return -1 * np.sum(probs * log_probs, axis=axis)
 
 
@@ -115,7 +115,7 @@ def compute_conditional_entropy(joint_distribution: np.ndarray) -> np.ndarray:
     for i in range(joint_distribution.shape[0]):
         for j in range(joint_distribution.shape[1]):
             joint_prob = joint_distribution[i, j]
-            cond_entropy -= joint_prob * np.log2((joint_prob / (probs_y[j] + SMALL_NUMBER)) + SMALL_NUMBER)
+            cond_entropy -= joint_prob * np.log((joint_prob / (probs_y[j] + SMALL_NUMBER)) + SMALL_NUMBER)
 
     return cond_entropy
 
@@ -130,7 +130,7 @@ def compute_joint_entropy(joint_distribution: np.ndarray) -> np.ndarray:
     for i in range(joint_distribution.shape[0]):
         for j in range(joint_distribution.shape[1]):
             joint_prob = joint_distribution[i, j]
-            joint_entropy -= joint_prob * np.log2(joint_prob + SMALL_NUMBER)
+            joint_entropy -= joint_prob * np.log(joint_prob + SMALL_NUMBER)
 
     return joint_entropy
 
@@ -161,6 +161,21 @@ def softmax(logits: np.ndarray, axis: int) -> np.ndarray:
     max_logit = np.max(logits, axis=axis, keepdims=True)
     exp_logits = np.exp(logits - max_logit)
     return exp_logits / np.sum(exp_logits, axis=axis, keepdims=True)
+
+
+def sigmoid(x: np.ndarray) -> np.ndarray:
+    return 1.0 / (1.0 + np.exp(-1 * x))
+
+
+def compute_max_prob_metric(probs: np.ndarray) -> np.ndarray:
+    return np.max(probs, axis=-1)
+
+
+def compute_entropy_metric(probs: np.ndarray) -> np.ndarray:
+    num_labels = probs.shape[-1]
+    uniform_dist = np.ones(shape=(num_labels, )) / num_labels
+    max_entropy = float(compute_entropy(uniform_dist, axis=-1))
+    return ((-1 * compute_entropy(probs, axis=-1)) / max_entropy) + 1.0
 
 
 def compute_avg_level_per_class(output_levels: List[int], labels: List[int]) -> List[float]:
@@ -222,3 +237,18 @@ def compute_geometric_mean(x: Union[List[float], np.ndarray]) -> np.ndarray:
     prod = np.prod(x)
     n = len(x)
     return np.power(prod, 1.0 / n)
+
+
+def to_one_hot(y: np.ndarray, num_labels: int) -> np.ndarray:
+    """
+    Converts the 1d integer array of predicted / true labels
+    to one-hot vectors.
+    """
+    assert len(y.shape) == 1, 'Must provide a 1d input'
+    num_samples = y.shape[0]
+
+    result = np.zeros(shape=(num_samples, num_labels), dtype=float)
+    
+    sample_idx = np.arange(num_samples)
+    result[sample_idx, y] = 1.0
+    return result

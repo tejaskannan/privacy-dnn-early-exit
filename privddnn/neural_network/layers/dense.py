@@ -10,6 +10,7 @@ def dense(inputs: Union[tf2.Tensor, tf1.placeholder],
           dropout_keep_rate: tf1.placeholder,
           use_dropout: bool,
           activation: str,
+          trainable: bool,
           name: str) -> tf2.Tensor:
     """
     Creates a dense (feed-forward) neural network layer
@@ -32,13 +33,13 @@ def dense(inputs: Union[tf2.Tensor, tf1.placeholder],
                              dtype=inputs.dtype,
                              name='W',
                              initializer=tf1.glorot_uniform_initializer(),
-                             trainable=True)
+                             trainable=trainable)
 
         b = tf1.get_variable(shape=[1, output_units],
                              dtype=inputs.dtype,
                              name='b',
                              initializer=tf1.glorot_uniform_initializer(),
-                             trainable=True)
+                             trainable=trainable)
 
         # Apply the linear transformation
         linear_transformed = tf2.add(tf2.matmul(inputs, W), b)

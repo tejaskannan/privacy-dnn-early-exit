@@ -54,6 +54,9 @@ class Dataset:
         elif dataset_name == 'cifar_10':
             tf_dataset = tf2.keras.datasets.cifar10
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
+        elif dataset_name == 'cifar_100':
+            tf_dataset = tf2.keras.datasets.cifar100
+            (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
         elif dataset_name == 'pen_digits':
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'train.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'test.h5'))

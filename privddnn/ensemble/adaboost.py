@@ -6,7 +6,7 @@ from typing import List
 from privddnn.classifier import BaseClassifier, OpName, ModelMode
 from privddnn.utils.constants import SMALL_NUMBER
 from privddnn.utils.file_utils import save_pickle_gz, read_pickle_gz
-from privddnn.utils.metrics import softmax
+from privddnn.utils.metrics import softmax, to_one_hot
 
 
 MAX_DEPTH = 3
@@ -109,16 +109,18 @@ class AdaBoostClassifier(BaseClassifier):
         second_level_probs = np.zeros(shape=(num_samples, self._num_labels))
 
         for idx, clf in enumerate(self._clfs):
-            probs = clf.predict_proba(inputs)
+            preds = clf.predict(inputs)  # [N]
+            one_hot = to_one_hot(preds, num_labels=self._num_labels)  # [N, K]
             boost_weight = self._boost_weights[idx]
-            weighted_probs = boost_weight * probs
+
+            weighted_preds = boost_weight * one_hot
 
             if idx < self.exit_size:
-                first_level_probs += weighted_probs
+                first_level_probs += weighted_preds
 
-            second_level_probs += weighted_probs
+            second_level_probs += weighted_preds
 
-        # Normalize the probabilities
+        # Normalize the weights to create a 'probability' distribution
         first_level_probs = np.expand_dims(softmax(first_level_probs, axis=-1), axis=1)  # [N, 1, K]
         second_level_probs = np.expand_dims(softmax(second_level_probs, axis=-1), axis=1)  # [N, 1, K]
 

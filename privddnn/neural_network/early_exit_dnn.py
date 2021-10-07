@@ -2,10 +2,11 @@ import tensorflow as tf2
 import tensorflow.compat.v1 as tf1
 
 from privddnn.classifier import OpName, ModelMode
+from privddnn.utils.tf_utils import tf_compute_entropy, make_max_prob_targets
 from privddnn.utils.constants import SMALL_NUMBER
 from .base import NeuralNetwork
 from .constants import STOP_RATES
-from .layers import dense
+from .layers import dense, conv2d
 from .layers.layer_utils import differentiable_abs
 
 
@@ -15,68 +16,64 @@ class EarlyExitNeuralNetwork(NeuralNetwork):
     def num_outputs(self):
         raise NotImplementedError()
 
-    def create_stop_layer(self, logits: tf2.Tensor):
-        probs = tf2.nn.softmax(logits, axis=-1)  # [B, L, K]
-        normalized_logits = tf2.math.log(probs + SMALL_NUMBER)  # [B, L, K]
-        entropy = tf2.reduce_sum(-1 * probs * normalized_logits, axis=-1, keepdims=True)  # [B, L, 1]
+    def perturb_inputs(self, inputs: tf2.Tensor) -> tf2.Tensor:
+        input_shape = inputs.get_shape()
+        if len(input_shape) == 3:
+            inputs = tf2.expand_dims(inputs, axis=-1)
 
-        layer_var = tf1.get_variable(shape=(self.num_outputs, 1),
-                                     dtype=tf1.float32,
-                                     initializer=tf1.glorot_uniform_initializer(),
-                                     trainable=True,
-                                     name='layer-var')
+        weights = tf1.get_variable(name='perturb',
+                                   shape=inputs.get_shape()[1:],
+                                   initializer=tf1.glorot_uniform_initializer(),
+                                   trainable=True)
 
-        layer_var = tf2.expand_dims(layer_var, axis=0)  # [1, L, 1]
-        layer_var = tf2.tile(layer_var, multiples=(tf2.shape(entropy)[0], 1, 1))  # [B, L, 1]
+        #hidden = conv2d(inputs=inputs,
+        #                num_filters=4,
+        #                filter_size=3,
+        #                stride=1,
+        #                activation='relu',
+        #                trainable=True,
+        #                name='perturb-hidden')
 
-        stop_features = tf2.concat([probs, entropy, layer_var], axis=-1)  # [B, L, K + 2]
-        stop_state = dense(inputs=stop_features,
-                           output_units=1,
-                           use_dropout=False,
-                           dropout_keep_rate=1.0,
-                           activation='linear',
-                           name='stop')
+        #transformed = conv2d(inputs=inputs,
+        #                     num_filters=inputs.get_shape()[-1],
+        #                     filter_size=3,
+        #                     stride=1,
+        #                     activation='linear',
+        #                     trainable=True,
+        #                     name='perturb')
 
-        stop_probs = tf2.math.sigmoid(tf2.squeeze(stop_state, axis=-1))  # [B, L]
+        perturbation = tf2.expand_dims(0.5 * tf2.nn.tanh(weights), axis=0)
+        result = inputs + perturbation
 
-        # Scale the stop probs by the continue rates from previous layers
-        continue_probs = tf2.math.cumprod(1.0 - stop_probs, axis=-1, exclusive=True)
-        stop_probs = continue_probs * stop_probs
+        return result
 
-        # Default to the last layer rate
-        stop_probs = stop_probs[:, 0:-1]  # [B, L - 1]
-        total_probs = tf2.reduce_sum(stop_probs, axis=-1, keepdims=True)  # [B, 1]
-        last_prob = tf2.nn.relu(1.0 - total_probs)
-
-        stop_probs = tf2.concat([stop_probs, last_prob], axis=-1)  # [B, L]
-
-        self._ops[OpName.STOP_PROBS] = stop_probs
 
     def make_loss(self, logits: tf2.Tensor, labels: tf1.placeholder, model_mode: ModelMode) -> tf2.Tensor:
-        labels = tf2.expand_dims(labels, axis=1)  # [B, 1]
-        labels = tf2.tile(labels, multiples=(1, self.num_outputs))  # [B, L]
-
-        pred_loss = tf2.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits)  # [B, L]
-
         if model_mode == ModelMode.FINE_TUNE:
             # Weight the prediction loss by the stop probabilities (want high prob on low cross entropy)
-            stop_probs = self._ops[OpName.STOP_PROBS]
-            preds = tf2.cast(tf2.argmax(logits, axis=-1), dtype=labels.dtype)  # [B, L]
-            is_incorrect = 1.0 - tf2.cast(tf2.equal(preds, labels), dtype=stop_probs.dtype)
+            probs = tf2.nn.softmax(logits, axis=-1)
+            max_probs = tf2.reduce_max(probs, axis=-1)  # [B, L]
 
-            sample_loss = tf2.reduce_sum(is_incorrect * stop_probs, axis=-1)  # [B]
+            avg_max_prob = tf2.reduce_mean(max_probs, axis=0, keepdims=True)  # [1, L]
+            adjusted_loss = differentiable_abs(max_probs - avg_max_prob)  # [B, L]
 
-            #sample_loss = tf2.reduce_sum(pred_loss * stop_probs, axis=-1)  # [B]
+            #thresholds = tf2.constant([0.87514, 0.99561])
+            #thresholds = tf2.expand_dims(thresholds, axis=0)  # [1, L]
 
-            # Get the loss required to meet the target rates
-            target_rates = tf2.constant(self.hypers[STOP_RATES])
-            target_rates = tf2.expand_dims(target_rates, axis=0)  # [1, L]
-            rate_loss = differentiable_abs(stop_probs - target_rates)  # [B, L]
-            rate_loss = tf2.reduce_sum(rate_loss, axis=-1)  # [B]
+            #max_probs = tf2.reduce_max(probs, axis=-1)  # [B, L]
+            #adjusted_loss = differentiable_abs(max_probs - thresholds)
 
-            # Combine the loss terms
-            sample_loss = tf2.add(sample_loss, 10.0 * rate_loss)
+            #num_labels = probs.get_shape()[-1]
+            #target_dist = make_max_prob_targets(labels=labels, num_labels=num_labels, target_prob=thresholds) # [B, L, K]
+
+            #adjusted_loss = tf2.nn.softmax_cross_entropy_with_logits(labels=target_dist, logits=logits, axis=-1)  # [B, L]
+            sample_loss = tf2.reduce_sum(adjusted_loss, axis=-1)  # [B]
         else:
+            labels = tf2.expand_dims(labels, axis=1)  # [B, 1]
+            labels = tf2.tile(labels, multiples=(1, self.num_outputs))  # [B, L]
+
+            pred_loss = tf2.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits)  # [B, L]
+
             weights = tf2.constant([[0.3, 0.7]], dtype=pred_loss.dtype)
             pred_loss = tf2.math.multiply(pred_loss, weights)
             sample_loss = tf2.reduce_sum(pred_loss, axis=-1)

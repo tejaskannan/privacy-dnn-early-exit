@@ -68,8 +68,8 @@ if __name__ == '__main__':
     # Execute all early stopping policies
     results: Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]] = dict(val=dict(), test=dict())
 
-    #strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY]
-    strategies = [ExitStrategy.OPTIMIZED_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY, ExitStrategy.HYBRID_MAX_PROB, ExitStrategy.HYBRID_ENTROPY, ExitStrategy.RANDOM]
+    #strategies = [ExitStrategy.OPTIMIZED_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
 
     for strategy in strategies:
         strategy_name = strategy.name.lower()
@@ -77,7 +77,6 @@ if __name__ == '__main__':
         test_results: Dict[str, Dict[str, List[float]]] = dict()
 
         for rate in reversed(rates):
-
             rate_result = execute_for_rate(test_probs=test_probs,
                                            val_probs=val_probs,
                                            test_labels=test_labels,

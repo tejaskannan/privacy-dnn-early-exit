@@ -1,6 +1,7 @@
 import unittest
 import numpy as np
 from privddnn.utils.metrics import compute_entropy, compute_conditional_entropy, get_joint_distribution, compute_joint_entropy
+from privddnn.utils.metrics import to_one_hot
 
 
 class EntropyTests(unittest.TestCase):
@@ -122,6 +123,17 @@ class JointDistributionTests(unittest.TestCase):
         self.assertAlmostEqual(joint_probs[1, 1], 0.125, places=7)
         self.assertAlmostEqual(joint_probs[0, 2], 0.375, places=7)
         self.assertAlmostEqual(joint_probs[1, 2], 0.125, places=7)
+
+
+class OneHotTests(unittest.TestCase):
+
+    def test_three_labels(self):
+        labels = np.array([1, 0, 2, 0])
+        num_labels = 3
+        one_hot = to_one_hot(y=labels, num_labels=num_labels)
+
+        expected = np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+        self.assertTrue(np.all(np.isclose(expected, one_hot)))
 
 
 if __name__ == '__main__':

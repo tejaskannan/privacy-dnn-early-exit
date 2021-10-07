@@ -3,12 +3,13 @@ import scipy.optimize as optimize
 from typing import Tuple
 
 from privddnn.utils.constants import SMALL_NUMBER
-from privddnn.utils.metrics import create_confusion_matrix
+from privddnn.utils.metrics import create_confusion_matrix, compute_entropy_metric, compute_max_prob_metric
 
 
 MAX_ITERS = 250
 ANNEAL_RATE = 0.9
 PATIENCE = 15
+BETA = 5
 
 
 class SharpenedSigmoid:
@@ -41,11 +42,13 @@ class ThresholdFunction:
 
 class ThresholdObjective:
 
-    def __init__(self, target: float, num_labels: int):
+    def __init__(self, target: float, num_labels: int, metric_name: str):
+        assert metric_name in ('max-prob', 'entropy'), 'Metric name must be `max-prob` or `entropy`'
+
         self._target = target
         self._num_labels = num_labels
-        self._sigmoid = SharpenedSigmoid(beta=5)
-        self._threshold = ThresholdFunction()
+        self._sigmoid = SharpenedSigmoid(beta=BETA)
+        self._metric_name = metric_name
 
     @property
     def target(self) -> float:
@@ -55,104 +58,91 @@ class ThresholdObjective:
     def num_labels(self) -> int:
         return self._num_labels
 
+    @property
+    def metric_name(self) -> str:
+        return self._metric_name
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        if self.metric_name == 'entropy':
+            return compute_entropy_metric(probs)
+        elif self.metric_name == 'max-prob':
+            return compute_max_prob_metric(probs)
+        else:
+            raise ValueError('Unknown metric: {}'.format(self.metric_name))
+
     def __call__(self, probs: np.ndarray, labels: np.ndarray, thresholds: np.ndarray) -> float:
         label_levels = np.zeros(shape=(self.num_labels, ))
         label_counts = np.zeros(shape=(self.num_labels, ))
 
-        for pred_probs, label in zip(probs, labels):
-            pred = np.argmax(pred_probs)
-            metric = pred_probs[pred]
+        preds = np.argmax(probs, axis=-1)
+        metrics = self.compute_metric(probs=probs)
 
+        for pred, metric, label in zip(preds, metrics, labels):
             label_levels[label] += self._sigmoid(thresholds[pred] - metric)
-            #label_levels[label] += int(stop_prob < thresholds[pred])
-            #label_levels[label] += self._threshold(thresholds[pred] - metric)
             label_counts[label] += 1
 
         avg_rates = label_levels / (label_counts + SMALL_NUMBER)
         return float(np.sum(np.abs(avg_rates - self.target))), avg_rates
 
-        #return 0.5 * float(np.sum(np.square(avg_rates - self.target))), avg_rates
-
     def derivative(self, probs: np.ndarray, labels: np.ndarray, avg_rates: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
-        #per_label_diff = (avg_rates - self.target)
         per_label_diff = 2.0 * (avg_rates > self.target).astype(float) - 1.0
 
         threshold_gradient = np.zeros_like(thresholds)
         num_samples = probs.shape[0]
-        #weight_gradient = np.zeros_like(weights)
 
+        preds = np.argmax(probs, axis=-1)
+        metrics = self.compute_metric(probs=probs)
         label_counts = np.bincount(labels, minlength=self._num_labels)
 
-        for pred_probs, label in zip(probs, labels):
-            pred = np.argmax(pred_probs)
-            metric = pred_probs[pred]
-
+        for pred, metric, label in zip(preds, metrics, labels):
             dL_dt = (per_label_diff[label] / label_counts[label]) * self._sigmoid.derivative(thresholds[pred] - metric)
-            #dL_dt = (per_label_diff[label] / label_counts[label]) * self._threshold.derivative(thresholds[pred] - metric)
-            #dL_ds = -1 * dL_dt
-            #dL_dw = dL_ds * pred_probs[pred] * self._sigmoid.derivative(transform) * pred_probs
-
             threshold_gradient[pred] += dL_dt
-            #weight_gradient[pred] += dL_dw
 
-        #return threshold_gradient, weight_gradient
         return threshold_gradient
 
 
-def fit_thresholds_grad(probs: np.ndarray, labels: np.ndarray, target: float, start_thresholds: np.ndarray, start_weights: np.ndarray, learning_rate: float) -> np.ndarray:
+def fit_thresholds_grad(probs: np.ndarray, labels: np.ndarray, target: float, start_thresholds: np.ndarray, learning_rate: float, metric_name: str) -> np.ndarray:
     sample_idx = np.arange(len(labels))
     rand = np.random.RandomState(seed=25893)
     num_labels = np.max(labels) + 1
 
     thresholds = np.copy(start_thresholds)
-    #weights = np.copy(start_weights)
-    #weights = rand.uniform(low=-0.7, high=0.7, size=(num_labels, num_labels))
-    objective = ThresholdObjective(target=target, num_labels=num_labels)
+    objective = ThresholdObjective(target=target, num_labels=num_labels, metric_name=metric_name)
 
-    preds = np.argmax(probs, axis=-1)
-    confusion_mat = create_confusion_matrix(predictions=preds, labels=labels) + 1
-    sample_probs = confusion_mat / np.sum(confusion_mat, axis=-1)
-
+    # Compute the initial loss for reference
     loss, rates = objective(probs=probs, labels=labels, thresholds=thresholds)
     step_size = learning_rate
 
-    print('Starting Rates: {}'.format(rates))
-    print('Loss: {}'.format(loss))
-
+    # Set the parameters to detect the best result
     best_loss = loss
     best_thresholds = np.copy(thresholds)
-    #best_weights = np.copy(weights)
     best_rates = rates
     num_not_improved = 0
 
+    # Set the gradient descent parameters
     expected_threshold_grad = np.zeros_like(thresholds)
-    #expected_weight_grad = np.zeros_like(weights)
     gamma = 0.9
     anneal_patience = 2
 
     for _ in range(MAX_ITERS):
-        #batch_idx = rand.choice(sample_idx, size=256, replace=False)
-        #batch_metrics = metrics[batch_idx]
-        #batch_preds = preds[batch_idx]
-        #batch_labels = labels[batch_idx]
-
+        # Compute the loss for this iteration
         loss, avg_rates = objective(probs=probs, labels=labels, thresholds=thresholds)
 
         # Compute the gradients
         dthresholds = objective.derivative(probs=probs, labels=labels, avg_rates=avg_rates, thresholds=thresholds)
 
-        approx_grad = np.zeros_like(thresholds)
-        epsilon = 1e-5
+        #approx_grad = np.zeros_like(thresholds)
+        #epsilon = 1e-5
 
-        for i in range(num_labels):
-            thresholds[i] += epsilon
-            upper_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds)
+        #for i in range(num_labels):
+        #    thresholds[i] += epsilon
+        #    upper_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds)
 
-            thresholds[i] -= 2 * epsilon
-            lower_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds)
+        #    thresholds[i] -= 2 * epsilon
+        #    lower_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds)
 
-            thresholds[i] += epsilon
-            approx_grad[i] = (upper_loss - lower_loss) / (2 * epsilon)
+        #    thresholds[i] += epsilon
+        #    approx_grad[i] = (upper_loss - lower_loss) / (2 * epsilon)
 
         #print('True: {}'.format(dthresholds))
         #print('Approx: {}'.format(approx_grad))
@@ -163,23 +153,15 @@ def fit_thresholds_grad(probs: np.ndarray, labels: np.ndarray, target: float, st
         scaled_step_size = step_size / np.sqrt(expected_threshold_grad + SMALL_NUMBER)
         thresholds -= scaled_step_size * dthresholds
 
-        #expected_weight_grad = gamma * expected_weight_grad + (1.0 - gamma) * np.square(dweights)
-        #scaled_step_size = step_size / np.sqrt(expected_weight_grad + SMALL_NUMBER)
-        #weights -= scaled_step_size * dweights
-
-        #step_size *= ANNEAL_RATE
-
         if loss < best_loss:
             best_loss = loss
             best_thresholds = np.copy(thresholds)
-            #best_weights = np.copy(weights)
             best_rates = avg_rates
             num_not_improved = 0
         else:
             num_not_improved += 1
   
-
-        print('Loss: {:.6f}, Best Loss: {:.6f}'.format(loss, best_loss))
+        print('Loss: {:.6f}, Best Loss: {:.6f}'.format(loss, best_loss), end='\r')
 
         if (num_not_improved + 1) % anneal_patience == 0:
             step_size *= ANNEAL_RATE
@@ -194,18 +176,26 @@ def fit_thresholds_grad(probs: np.ndarray, labels: np.ndarray, target: float, st
     return best_loss, best_thresholds, best_rates
 
 
-def fit_randomization(probs: np.ndarray, labels: np.ndarray, thresholds: np.ndarray, target: float, epsilon: float) -> np.ndarray:
+def fit_randomization(probs: np.ndarray, labels: np.ndarray, thresholds: np.ndarray, target: float, epsilon: float, metric_name: str) -> np.ndarray:
     # Get the observed rates, [i, j] is the avg elevation rate for label j when predicted as i
     num_labels = np.max(labels) + 1
     elevation_counts = np.zeros(shape=(num_labels, num_labels))
     total_counts = np.zeros_like(elevation_counts)
 
-    sigmoid = SharpenedSigmoid(beta=5)
+    sigmoid = SharpenedSigmoid(beta=BETA)
 
-    for pred_probs, label in zip(probs, labels):
-        pred = np.argmax(pred_probs)
-        metric = pred_probs[pred]
+    # Compute the confidence metrics
+    if metric_name == 'max-prob':
+        metrics = compute_max_prob_metric(probs)
+    elif metric_name == 'entropy':
+        metrics = compute_entropy_metric(probs)
+    else:
+        raise ValueError('Unknown metric: {}'.format(metric_name))
 
+    # Compute the predictions for all samples
+    preds = np.argmax(probs, axis=-1)
+
+    for pred, metric, label in zip(preds, metrics, labels):
         elevation_counts[pred, label] += sigmoid(thresholds[pred] - metric)
         total_counts[pred, label] += 1
 
@@ -213,7 +203,6 @@ def fit_randomization(probs: np.ndarray, labels: np.ndarray, thresholds: np.ndar
 
     # Get the confusion matrix, [i, j] is the number of elements classified as i that are actually j
     # Each column sums to 1
-    preds = np.argmax(probs, axis=-1)
     confusion_mat = create_confusion_matrix(predictions=preds, labels=labels)
     confusion_mat = confusion_mat / (np.sum(confusion_mat, axis=0, keepdims=True) + SMALL_NUMBER)
 
@@ -221,7 +210,6 @@ def fit_randomization(probs: np.ndarray, labels: np.ndarray, thresholds: np.ndar
     A = (confusion_mat * (target - observed_rates)).T
 
     # Get the constraint bounds
-    #beta = np.diag(confusion_mat.T.dot(observed_rates))
     beta = np.sum(confusion_mat * observed_rates, axis=0)
     lower = (target - epsilon) - beta
     upper = (target + epsilon) - beta

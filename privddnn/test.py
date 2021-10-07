@@ -70,6 +70,7 @@ if __name__ == '__main__':
 
     # Restore the model
     model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
+    #model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.FINE_TUNE)
 
     # Get the predictions from the models
     test_probs = model.test(op=OpName.PROBS)  # [B, K]
@@ -78,15 +79,14 @@ if __name__ == '__main__':
     test_labels = model.dataset.get_test_labels()
     val_labels = model.dataset.get_val_labels()
 
-    #rates = list(sorted(np.arange(0.0, 1.01, 0.1)))
-    rates = [0.8]
+    rates = list(sorted(np.arange(0.0, 1.01, 0.1)))
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
     results: Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]] = dict(val=dict(), test=dict())
 
-    #strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY]
-    strategies = [ExitStrategy.OPTIMIZED_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY, ExitStrategy.HYBRID_MAX_PROB, ExitStrategy.HYBRID_ENTROPY, ExitStrategy.RANDOM]
+    #strategies = [ExitStrategy.OPTIMIZED_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
 
     for strategy in strategies:
         strategy_name = strategy.name.lower()

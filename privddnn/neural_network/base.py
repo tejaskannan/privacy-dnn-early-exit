@@ -207,9 +207,6 @@ class NeuralNetwork(BaseClassifier):
                                   labels=self._placeholders[PhName.LABELS],
                                   model_mode=model_mode)
 
-            # Make the optimization step
-            optimizer_op = self.make_optimizer_op(loss=loss)
-
             # Get the predictions
             predictions = tf2.argmax(logits, axis=-1)
             probs = tf2.nn.softmax(logits, axis=-1)
@@ -218,10 +215,14 @@ class NeuralNetwork(BaseClassifier):
             ops = {
                 OpName.LOGITS: logits,
                 OpName.LOSS: loss,
-                OpName.OPTIMIZE: optimizer_op,
                 OpName.PREDICTIONS: predictions,
                 OpName.PROBS: probs
             }
+
+            # Make the optimization step
+            if model_mode != ModelMode.TEST:
+                optimizer_op = self.make_optimizer_op(loss=loss)
+                ops[OpName.OPTIMIZE] = optimizer_op
 
             for op_name, op_value in ops.items():
                 self._ops[op_name] = op_value
@@ -366,6 +367,7 @@ class NeuralNetwork(BaseClassifier):
 
                 if ((batch_num + 1) % 20 == 0) or (batch_num == (num_train_batches - 1)):
                     print('Train Batch {}/{}. Loss: {:.4f}, Accuracy: {:.4f}'.format(batch_num + 1, num_train_batches, avg_train_loss, train_accuracy), end='\r')
+                    break
 
             print()
 
@@ -405,6 +407,7 @@ class NeuralNetwork(BaseClassifier):
 
                 if ((batch_num + 1) % 20 == 0) or (batch_num == (num_val_batches - 1)):
                     print('Val Batch {}/{}, Loss: {:.4f}, Accuracy: {:.4f}'.format(batch_num + 1, num_val_batches, avg_val_loss, val_accuracy), end='\r')
+                    break
 
             print()
 
@@ -492,8 +495,8 @@ class NeuralNetwork(BaseClassifier):
 
         # Save the trainable variables
         with self.sess.graph.as_default():
-            trainable_vars = self.sess.graph.get_collection(tf1.GraphKeys.TRAINABLE_VARIABLES)
-            var_dict = { var.name: var for var in trainable_vars }
+            model_vars = self.sess.graph.get_collection(tf1.GraphKeys.GLOBAL_VARIABLES)
+            var_dict = { var.name: var for var in model_vars }
             var_values = self.sess.run(var_dict)
 
             output_data['weights'] = var_values
@@ -512,6 +515,9 @@ class NeuralNetwork(BaseClassifier):
         metadata = serialized_data['metadata']
         model_weights = serialized_data['weights']
 
+        # Convert the keys to avoid naming issues
+        metadata = { MetaName[key.name.upper()]: value for key, value in metadata.items() }
+
         # Build the model
         model = cls(hypers=hypers, dataset_name=metadata[MetaName.DATASET_NAME])
 
@@ -526,10 +532,18 @@ class NeuralNetwork(BaseClassifier):
 
         # Set the model weights
         with model.sess.graph.as_default():
-            trainable_vars = model.sess.graph.get_collection(tf1.GraphKeys.TRAINABLE_VARIABLES)
-            var_dict = { var.name: var for var in trainable_vars }
+            #trainable_vars = model.sess.graph.get_collection(tf1.GraphKeys.TRAINABLE_VARIABLES)
+            model_vars = model.sess.graph.get_collection(tf1.GraphKeys.GLOBAL_VARIABLES)
+            var_dict = { var.name: var for var in model_vars }
 
-            assign_ops = [tf1.assign(var_dict[name], model_weights[name]) for name in model_weights.keys()]
+            assign_ops = [tf1.assign(var_dict[name], model_weights[name]) for name in model_weights.keys() if name in var_dict]
             model.sess.run(assign_ops)
+
+            for name in model_weights.keys():
+                if name not in var_dict:
+                    print('WARNING: Could not find variable {} in computational graph.'.format(name))
+
+        # Re-name the operations to avoid naming issues
+        model._ops = { OpName[key.name.upper()]: value for key, value in model.ops.items() }
 
         return model

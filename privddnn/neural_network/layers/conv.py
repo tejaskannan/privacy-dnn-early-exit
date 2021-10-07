@@ -5,7 +5,7 @@ from typing import Tuple
 from .layer_utils import get_activation_fn
 
 
-def fitnet_block(inputs: tf2.Tensor, num_filters: int, pool_size: int, pool_stride: int, name: str) -> Tuple[tf2.Tensor, tf2.Tensor, tf2.Tensor]:
+def fitnet_block(inputs: tf2.Tensor, num_filters: int, pool_size: int, pool_stride: int, name: str, trainable: bool) -> Tuple[tf2.Tensor, tf2.Tensor, tf2.Tensor]:
     with tf1.variable_scope(name):
         # Create the convolution layers
         block_one = conv2d(inputs=inputs,
@@ -13,6 +13,7 @@ def fitnet_block(inputs: tf2.Tensor, num_filters: int, pool_size: int, pool_stri
                            stride=1,
                            num_filters=num_filters,
                            activation='relu',
+                           trainable=trainable,
                            name='conv1')
 
         block_two = conv2d(inputs=block_one,
@@ -20,6 +21,7 @@ def fitnet_block(inputs: tf2.Tensor, num_filters: int, pool_size: int, pool_stri
                            stride=1,
                            num_filters=num_filters,
                            activation='relu',
+                           trainable=trainable,
                            name='conv2')
 
         pooled = tf2.nn.max_pool(input=block_two,
@@ -94,7 +96,8 @@ def conv2d(inputs: tf2.Tensor,
            filter_size: int,
            stride: int,
            activation: str,
-           name: str) -> tf2.Tensor:
+           name: str,
+           trainable: bool) -> tf2.Tensor:
     """
     Creates 2d convolutional neural network layer
 
@@ -122,11 +125,13 @@ def conv2d(inputs: tf2.Tensor,
         filters = tf1.get_variable(shape=[filter_size, filter_size, input_channels, num_filters],
                                    dtype=inputs.dtype,
                                    initializer=tf1.glorot_uniform_initializer(),
+                                   trainable=trainable,
                                    name='filters')
 
         bias = tf1.get_variable(shape=[1, 1, 1, num_filters],
                                 dtype=inputs.dtype,
                                 initializer=tf1.glorot_uniform_initializer(),
+                                trainable=trainable,
                                 name='bias')
 
         # Apply the convolution filters

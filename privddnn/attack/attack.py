@@ -94,7 +94,7 @@ if __name__ == '__main__':
     test_index_path = '../data/{}/test'.format(dataset_name)
 
     rates = [str(round(r / 10.0, 2)) for r in range(11)]
-    policy_names = ['random', 'max_prob', 'label_max_prob', 'optimized_max_prob']
+    policy_names = ['random', 'max_prob', 'label_max_prob', 'hybrid_max_prob', 'entropy', 'label_entropy', 'hybrid_entropy']
     window_size = 25
     noise_rate = 0.2
     #num_samples = 2000
@@ -122,7 +122,6 @@ if __name__ == '__main__':
                                                                           num_samples=num_samples,
                                                                           rand=rand,
                                                                           noise_rate=noise_rate)
-
 
             #train_attack_inputs, train_attack_outputs = make_similar_attack_dataset(levels=val_outputs,
             #                                                                labels=val_labels,

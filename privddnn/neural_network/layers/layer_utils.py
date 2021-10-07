@@ -1,6 +1,7 @@
 import tensorflow as tf2
 import tensorflow.compat.v1 as tf1
 from typing import Callable, Optional
+from privddnn.utils.constants import SMALL_NUMBER
 
 
 def get_activation_fn(name: str) -> Optional[Callable[[tf2.Tensor], tf2.Tensor]]:
@@ -17,6 +18,8 @@ def get_activation_fn(name: str) -> Optional[Callable[[tf2.Tensor], tf2.Tensor]]
         return tf1.nn.relu6
     elif name == 'leaky_relu':
         return tf1.nn.leaky_relu
+    elif name == 'tanh':
+        return tf2.nn.tanh
     else:
         raise ValueError('No activation function with name: {}'.format(name))
 
@@ -26,6 +29,9 @@ def differentiable_abs(x: tf2.Tensor) -> tf2.Tensor:
 
     def grad(dy: tf2.Tensor):
         factor = tf2.where(x < 0, -1.0, 1.0)
+        is_zero = tf2.cast(tf2.less(tf2.abs(x), SMALL_NUMBER), dtype=factor.dtype)
+        factor = (1.0 - is_zero) * factor
+
         return dy * factor
 
     return tf2.abs(x), grad

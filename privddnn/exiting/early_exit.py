@@ -6,6 +6,7 @@ from sklearn.ensemble import AdaBoostClassifier
 from typing import List, Tuple, Dict, DefaultDict, Optional
 
 from privddnn.utils.metrics import compute_entropy, create_confusion_matrix, sigmoid
+from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metric
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.file_utils import read_json
 from .even_optimizer import fit_thresholds, fit_threshold_randomization
@@ -16,52 +17,14 @@ from .threshold_optimizer import fit_thresholds_grad, fit_randomization
 EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'observed_rates'])
 
 
-class EvenMode(Enum):
-    PLAIN = auto()
-    TOTAL_RAND = auto()
-    CLASS_RAND = auto()
-
-
 class ExitStrategy(Enum):
     RANDOM = auto()
     ENTROPY = auto()
     MAX_PROB = auto()
     LABEL_ENTROPY = auto()
     LABEL_MAX_PROB = auto()
-    OPTIMIZED_MAX_PROB = auto()
-
-
-def validate_args(probs: np.ndarray, rates: List[float]):
-    num_outputs = probs.shape[1]
-    assert len(rates) == num_outputs, 'Must provide {} rates. Got: {}'.format(len(rates), num_outputs)
-    assert np.isclose(np.sum(rates), 1.0), 'Rates must sum to 1'
-
-
-def make_attack_dataset(outputs: np.ndarray, labels: np.ndarray, window_size: int, num_samples: int, rand: np.random.RandomState) -> Tuple[np.ndarray, np.ndarray]:
-    output_dist: DefaultDict[int, List[int]] = defaultdict(list)
-
-    for num_outputs, label in zip(outputs, labels):
-        output_dist[label].append(num_outputs)
-
-    num_labels = len(output_dist)
-    samples_per_label = int(num_samples / num_labels)
-
-    input_list: List[np.ndarray] = []
-    output_list: List[np.ndarray] = []
-
-    for label, output_counts in output_dist.items():
-        for _ in range(samples_per_label):
-            selected_counts = rand.choice(output_counts, size=window_size)
-
-            # Create the features
-            mean = np.average(selected_counts)
-            std = np.std(selected_counts)
-            median = np.median(selected_counts)
-
-            input_list.append(np.expand_dims([mean, std, median], axis=0))
-            output_list.append(label)
-
-    return np.vstack(input_list), np.vstack(output_list).reshape(-1)
+    HYBRID_MAX_PROB = auto()
+    HYBRID_ENTROPY = auto()
 
 
 class EarlyExiter:
@@ -85,7 +48,7 @@ class EarlyExiter:
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
         pass
 
-    def select_output(self, sample_probs: int, sample_idx: int) -> int:
+    def select_output(self, probs: int) -> int:
         raise NotImplementedError()
 
     def test(self, test_probs: np.ndarray) -> np.ndarray:
@@ -96,8 +59,7 @@ class EarlyExiter:
         output_levels: List[int] = []
 
         for sample_idx, sample_probs in enumerate(test_probs):
-            level = self.select_output(sample_probs=sample_probs,
-                                       sample_idx=sample_idx)
+            level = self.select_output(probs=sample_probs)
             pred = np.argmax(sample_probs[level])
 
             predictions.append(pred)
@@ -110,24 +72,6 @@ class EarlyExiter:
                                output_levels=np.vstack(output_levels).reshape(-1),
                                observed_rates=observed_rates)
 
-    def fit_attack_model(self, val_outputs: np.ndarray, val_labels: np.ndarray, window_size: int, num_samples: int):
-        inputs, labels = make_attack_dataset(outputs=val_outputs,
-                                             labels=val_labels,
-                                             window_size=window_size,
-                                             num_samples=num_samples,
-                                             rand=self._val_rand)
-
-        self._attack_model.fit(inputs, labels)
-
-    def test_attack_model(self, test_outputs: np.ndarray, test_labels: np.ndarray, window_size: int, num_samples: int) -> float:
-        inputs, labels = make_attack_dataset(outputs=test_outputs,
-                                             labels=test_labels,
-                                             window_size=window_size,
-                                             num_samples=num_samples,
-                                             rand=self._test_rand)
-
-        return self._attack_model.score(inputs, labels)
-
 
 class RandomExit(EarlyExiter):
 
@@ -136,7 +80,7 @@ class RandomExit(EarlyExiter):
         self._rand = np.random.RandomState(23471)
         self._output_idx = list(range(len(rates)))
 
-    def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
+    def select_output(self, probs: np.ndarray) -> int:
         level = self._rand.choice(self._output_idx, size=1, p=self.rates)
         return int(level)
 
@@ -151,45 +95,28 @@ class ThresholdExiter(EarlyExiter):
     def thresholds(self) -> List[float]:
         return self._thresholds
 
+    def compute_metric(self, probs: np.ndarray) -> float:
+        raise NotImplementedError()
+
+    def get_quantile(self, level: int) -> float:
+        return 1.0 - self.rates[level]
+
     def set_threshold(self, t: float, level: int):
         assert level >= 0 and level < self.num_outputs, 'Level must be in [0, {})'.format(self.num_outputs)
         self._thresholds[level] = t
 
-
-class EntropyExit(ThresholdExiter):
-
-    def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
-        assert val_probs.shape[0] == val_labels.shape[0], 'Misaligned probabilites and labels'
-        assert self.num_outputs == 2, 'Entropy Exiting only works with 2 outputs'
-        assert val_probs.shape[1] == self.num_outputs, 'Expected {} outputs. Got {}'.format(self.num_outputs, val_probs.shape[1])
-
-        # Compute the entropy for each predicted distribution
-        pred_entropy = compute_entropy(val_probs, axis=-1)  # [B, L]
-
-        # Comute the thresholds based on the quantile
-        # TODO: Make this 'cumulative' by removing the samples stopped at the previous level(s)
-        for level in range(self.num_outputs):
-            t = np.quantile(pred_entropy[:, level], q=self.rates[level])
-            self.set_threshold(t, level)
-
-        # Catch everything at the last level
-        self.set_threshold(BIG_NUMBER, self.num_outputs - 1)
-
-    def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
-        level_entropy = compute_entropy(sample_probs, axis=-1)  # [L]
-        comp = np.less(level_entropy, self.thresholds).astype(int)  # [L]
-        return np.argmax(comp)
-
-
-class MaxProbExit(ThresholdExiter):
+    def select_output(self, probs: np.ndarray) -> int:
+        metric = self.compute_metric(probs)
+        comp = np.greater(metric, self.thresholds).astype(int)  # [L]
+        return np.argmax(comp)  # Breaks ties by selecting the first value
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
         assert val_probs.shape[0] == val_labels.shape[0], 'Misaligned probabilites and labels'
-        assert self.num_outputs == 2, 'Max Prob Exiting only works with 2 outputs'
+        assert self.num_outputs == 2, 'Threshold Exiting only works with 2 outputs'
         assert val_probs.shape[1] == self.num_outputs, 'Expected {} outputs. Got {}'.format(self.num_outputs, val_probs.shape[1])
 
         # Compute the maximum probability for each predicted distribution
-        max_probs = np.max(val_probs, axis=-1)  # [B, L]
+        metrics = self.compute_metric(probs=val_probs)  # [B, L]
 
         # Comute the thresholds based on the quantile
         # TODO: Make this 'cumulative' by removing the samples stopped at the previous level(s)
@@ -199,17 +126,23 @@ class MaxProbExit(ThresholdExiter):
             elif np.isclose(self.rates[level], 0.0):
                 t = 1.0
             else:
-                t = np.quantile(max_probs[:, level], q=1.0 - self.rates[level])
+                t = np.quantile(metrics[:, level], q=1.0 - self.rates[level])
             
             self.set_threshold(t, level)
 
         # Catch everything at the last level
         self.set_threshold(0.0, self.num_outputs - 1)
 
-    def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
-        level_probs = np.max(sample_probs, axis=-1)  # [L]
-        comp = np.greater(level_probs, self.thresholds).astype(int)  # [L]
-        return np.argmax(comp)
+
+class EntropyExit(ThresholdExiter):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_entropy_metric(probs=probs)
+
+class MaxProbExit(ThresholdExiter):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_max_prob_metric(probs=probs)
 
 
 class LabelThresholdExiter(EarlyExiter):
@@ -241,13 +174,10 @@ class LabelThresholdExiter(EarlyExiter):
         assert self._thresholds is not None, 'Must call init_thresholds() first'
         return self._thresholds[level]
 
-    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
-        raise NotImplementedError()
-
     def get_quantile(self, level: int) -> float:
-        raise NotImplementedError()
+        return 1.0 - self.rates[level]
 
-    def get_max_threshold(self, num_labels: int) -> float:
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         raise NotImplementedError()
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
@@ -272,7 +202,7 @@ class LabelThresholdExiter(EarlyExiter):
         # Set the thresholds according to the percentile in each prediction
         for pred, distribution in pred_distributions.items():
             if np.isclose(self.rates[0], 0.0):
-                t = self.get_max_threshold(num_labels=num_labels) + SMALL_NUMBER
+                t = 1.0 + SMALL_NUMBER
             elif np.isclose(self.rates[0], 1.0):
                 t = 0.0
             else:
@@ -281,145 +211,80 @@ class LabelThresholdExiter(EarlyExiter):
             self.set_threshold(t=t, level=0, label=pred)
             self.set_threshold(t=0.0, level=1, label=pred)
 
+    def select_output(self, probs: np.ndarray) -> int:
+        # Get the threshold
+        first_probs = probs[0, :]
+        first_pred = int(np.argmax(first_probs))
+        t = self.get_threshold(level=0, label=first_pred)
+
+        # Get the metric on the first prediction
+        metric = self.compute_metric(first_probs)
+
+        return int(metric < t)
+
 
 class LabelMaxProbExit(LabelThresholdExiter):
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
-        return np.max(probs, axis=-1)
-
-    def get_quantile(self, level: int) -> float:
-        return 1.0 - self.rates[level]
-
-    def get_max_threshold(self, num_labels: int) -> float:
-        return 1.0
-
-    def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
-        # Get the maximum probabilities
-        max_probs = np.max(sample_probs, axis=-1)  # [L]
-        first_prob = float(max_probs[0])
-
-        # Get the threshold
-        first_pred = int(np.argmax(sample_probs[0, :]))
-        t = self.get_threshold(level=0, label=first_pred)
-
-        return int(first_prob < t)
+        return compute_max_prob_metric(probs=probs)
 
 
 class LabelEntropyExit(LabelThresholdExiter):
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
-        return compute_entropy(probs, axis=-1)
-
-    def get_quantile(self, level: int) -> float:
-        return self.rates[level]
-
-    def get_max_threshold(self, num_labels: int) -> float:
-        dist = np.ones(shape=(num_labels, )) / num_labels
-        return float(compute_entropy(dist, axis=-1))
-
-    def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
-        # Get the maximum probabilities
-        entropies = compute_entropy(sample_probs, axis=-1)  # [L]
-        first_entropy = float(entropies[0])
-
-        # Get the threshold
-        first_pred = int(np.argmax(sample_probs[0, :]))
-        t = self.get_threshold(level=0, label=first_pred)
-
-        return int(first_entropy > t)
+        return compute_entropy_metric(probs=probs)
 
 
-class OptimizedMaxProb(LabelMaxProbExit):
+class HybridRandomExit(LabelThresholdExiter):
 
-    def __init__(self, rates: List[float], path: Optional[str]):
+    def __init__(self, rates: List[float], path: Optional[str], metric_name: str):
         super().__init__(rates=rates)
+        assert metric_name in ('max-prob', 'entropy'), 'Metric name must be `max-prob` or `entropy`'
 
         self._thresholds: Optional[np.ndarray] = None
         self._rand_rates: Optional[np.ndarray] = None
         self._observed_rates: Optional[np.ndarray] = None
         self._trials = 1
+        self._metric_name = metric_name
 
         self._rand = np.random.RandomState(seed=2890)
-        self._noise_scale = 0.1
+        self._noise_scale = 0.02
+        self._epsilon = 0.001
 
         if path is not None:
             folder, file_name = os.path.split(path)
             model_name = file_name.split('.')[0]
-            thresholds_path = os.path.join(folder, '{}_max-prob-thresholds.json'.format(model_name))
+            thresholds_path = os.path.join(folder, '{}_{}-thresholds.json'.format(model_name, metric_name))
 
             saved_thresholds = read_json(thresholds_path)
             key = str(round(rates[0], 2))
             self._thresholds = np.array(saved_thresholds['thresholds'][key])
             self._rand_rates = np.array(saved_thresholds['rates'][key])
-            self._prob_std = float(saved_thresholds['prob_std'])
-            self._sample_probs = saved_thresholds['sample_probs']
 
-    def select_output(self, sample_probs: np.ndarray, sample_idx: int) -> int:
+    @property
+    def metric_name(self) -> str:
+        return self._metric_name
+
+    def compute_metric(self, probs: np.ndarray) -> float:
+        raise NotImplementedError()
+
+    def select_output(self, probs: np.ndarray) -> int:
         if self._rand_rates is None:
-            return super().select_output(sample_probs, sample_idx)
+            return super().select_output(probs)
 
         # Get the maximum probability and prediction on the first output
-        first_pred = int(np.argmax(sample_probs[0, :]))
-        first_prob = float(sample_probs[0, first_pred])
+        first_probs = probs[0, :]
+        first_pred = int(np.argmax(first_probs))
+        metric = self.compute_metric(first_probs)
 
         # Get the threshold
         t = self.get_threshold(level=0, label=first_pred)
 
         # Compute the elevation probability
-        level_prob = sigmoid(5 * (t - first_prob))
+        level_prob = sigmoid(5 * (t - metric))
         level = int(self._rand.uniform() < level_prob)
 
         return level
-
-        #level = int(first_prob < t)
-
-        #should_act_randomly = int(self._rand.uniform() < self._rand_rates[first_pred])
-        #rand_level = int(self._rand.uniform() > self.rates[0])
-
-        #return should_act_randomly * rand_level + (1 - should_act_randomly) * level
-
-
-        ## Get the expected level
-        #expected_level = 0.0
-
-        #for label in range(sample_probs.shape[-1]):
-        #    t = self.get_threshold(level=0, label=label)
-        #    p = threshold_probs[label]
-        #    expected_level += p * int(first_prob < t)
-
-        ## Compute the random rate on-the-fly
-        #epsilon = 0.01
-        #rand_rate = 1.0
-        #target = 1.0 - self.rates[0]
-        #less_than = expected_level < (target - epsilon)
-        #greater_than = expected_level > (target + epsilon)
-
-        ## TODO: Pre-compute all of thse terms to avoid variable computation
-        #if not less_than and not greater_than:
-        #    rand_rate = 0.0
-        #elif less_than:
-        #    rand_rate = ((target - epsilon) - expected_level) / (target - expected_level)
-        #else:
-        #    rand_rate = ((target + epsilon) - expected_level) / (target - expected_level)
-
-        ## Clip into the range [0, 1]
-        #rand_rate = max(min(rand_rate, 1.0), 0.0)
-        #adjusted_level = (1.0 - rand_rate) * expected_level + rand_rate * target
-
-        #r = self._rand.uniform()
-        #should_act_randomly = r < rand_rate
-        #rand_level = int(self._rand.uniform() > self.rates[0])
-
-        #if should_act_randomly:
-        #    return rand_level
-        #
-        #return level
-
-        #t = self._rand.choice(self.get_thresholds(level=0), size=1, replace=False, p=self._sample_probs[first_pred])
-        #t = self.get_threshold(level=0, label=first_pred)
-        #t = self._rand.normal(t, scale=0.1 * self._prob_std)
-
-        #return int(first_prob < t)
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
         if self._thresholds is not None:
@@ -429,35 +294,28 @@ class OptimizedMaxProb(LabelMaxProbExit):
 
         best_loss = BIG_NUMBER
         best_thresholds = self.thresholds[0]
-        best_rates = np.zeros_like(best_thresholds)
-        learning_rates = [1e-2]
+        learning_rates = [1e-2, 1e-3]
+        target = 1.0 - self.rates[0]
 
         for lr in learning_rates:
             for trial in range(self._trials):
                 start_thresholds = np.copy(self.thresholds[0])
 
                 if trial > 0:
-                    start_thresholds += self._rand.uniform(low=-0.02, high=0.02, size=start_thresholds.shape)
+                    start_thresholds += self._rand.uniform(low=-1 * self._noise_scale,
+                                                           high=self._noise_scale,
+                                                           size=start_thresholds.shape)
 
-                start_weights = self._rand.uniform(low=-0.7, high=0.7, size=(val_probs.shape[-1], val_probs.shape[-1]))
-
-                #thresholds, loss, rates = fit_thresholds(probs=val_probs,
-                #                                         labels=val_labels,
-                #                                         rate=self.rates[0],
-                #                                         start_thresholds=start_thresholds,
-                #                                         temperature=temperature)
                 loss, thresholds, rates = fit_thresholds_grad(probs=val_probs[:, 0, :],
                                                               labels=val_labels,
-                                                              target=1.0 - self.rates[0],
+                                                              target=target,
                                                               start_thresholds=start_thresholds,
-                                                              start_weights=start_weights,
-                                                              learning_rate=lr)
+                                                              learning_rate=lr,
+                                                              metric_name=self.metric_name)
 
                 if loss < best_loss:
                     best_loss = loss
                     best_thresholds = thresholds
-                    best_rates = rates
-                    #best_weights = weights
 
                 # If we get to 0 loss, no need to continue
                 if best_loss < SMALL_NUMBER:
@@ -467,17 +325,33 @@ class OptimizedMaxProb(LabelMaxProbExit):
             if best_loss < SMALL_NUMBER:
                 break
 
-        #rand_rate = fit_threshold_randomization(elevation_rates=best_rates,
-        #                                        target=1.0 - self.rates[0],
-        #                                        epsilon=0.01)
         rand_rates = fit_randomization(probs=val_probs[:, 0, :],
                                        labels=val_labels,
                                        thresholds=best_thresholds,
-                                       target=1.0 - self.rates[0],
-                                       epsilon=0.002)
+                                       target=target,
+                                       epsilon=self._epsilon,
+                                       metric_name=self.metric_name)
 
         self._thresholds[0] = best_thresholds
         self._rand_rates = rand_rates
+
+
+class HybridMaxProbExit(HybridRandomExit):
+
+    def __init__(self, rates: List[float], path: Optional[str]):
+        super().__init__(rates=rates, path=path, metric_name='max-prob')
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_max_prob_metric(probs=probs)
+
+
+class HybridEntropyExit(HybridRandomExit):
+
+    def __init__(self, rates: List[float], path: Optional[str]):
+        super().__init__(rates=rates, path=path, metric_name='entropy')
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_entropy_metric(probs=probs)
 
 
 def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> EarlyExiter:
@@ -491,7 +365,9 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
         return LabelMaxProbExit(rates=rates)
     elif strategy == ExitStrategy.LABEL_ENTROPY:
         return LabelEntropyExit(rates=rates)
-    elif strategy == ExitStrategy.OPTIMIZED_MAX_PROB:
-        return OptimizedMaxProb(rates=rates, path=model_path)
+    elif strategy == ExitStrategy.HYBRID_MAX_PROB:
+        return HybridMaxProbExit(rates=rates, path=model_path)
+    elif strategy == ExitStrategy.HYBRID_ENTROPY:
+        return HybridEntropyExit(rates=rates, path=model_path)
     else:
         raise ValueError('No policy {}'.format(strategy))

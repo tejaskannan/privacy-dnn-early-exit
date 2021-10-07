@@ -49,15 +49,15 @@ if __name__ == '__main__':
             ax1.plot(rates, accuracy, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
             ax2.plot(rates, mut_info, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
 
-        ax1.set_xlabel('Frac stopping at 2nd Output', fontsize=AXIS_FONT)
+        ax1.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
         ax1.set_ylabel('Accuracy', fontsize=AXIS_FONT)
         ax1.set_title('Model Accuracy', fontsize=TITLE_FONT)
         ax1.legend(fontsize=LEGEND_FONT)
         ax1.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
-        ax2.set_xlabel('Frac stopping at 2nd Output', fontsize=AXIS_FONT)
+        ax2.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
         ax2.set_ylabel('Mutual Information', fontsize=AXIS_FONT)
-        ax2.set_title('Mut Info between Label and Output #', fontsize=TITLE_FONT)
+        ax2.set_title('Mut Info: Label vs Exit', fontsize=TITLE_FONT)
         ax2.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
         plt.tight_layout()
