@@ -9,9 +9,10 @@ from privddnn.utils.metrics import compute_entropy, create_confusion_matrix, sig
 from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metric
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.file_utils import read_json
+from privddnn.controllers.runtime_controller import RandomnessController
 from .even_optimizer import fit_thresholds, fit_threshold_randomization
 from .prob_optimizer import fit_prob_thresholds
-from .threshold_optimizer import fit_thresholds_grad, fit_randomization
+from .threshold_optimizer import fit_thresholds_grad, fit_randomization, BETA
 
 
 EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'observed_rates'])
@@ -36,6 +37,7 @@ class EarlyExiter:
         self._val_rand = np.random.RandomState(seed=28116)
         self._test_rand = np.random.RandomState(seed=52190)
         self._rates = rates
+        self._prior = np.zeros(shape=(1, ))
 
     @property
     def rates(self) -> List[float]:
@@ -46,21 +48,39 @@ class EarlyExiter:
         return len(self._rates)
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
-        pass
+        num_labels = val_probs.shape[-1]
+        val_preds = np.argmax(val_probs[:, -1, :], axis=-1)  # [B]
+        self._prior = np.bincount(val_preds, minlength=num_labels).astype(float)
+        self._prior /= val_probs.shape[0]
 
-    def select_output(self, probs: int) -> int:
+    def select_output(self, probs: int, rand_rate: float) -> int:
         raise NotImplementedError()
 
     def test(self, test_probs: np.ndarray) -> np.ndarray:
-        num_samples, num_outputs, _ = test_probs.shape
+        num_samples, num_outputs, num_labels = test_probs.shape
         assert num_outputs == self.num_outputs, 'Expected {} outputs. Got {}'.format(self.num_outputs, num_outputs)
 
         predictions: List[int] = []
         output_levels: List[int] = []
 
+        # Assume a uniform prior
+        #label_prior = np.ones(shape=(num_labels, )) / num_labels
+        #controller = RandomnessController(prior=self._prior,
+        #                                  target=self.rates[1],
+        #                                  window=100,
+        #                                  epsilon=0.002)
+        #controller.reset()
+
         for sample_idx, sample_probs in enumerate(test_probs):
-            level = self.select_output(probs=sample_probs)
+            # Get the randomness rate for this sample
+            #rand_rate = controller.get_rate(sample_idx=sample_idx)
+
+            level = self.select_output(probs=sample_probs, rand_rate=0.0)
             pred = np.argmax(sample_probs[level])
+
+            # Update the controller if the level is 1
+            #if level == 1:
+            #    controller.update(pred=pred)
 
             predictions.append(pred)
             output_levels.append(level)
@@ -80,7 +100,7 @@ class RandomExit(EarlyExiter):
         self._rand = np.random.RandomState(23471)
         self._output_idx = list(range(len(rates)))
 
-    def select_output(self, probs: np.ndarray) -> int:
+    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
         level = self._rand.choice(self._output_idx, size=1, p=self.rates)
         return int(level)
 
@@ -105,12 +125,14 @@ class ThresholdExiter(EarlyExiter):
         assert level >= 0 and level < self.num_outputs, 'Level must be in [0, {})'.format(self.num_outputs)
         self._thresholds[level] = t
 
-    def select_output(self, probs: np.ndarray) -> int:
+    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
         metric = self.compute_metric(probs)
         comp = np.greater(metric, self.thresholds).astype(int)  # [L]
         return np.argmax(comp)  # Breaks ties by selecting the first value
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
+        super().fit(val_probs=val_probs, val_labels=val_labels)
+
         assert val_probs.shape[0] == val_labels.shape[0], 'Misaligned probabilites and labels'
         assert self.num_outputs == 2, 'Threshold Exiting only works with 2 outputs'
         assert val_probs.shape[1] == self.num_outputs, 'Expected {} outputs. Got {}'.format(self.num_outputs, val_probs.shape[1])
@@ -211,7 +233,7 @@ class LabelThresholdExiter(EarlyExiter):
             self.set_threshold(t=t, level=0, label=pred)
             self.set_threshold(t=0.0, level=1, label=pred)
 
-    def select_output(self, probs: np.ndarray) -> int:
+    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
         # Get the threshold
         first_probs = probs[0, :]
         first_pred = int(np.argmax(first_probs))
@@ -242,14 +264,14 @@ class HybridRandomExit(LabelThresholdExiter):
         assert metric_name in ('max-prob', 'entropy'), 'Metric name must be `max-prob` or `entropy`'
 
         self._thresholds: Optional[np.ndarray] = None
-        self._rand_rates: Optional[np.ndarray] = None
+        self._rand_rate: Optional[np.ndarray] = None
         self._observed_rates: Optional[np.ndarray] = None
         self._trials = 1
         self._metric_name = metric_name
 
         self._rand = np.random.RandomState(seed=2890)
         self._noise_scale = 0.02
-        self._epsilon = 0.001
+        self._epsilon = 0.002
 
         if path is not None:
             folder, file_name = os.path.split(path)
@@ -259,7 +281,8 @@ class HybridRandomExit(LabelThresholdExiter):
             saved_thresholds = read_json(thresholds_path)
             key = str(round(rates[0], 2))
             self._thresholds = np.array(saved_thresholds['thresholds'][key])
-            self._rand_rates = np.array(saved_thresholds['rates'][key])
+            self._rand_rate = np.array(saved_thresholds['rand_rate'][key])
+            self._weights = np.array(saved_thresholds['weights'][key])
 
     @property
     def metric_name(self) -> str:
@@ -268,23 +291,28 @@ class HybridRandomExit(LabelThresholdExiter):
     def compute_metric(self, probs: np.ndarray) -> float:
         raise NotImplementedError()
 
-    def select_output(self, probs: np.ndarray) -> int:
-        if self._rand_rates is None:
-            return super().select_output(probs)
+    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
+        if self._rand_rate is None:
+            return super().select_output(probs, rand_rate=rand_rate)
 
         # Get the maximum probability and prediction on the first output
         first_probs = probs[0, :]
         first_pred = int(np.argmax(first_probs))
         metric = self.compute_metric(first_probs)
 
-        # Get the threshold
+        # Get the threshold and scaling weight
         t = self.get_threshold(level=0, label=first_pred)
+        w = np.square(self._weights[first_pred])
 
         # Compute the elevation probability
-        level_prob = sigmoid(5 * (t - metric))
+        level_prob = sigmoid(w * (t - metric))
         level = int(self._rand.uniform() < level_prob)
 
-        return level
+        # Determine whether we should act randomly
+        should_act_random = int(self._rand.uniform() < self._rand_rate)
+        rand_level = int(self._rand.uniform() < self.rates[1])
+
+        return should_act_random * rand_level + (1 - should_act_random) * level
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
         if self._thresholds is not None:
@@ -294,7 +322,9 @@ class HybridRandomExit(LabelThresholdExiter):
 
         best_loss = BIG_NUMBER
         best_thresholds = self.thresholds[0]
-        learning_rates = [1e-2, 1e-3]
+        best_weights = np.ones_like(best_thresholds)
+        best_rates = np.ones_like(best_thresholds)
+        learning_rates = [1e-2]
         target = 1.0 - self.rates[0]
 
         for lr in learning_rates:
@@ -306,7 +336,7 @@ class HybridRandomExit(LabelThresholdExiter):
                                                            high=self._noise_scale,
                                                            size=start_thresholds.shape)
 
-                loss, thresholds, rates = fit_thresholds_grad(probs=val_probs[:, 0, :],
+                loss, thresholds, weights, rates = fit_thresholds_grad(probs=val_probs[:, 0, :],
                                                               labels=val_labels,
                                                               target=target,
                                                               start_thresholds=start_thresholds,
@@ -316,6 +346,8 @@ class HybridRandomExit(LabelThresholdExiter):
                 if loss < best_loss:
                     best_loss = loss
                     best_thresholds = thresholds
+                    best_weights = weights
+                    best_rates = rates
 
                 # If we get to 0 loss, no need to continue
                 if best_loss < SMALL_NUMBER:
@@ -325,15 +357,24 @@ class HybridRandomExit(LabelThresholdExiter):
             if best_loss < SMALL_NUMBER:
                 break
 
-        rand_rates = fit_randomization(probs=val_probs[:, 0, :],
-                                       labels=val_labels,
-                                       thresholds=best_thresholds,
-                                       target=target,
-                                       epsilon=self._epsilon,
-                                       metric_name=self.metric_name)
+        rand_rate = fit_randomization(avg_rates=best_rates,
+                                      labels=val_labels,
+                                      epsilon=self._epsilon,
+                                      target=target)
+
+        print('Randomness Rate: {}'.format(rand_rate))
+        print('Weights: {}'.format(np.square(best_weights)))
+
+        #rand_rates = fit_randomization(probs=val_probs[:, 0, :],
+        #                               labels=val_labels,
+        #                               thresholds=best_thresholds,
+        #                               target=target,
+        #                               epsilon=self._epsilon,
+        #                               metric_name=self.metric_name)
 
         self._thresholds[0] = best_thresholds
-        self._rand_rates = rand_rates
+        self._rand_rate = rand_rate
+        self._weights = best_weights
 
 
 class HybridMaxProbExit(HybridRandomExit):
