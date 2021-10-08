@@ -282,7 +282,7 @@ class HybridRandomExit(LabelThresholdExiter):
             key = str(round(rates[0], 2))
             self._thresholds = np.array(saved_thresholds['thresholds'][key])
             self._rand_rate = np.array(saved_thresholds['rand_rate'][key])
-            self._weights = np.array(saved_thresholds['weights'][key])
+            self._weight = float(saved_thresholds['weight'][key])
 
     @property
     def metric_name(self) -> str:
@@ -302,7 +302,7 @@ class HybridRandomExit(LabelThresholdExiter):
 
         # Get the threshold and scaling weight
         t = self.get_threshold(level=0, label=first_pred)
-        w = np.square(self._weights[first_pred])
+        w = np.square(self._weight) + 1.0
 
         # Compute the elevation probability
         level_prob = sigmoid(w * (t - metric))
@@ -327,6 +327,9 @@ class HybridRandomExit(LabelThresholdExiter):
         learning_rates = [1e-2]
         target = 1.0 - self.rates[0]
 
+        val_preds = np.argmax(val_probs, axis=-1)
+        is_correct = np.equal(val_preds, np.expand_dims(val_labels, axis=-1)).astype(float)
+
         for lr in learning_rates:
             for trial in range(self._trials):
                 start_thresholds = np.copy(self.thresholds[0])
@@ -337,6 +340,7 @@ class HybridRandomExit(LabelThresholdExiter):
                                                            size=start_thresholds.shape)
 
                 loss, thresholds, weights, rates = fit_thresholds_grad(probs=val_probs[:, 0, :],
+                                                              is_correct=is_correct,
                                                               labels=val_labels,
                                                               target=target,
                                                               start_thresholds=start_thresholds,
@@ -374,7 +378,7 @@ class HybridRandomExit(LabelThresholdExiter):
 
         self._thresholds[0] = best_thresholds
         self._rand_rate = rand_rate
-        self._weights = best_weights
+        self._weight = best_weights
 
 
 class HybridMaxProbExit(HybridRandomExit):

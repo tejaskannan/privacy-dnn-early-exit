@@ -45,6 +45,8 @@ class Dataset:
         dataset_name = dataset_name.lower()
         dir_path = os.path.dirname(os.path.realpath(__file__))
 
+        has_val_split = False
+
         if dataset_name == 'mnist':
             tf_dataset = tf2.keras.datasets.mnist
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
@@ -60,6 +62,11 @@ class Dataset:
         elif dataset_name == 'pen_digits':
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'train.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'test.h5'))
+        elif dataset_name == 'uci_har':
+            X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'uci_har', 'train.h5'))
+            X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'uci_har', 'val.h5'))
+            X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'uci_har', 'test.h5'))
+            has_val_split = True
         else:
             raise ValueError('Unknown dataset with name: {}'.format(dataset_name))
 
@@ -71,13 +78,19 @@ class Dataset:
         y_test = y_test.reshape(-1)
 
         # Split the training set into a train and validation folds
-        train_idx, val_idx = get_split_indices(num_samples=X_train.shape[0], frac=0.8)
+        if has_val_split:
+            y_val = y_val.reshape(-1)
+        else:
+            train_idx, val_idx = get_split_indices(num_samples=X_train.shape[0], frac=0.8)
+            X_val, y_val = X_train[val_idx], y_train[val_idx]
+            X_train, y_train = X_train[train_idx], y_train[train_idx]
 
-        self._train_inputs = X_train[train_idx]
-        self._train_labels = y_train[train_idx]
+        # Organize the data folds
+        self._train_inputs = X_train
+        self._train_labels = y_train
 
-        self._val_inputs = X_train[val_idx]
-        self._val_labels = y_train[val_idx]
+        self._val_inputs = X_val
+        self._val_labels = y_val
 
         self._test_inputs = X_test
         self._test_labels = y_test

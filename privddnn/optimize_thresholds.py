@@ -19,8 +19,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Restore the model
-    model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
-    #model = AdaBoostClassifier.restore(path=args.model_path, model_mode=ModelMode.TEST)
+    #model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
+    model = AdaBoostClassifier.restore(path=args.model_path, model_mode=ModelMode.TEST)
 
     val_probs = model.validate(op=OpName.PROBS)
     val_labels = model.dataset.get_val_labels()
@@ -32,6 +32,7 @@ if __name__ == '__main__':
     policy_type = ExitStrategy.HYBRID_MAX_PROB if args.metric_name == 'max-prob' else ExitStrategy.HYBRID_ENTROPY
 
     thresholds_dict: Dict[float, List[List[float]]] = dict()
+    weights_dict: Dict[float, List[List[float]]] = dict()
     rates_dict: Dict[float, float] = dict()
 
     for rate in rates:
@@ -41,12 +42,14 @@ if __name__ == '__main__':
         exit_policy.fit(val_probs=val_probs, val_labels=val_labels)
 
         thresholds_dict[round(rate, 2)] = exit_policy.thresholds.tolist()
-        rates_dict[round(rate, 2)] = exit_policy._rand_rates.tolist()
+        weights_dict[round(rate, 2)] = float(exit_policy._weight)
+        rates_dict[round(rate, 2)] = float(exit_policy._rand_rate)
         print()
 
     result = {
         'thresholds': thresholds_dict,
-        'rates': rates_dict
+        'weight': weights_dict,
+        'rand_rate': rates_dict
     }
 
     # Get the model file name
