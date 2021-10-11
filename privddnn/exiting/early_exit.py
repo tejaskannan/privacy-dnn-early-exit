@@ -12,7 +12,7 @@ from privddnn.utils.file_utils import read_json
 from privddnn.controllers.runtime_controller import RandomnessController
 from .even_optimizer import fit_thresholds, fit_threshold_randomization
 from .prob_optimizer import fit_prob_thresholds
-from .threshold_optimizer import fit_thresholds_grad, fit_randomization, BETA
+from .threshold_optimizer import fit_thresholds_grad, fit_randomization, fit_sharpness
 
 
 EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'observed_rates'])
@@ -271,7 +271,7 @@ class HybridRandomExit(LabelThresholdExiter):
 
         self._rand = np.random.RandomState(seed=2890)
         self._noise_scale = 0.02
-        self._epsilon = 0.002
+        self._epsilon = 0.001
 
         if path is not None:
             folder, file_name = os.path.split(path)
@@ -282,7 +282,7 @@ class HybridRandomExit(LabelThresholdExiter):
             key = str(round(rates[0], 2))
             self._thresholds = np.array(saved_thresholds['thresholds'][key])
             self._rand_rate = np.array(saved_thresholds['rand_rate'][key])
-            self._weight = float(saved_thresholds['weight'][key])
+            self._weights = np.array(saved_thresholds['weights'][key])
 
     @property
     def metric_name(self) -> str:
@@ -302,7 +302,7 @@ class HybridRandomExit(LabelThresholdExiter):
 
         # Get the threshold and scaling weight
         t = self.get_threshold(level=0, label=first_pred)
-        w = np.square(self._weight) + 1.0
+        w = np.square(self._weights[first_pred])
 
         # Compute the elevation probability
         level_prob = sigmoid(w * (t - metric))
@@ -333,6 +333,7 @@ class HybridRandomExit(LabelThresholdExiter):
         for lr in learning_rates:
             for trial in range(self._trials):
                 start_thresholds = np.copy(self.thresholds[0])
+                start_weights = self._rand.uniform(low=1.0, high=2.0, size=start_thresholds.shape)
 
                 if trial > 0:
                     start_thresholds += self._rand.uniform(low=-1 * self._noise_scale,
@@ -340,12 +341,24 @@ class HybridRandomExit(LabelThresholdExiter):
                                                            size=start_thresholds.shape)
 
                 loss, thresholds, weights, rates = fit_thresholds_grad(probs=val_probs[:, 0, :],
-                                                              is_correct=is_correct,
-                                                              labels=val_labels,
-                                                              target=target,
-                                                              start_thresholds=start_thresholds,
-                                                              learning_rate=lr,
-                                                              metric_name=self.metric_name)
+                                                                       labels=val_labels,
+                                                                       target=target,
+                                                                       start_thresholds=start_thresholds,
+                                                                       start_weights=start_weights,
+                                                                       train_thresholds=True,
+                                                                       train_weights=True,
+                                                                       learning_rate=lr,
+                                                                       metric_name=self.metric_name)
+
+                # Fit the sharpness parameter
+                _, weights, rates = fit_sharpness(probs=val_probs[:, 0, :],
+                                                  labels=val_labels,
+                                                  target=target,
+                                                  epsilon=self._epsilon,
+                                                  start_weights=weights,
+                                                  thresholds=thresholds,
+                                                  metric_name=self.metric_name,
+                                                  learning_rate=1e-4)
 
                 if loss < best_loss:
                     best_loss = loss
@@ -361,13 +374,16 @@ class HybridRandomExit(LabelThresholdExiter):
             if best_loss < SMALL_NUMBER:
                 break
 
+        print('==========')
+        print('Exit Rates: {}'.format(best_rates))
+
         rand_rate = fit_randomization(avg_rates=best_rates,
                                       labels=val_labels,
                                       epsilon=self._epsilon,
                                       target=target)
 
         print('Randomness Rate: {}'.format(rand_rate))
-        print('Weights: {}'.format(np.square(best_weights)))
+        print('Weights: {}'.format(best_weights))
 
         #rand_rates = fit_randomization(probs=val_probs[:, 0, :],
         #                               labels=val_labels,
@@ -378,7 +394,7 @@ class HybridRandomExit(LabelThresholdExiter):
 
         self._thresholds[0] = best_thresholds
         self._rand_rate = rand_rate
-        self._weight = best_weights
+        self._weights = best_weights
 
 
 class HybridMaxProbExit(HybridRandomExit):

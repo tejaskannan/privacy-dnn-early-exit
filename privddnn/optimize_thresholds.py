@@ -27,6 +27,7 @@ if __name__ == '__main__':
 
     # Set the target rates
     rates = list([(x / 10.0) for x in range(11)])
+    rates = [0.8]
 
     # Get the policy class
     policy_type = ExitStrategy.HYBRID_MAX_PROB if args.metric_name == 'max-prob' else ExitStrategy.HYBRID_ENTROPY
@@ -42,13 +43,13 @@ if __name__ == '__main__':
         exit_policy.fit(val_probs=val_probs, val_labels=val_labels)
 
         thresholds_dict[round(rate, 2)] = exit_policy.thresholds.tolist()
-        weights_dict[round(rate, 2)] = float(exit_policy._weight)
+        weights_dict[round(rate, 2)] = exit_policy._weights.tolist()
         rates_dict[round(rate, 2)] = float(exit_policy._rand_rate)
         print()
 
     result = {
         'thresholds': thresholds_dict,
-        'weight': weights_dict,
+        'weights': weights_dict,
         'rand_rate': rates_dict
     }
 
