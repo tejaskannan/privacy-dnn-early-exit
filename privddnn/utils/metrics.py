@@ -135,7 +135,7 @@ def compute_joint_entropy(joint_distribution: np.ndarray) -> np.ndarray:
     return joint_entropy
 
 
-def compute_mutual_info(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+def compute_mutual_info(X: np.ndarray, Y: np.ndarray, should_normalize: bool) -> np.ndarray:
     """
     Computes the mutual information between the samples X and Y
     """
@@ -151,7 +151,8 @@ def compute_mutual_info(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
     entropy_y = compute_entropy(probs_y, axis=0)
     entropy_xy = compute_joint_entropy(joint_probs)
 
-    return entropy_x + entropy_y - entropy_xy
+    mut_info = entropy_x + entropy_y - entropy_xy
+    return (mut_info) / max(entropy_x, entropy_y) if should_normalize else mut_info
 
 
 def softmax(logits: np.ndarray, axis: int) -> np.ndarray:
@@ -176,6 +177,41 @@ def compute_entropy_metric(probs: np.ndarray) -> np.ndarray:
     uniform_dist = np.ones(shape=(num_labels, )) / num_labels
     max_entropy = float(compute_entropy(uniform_dist, axis=-1))
     return ((-1 * compute_entropy(probs, axis=-1)) / max_entropy) + 1.0
+
+
+def compute_target_exit_rates(probs: np.ndarray, rates: np.ndarray) -> np.ndarray:
+    """
+    Gets the fraction of elements for each prediction
+    which exit early (at each level).
+
+    Args:
+        probs: A [B, K, L] array of predicted probabilities for each sample (B)
+            and output level (K)
+    Returns:
+        The frequency at which each label (L) stop at each level (K). Each column
+        in the [K, L] result array sums to 1.
+    """
+    assert len(probs.shape) == 3, 'Must provide a 3d array'
+
+    # Unpack the shape
+    num_samples, num_levels, num_labels = probs.shape
+    assert num_levels == 2, 'Only supports 2-level situations'
+    assert len(rates) == num_levels, 'Number of rates must equal number of levels'
+
+    preds = np.argmax(probs, axis=-1)  # [B, K]
+    pred_counts = np.zeros(shape=(num_levels, num_labels), dtype=float)  # [K, L]
+
+    # Execute a bincount 2d
+    for idx in range(num_samples):
+        for level, pred in enumerate(preds[idx]):
+            pred_counts[level, pred] += 1.0
+
+    # Normalize over the label counts in a weighted manner
+    rates = np.expand_dims(rates, axis=-1)  # [K, 1]
+    weighted_counts = pred_counts * rates  # [K, L]
+    pred_freq = weighted_counts / np.sum(weighted_counts, axis=0, keepdims=True)
+
+    return pred_freq
 
 
 def compute_avg_level_per_class(output_levels: List[int], labels: List[int]) -> List[float]:

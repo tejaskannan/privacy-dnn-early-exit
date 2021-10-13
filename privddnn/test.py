@@ -7,7 +7,7 @@ from typing import List, Tuple, DefaultDict, Dict
 
 from neural_network import restore_model, NeuralNetwork, OpName, ModelMode
 from exiting.early_exit import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
-from privddnn.utils.metrics import compute_accuracy, compute_mutual_info
+from privddnn.utils.metrics import compute_accuracy, compute_mutual_info, compute_target_exit_rates
 from privddnn.utils.plotting import to_label
 from privddnn.utils.file_utils import save_json_gz
 
@@ -27,20 +27,26 @@ def execute_for_rate(test_probs: np.ndarray,
                      val_labels: np.ndarray,
                      rate: float,
                      model_path: str,
-                     strategy: ExitStrategy) -> Dict[str, Dict[str, List[float]]]:
+                     strategy: ExitStrategy,
+                     num_trials: int) -> Dict[str, Dict[str, List[float]]]:
     # Make the exit policy
     rates = [rate, 1.0 - rate]
     policy = make_policy(strategy=strategy, rates=rates, model_path=model_path)
     policy.fit(val_probs=val_probs, val_labels=val_labels)
 
-    # Run the policy on the validation and test sets
-    val_result = policy.test(test_probs=val_probs)
-    test_result = policy.test(test_probs=test_probs)
+    target_exit_rates = compute_target_exit_rates(probs=val_probs, rates=rates)
 
-    return {
-        'val': dict(preds=val_result.predictions.tolist(), output_levels=val_result.output_levels.tolist()),
-        'test': dict(preds=test_result.predictions.tolist(), output_levels=test_result.output_levels.tolist()),
-    }
+    # Run the policy on the validation and test sets
+    val_result = policy.test(test_probs=val_probs, target_exit_rates=target_exit_rates)
+    test_result = policy.test(test_probs=test_probs, target_exit_rates=target_exit_rates)
+
+    result = dict(val=list(), test=list())
+
+    for _ in range(num_trials):
+        result['val'].append(dict(preds=val_result.predictions.tolist(), output_levels=val_result.output_levels.tolist()))
+        result['test'].append(dict(preds=test_result.predictions.tolist(), output_levels=test_result.output_levels.tolist()))
+
+    return result
 
     ## Compute the result metrics
     #accuracy = compute_accuracy(result.predictions, labels=test_labels)
@@ -65,12 +71,13 @@ def execute_for_rate(test_probs: np.ndarray,
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--model-path', type=str, required=True, help='Path to the saved model weights')
-    parser.add_argument('--output-path', type=str, help='Path to save the final plot')
+    parser.add_argument('--trials', type=int, required=True, help='The number of trials per policy.')
     args = parser.parse_args()
+
+    assert args.trials >= 1, 'Must provide a positive number of trials'
 
     # Restore the model
     model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
-    #model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.FINE_TUNE)
 
     # Get the predictions from the models
     test_probs = model.test(op=OpName.PROBS)  # [B, K]
@@ -79,14 +86,14 @@ if __name__ == '__main__':
     test_labels = model.dataset.get_test_labels()
     val_labels = model.dataset.get_val_labels()
 
-    rates = list(sorted(np.arange(0.0, 1.01, 0.1)))
+    rates = list(sorted(np.arange(0.0, 1.01, 0.05)))
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
     results: Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]] = dict(val=dict(), test=dict())
 
-    strategies = [ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY, ExitStrategy.HYBRID_MAX_PROB, ExitStrategy.HYBRID_ENTROPY, ExitStrategy.RANDOM]
-    #strategies = [ExitStrategy.OPTIMIZED_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    #strategies = [ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY, ExitStrategy.HYBRID_MAX_PROB, ExitStrategy.HYBRID_ENTROPY, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.ENTROPY, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
 
     for strategy in strategies:
         strategy_name = strategy.name.lower()
@@ -100,7 +107,8 @@ if __name__ == '__main__':
                                            val_labels=val_labels,
                                            rate=rate,
                                            model_path=args.model_path,
-                                           strategy=strategy)
+                                           strategy=strategy,
+                                           num_trials=args.trials)
 
             # Log the results
             rate_key = str(round(rate, 2))

@@ -4,7 +4,8 @@ import numpy as np
 
 from .base import NeuralNetwork
 from .layers import conv2d, dense
-from .constants import MetaName, ModelMode
+from .constants import MetaName
+from privddnn.classifier import ModelMode
 
 
 class BranchyNetDNN(NeuralNetwork):

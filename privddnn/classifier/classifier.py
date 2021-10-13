@@ -12,6 +12,9 @@ class BaseClassifier:
     def dataset(self) -> Dataset:
         return self._dataset
 
+    def name(self) -> str:
+        raise NotImplementedError()
+
     def validate(self, opName: OpName) -> np.ndarray:
         raise NotImplementedError()
 

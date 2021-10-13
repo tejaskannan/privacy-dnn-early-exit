@@ -1,16 +1,16 @@
 import numpy as np
 from annoy import AnnoyIndex
 from collections import Counter
-from typing import Tuple
+from typing import Tuple, List
 
 from privddnn.utils.file_utils import read_pickle_gz
 
 
-def make_similar_attack_dataset(levels: np.ndarray, labels: np.ndarray, window_size: int, num_samples: int, path: str, rand: np.random.RandomState) -> Tuple[np.ndarray, np.ndarray]:
+def make_similar_attack_dataset(levels: np.ndarray, labels: List[int], window_size: int, num_samples: int, path: str, rand: np.random.RandomState) -> Tuple[np.ndarray, np.ndarray]:
     input_list: List[int] = []
     output_list: List[int] = []
 
-    sample_idx = rand.choice(np.arange(labels.shape[0]), size=num_samples, replace=False)
+    sample_idx = rand.choice(np.arange(len(labels)), size=num_samples, replace=False)
     nearest = NearestIndex(levels=levels, labels=labels, path=path)
 
     for idx in sample_idx:
@@ -23,7 +23,7 @@ def make_similar_attack_dataset(levels: np.ndarray, labels: np.ndarray, window_s
 
 class NearestIndex:
 
-    def __init__(self, levels: np.ndarray, labels: np.ndarray, path: str):
+    def __init__(self, levels: np.ndarray, labels: List[int], path: str):
         # Load the metadata
         metadata = read_pickle_gz('{}.pkl.gz'.format(path))
         num_features = metadata['n_components']

@@ -27,10 +27,11 @@ if __name__ == '__main__':
 
     # Set the target rates
     rates = list([(x / 10.0) for x in range(11)])
-    rates = [0.8]
+    rates = [0.3]
 
     # Get the policy class
-    policy_type = ExitStrategy.HYBRID_MAX_PROB if args.metric_name == 'max-prob' else ExitStrategy.HYBRID_ENTROPY
+    #policy_type = ExitStrategy.HYBRID_MAX_PROB if args.metric_name == 'max-prob' else ExitStrategy.HYBRID_ENTROPY
+    policy_type = ExitStrategy.EVEN_RANDOMIZED
 
     thresholds_dict: Dict[float, List[List[float]]] = dict()
     weights_dict: Dict[float, List[List[float]]] = dict()

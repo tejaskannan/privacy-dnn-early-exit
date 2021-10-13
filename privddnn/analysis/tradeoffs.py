@@ -29,25 +29,42 @@ if __name__ == '__main__':
 
         for policy_name in policies:
 
+            if policy_name == 'most_freq':
+                continue
+
             rates: List[float] = []
             accuracy: List[float] = []
+            accuracy_std: List[float] = []
             mut_info: List[float] = []
+            mut_info_std: List[float] = []
 
             for rate, results in reversed(sorted(test_log[policy_name].items())):
-                preds = np.array(results['preds'])
-                output_levels = np.array(results['output_levels'])
 
-                acc = compute_accuracy(predictions=preds, labels=labels)
-                mi = compute_mutual_info(X=output_levels, Y=labels)
+                rate_accuracy: List[float] = []
+                rate_mi: List[float] = []
 
-                accuracy.append(acc)
-                mut_info.append(mi)
-                rates.append(str(round(1.0 - float(rate), 2)))
+                for trial_result in results:
+                    preds = np.array(trial_result['preds'])
+                    output_levels = np.array(trial_result['output_levels'])
 
-            print('{} & {:.5f} & {:.5f} & {:.5f} & {:.5f}'.format(policy_name, np.average(accuracy), compute_geometric_mean(accuracy), np.average(mut_info), np.max(mut_info)))
+                    acc = compute_accuracy(predictions=preds, labels=labels)
+                    mi = compute_mutual_info(X=output_levels, Y=preds, should_normalize=False)
 
-            ax1.plot(rates, accuracy, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
-            ax2.plot(rates, mut_info, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
+                    rate_accuracy.append(acc)
+                    rate_mi.append(mi)
+
+                accuracy.append(np.average(rate_accuracy))
+                accuracy_std.append(np.std(rate_accuracy))
+
+                mut_info.append(np.average(rate_mi))
+                mut_info_std.append(np.std(rate_mi))
+
+                rates.append(round(1.0 - float(rate), 2))
+
+            print('{} & {:.5f} & {:.5f} & {:.5f} & {:.5f}'.format(policy_name, np.average(accuracy), np.max(accuracy), np.average(mut_info), np.max(mut_info)))
+
+            ax1.errorbar(rates, accuracy, yerr=accuracy_std, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=3)
+            ax2.errorbar(rates, mut_info, yerr=mut_info_std, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=3)
 
         ax1.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
         ax1.set_ylabel('Accuracy', fontsize=AXIS_FONT)

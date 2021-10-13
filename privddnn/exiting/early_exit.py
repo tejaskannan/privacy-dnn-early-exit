@@ -13,6 +13,7 @@ from privddnn.controllers.runtime_controller import RandomnessController
 from .even_optimizer import fit_thresholds, fit_threshold_randomization
 from .prob_optimizer import fit_prob_thresholds
 from .threshold_optimizer import fit_thresholds_grad, fit_randomization, fit_sharpness
+from .random_optimizer import fit_even_randomization
 
 
 EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'observed_rates'])
@@ -26,6 +27,7 @@ class ExitStrategy(Enum):
     LABEL_MAX_PROB = auto()
     HYBRID_MAX_PROB = auto()
     HYBRID_ENTROPY = auto()
+    EVEN_RANDOMIZED = auto()
 
 
 class EarlyExiter:
@@ -34,10 +36,10 @@ class EarlyExiter:
         assert np.isclose(np.sum(rates), 1.0), 'Rates must sum to 1'
 
         self._attack_model = AdaBoostClassifier()
-        self._val_rand = np.random.RandomState(seed=28116)
-        self._test_rand = np.random.RandomState(seed=52190)
         self._rates = rates
         self._prior = np.zeros(shape=(1, ))
+        self._window = 1000
+        self._significance = 0.1
 
     @property
     def rates(self) -> List[float]:
@@ -56,31 +58,31 @@ class EarlyExiter:
     def select_output(self, probs: int, rand_rate: float) -> int:
         raise NotImplementedError()
 
-    def test(self, test_probs: np.ndarray) -> np.ndarray:
+    def test(self, test_probs: np.ndarray, target_exit_rates: np.ndarray) -> np.ndarray:
         num_samples, num_outputs, num_labels = test_probs.shape
         assert num_outputs == self.num_outputs, 'Expected {} outputs. Got {}'.format(self.num_outputs, num_outputs)
+        assert target_exit_rates.shape == (num_outputs, num_labels), 'Exit rates should be a ({}, {}) array. Got {}'.format(num_outputs, num_labels, target_exit_rates.shape)
 
         predictions: List[int] = []
         output_levels: List[int] = []
 
         # Assume a uniform prior
-        #label_prior = np.ones(shape=(num_labels, )) / num_labels
-        #controller = RandomnessController(prior=self._prior,
-        #                                  target=self.rates[1],
-        #                                  window=100,
-        #                                  epsilon=0.002)
+        #controller = RandomnessController(targets=target_exit_rates[0],
+        #                                  num_labels=num_labels,
+        #                                  significance=self._significance,
+        #                                  window=self._window)
         #controller.reset()
 
         for sample_idx, sample_probs in enumerate(test_probs):
             # Get the randomness rate for this sample
             #rand_rate = controller.get_rate(sample_idx=sample_idx)
+            rand_rate = 0.0
 
-            level = self.select_output(probs=sample_probs, rand_rate=0.0)
+            level = self.select_output(probs=sample_probs, rand_rate=rand_rate)
             pred = np.argmax(sample_probs[level])
 
             # Update the controller if the level is 1
-            #if level == 1:
-            #    controller.update(pred=pred)
+            #controller.update(pred=pred, level=level)
 
             predictions.append(pred)
             output_levels.append(level)
@@ -97,12 +99,31 @@ class RandomExit(EarlyExiter):
 
     def __init__(self, rates: List[float]):
         super().__init__(rates=rates)
-        self._rand = np.random.RandomState(23471)
         self._output_idx = list(range(len(rates)))
 
     def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
-        level = self._rand.choice(self._output_idx, size=1, p=self.rates)
+        level = np.random.choice(self._output_idx, size=1, p=self.rates)
         return int(level)
+
+
+class EvenRandomizedExit(EarlyExiter):
+
+    def __init__(self, rates: List[float]):
+        super().__init__(rates=rates)
+        self._output_idx = list(range(len(rates)))
+
+    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
+        level = np.random.choice(self._output_idx, size=1, p=self.rates)
+        return int(level)
+
+    def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
+        super().fit(val_probs=val_probs, val_labels=val_labels)
+
+        assert val_probs.shape[0] == val_labels.shape[0], 'misaligned probabilites and labels'
+        assert self.num_outputs == 2, 'threshold exiting only works with 2 outputs'
+        assert val_probs.shape[1] == self.num_outputs, 'expected {} outputs. got {}'.format(self.num_outputs, val_probs.shape[1])
+
+        rand_rates = fit_even_randomization(preds=np.argmax(val_probs, axis=-1), target=self.rates[1], num_labels=val_probs.shape[-1])
 
 
 class ThresholdExiter(EarlyExiter):
@@ -133,9 +154,9 @@ class ThresholdExiter(EarlyExiter):
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
         super().fit(val_probs=val_probs, val_labels=val_labels)
 
-        assert val_probs.shape[0] == val_labels.shape[0], 'Misaligned probabilites and labels'
-        assert self.num_outputs == 2, 'Threshold Exiting only works with 2 outputs'
-        assert val_probs.shape[1] == self.num_outputs, 'Expected {} outputs. Got {}'.format(self.num_outputs, val_probs.shape[1])
+        assert val_probs.shape[0] == val_labels.shape[0], 'misaligned probabilites and labels'
+        assert self.num_outputs == 2, 'threshold exiting only works with 2 outputs'
+        assert val_probs.shape[1] == self.num_outputs, 'expected {} outputs. got {}'.format(self.num_outputs, val_probs.shape[1])
 
         # Compute the maximum probability for each predicted distribution
         metrics = self.compute_metric(probs=val_probs)  # [B, L]
@@ -269,7 +290,6 @@ class HybridRandomExit(LabelThresholdExiter):
         self._trials = 1
         self._metric_name = metric_name
 
-        self._rand = np.random.RandomState(seed=2890)
         self._noise_scale = 0.02
         self._epsilon = 0.001
 
@@ -306,11 +326,11 @@ class HybridRandomExit(LabelThresholdExiter):
 
         # Compute the elevation probability
         level_prob = sigmoid(w * (t - metric))
-        level = int(self._rand.uniform() < level_prob)
+        level = int(np.random.uniform() < level_prob)
 
         # Determine whether we should act randomly
-        should_act_random = int(self._rand.uniform() < self._rand_rate)
-        rand_level = int(self._rand.uniform() < self.rates[1])
+        should_act_random = int(np.random.uniform() < rand_rate)
+        rand_level = int(np.random.uniform() < self.rates[1])
 
         return should_act_random * rand_level + (1 - should_act_random) * level
 
@@ -327,21 +347,23 @@ class HybridRandomExit(LabelThresholdExiter):
         learning_rates = [1e-2]
         target = 1.0 - self.rates[0]
 
+        rand = np.random.RandomState(seed=2890)
+
         val_preds = np.argmax(val_probs, axis=-1)
         is_correct = np.equal(val_preds, np.expand_dims(val_labels, axis=-1)).astype(float)
 
         for lr in learning_rates:
             for trial in range(self._trials):
                 start_thresholds = np.copy(self.thresholds[0])
-                start_weights = self._rand.uniform(low=1.0, high=2.0, size=start_thresholds.shape)
+                start_weights = rand.uniform(low=1.0, high=2.0, size=start_thresholds.shape)
 
                 if trial > 0:
-                    start_thresholds += self._rand.uniform(low=-1 * self._noise_scale,
+                    start_thresholds += rand.uniform(low=-1 * self._noise_scale,
                                                            high=self._noise_scale,
                                                            size=start_thresholds.shape)
 
                 loss, thresholds, weights, rates = fit_thresholds_grad(probs=val_probs[:, 0, :],
-                                                                       labels=val_labels,
+                                                                       preds=val_preds,
                                                                        target=target,
                                                                        start_thresholds=start_thresholds,
                                                                        start_weights=start_weights,
@@ -430,5 +452,7 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
         return HybridMaxProbExit(rates=rates, path=model_path)
     elif strategy == ExitStrategy.HYBRID_ENTROPY:
         return HybridEntropyExit(rates=rates, path=model_path)
+    elif strategy == ExitStrategy.EVEN_RANDOMIZED:
+        return EvenRandomizedExit(rates=rates)
     else:
         raise ValueError('No policy {}'.format(strategy))

@@ -143,58 +143,94 @@ class ThresholdObjective:
         else:
             raise ValueError('Unknown metric: {}'.format(self.metric_name))
 
-    def __call__(self, probs: np.ndarray, labels: np.ndarray, thresholds: np.ndarray, weights: np.ndarray) -> float:
-        label_levels = np.zeros(shape=(self.num_labels, ))
-        label_counts = np.zeros(shape=(self.num_labels, ))
+    def __call__(self, probs: np.ndarray, preds: np.ndarray, thresholds: np.ndarray, weights: np.ndarray) -> float:
+        stay_probs = np.zeros(shape=(self.num_labels, ))
+        stay_counts = np.zeros(shape=(self.num_labels, ))
 
-        preds = np.argmax(probs, axis=-1)
+        elevate_probs = np.zeros(shape=(self.num_labels, ))
+        elevate_counts = np.zeros(shape=(self.num_labels, ))
+
         metrics = self.compute_metric(probs=probs)
 
-        for pred, metric, label in zip(preds, metrics, labels):
-            w = np.square(weights[pred])
-            elevation_prob = self._sigmoid(w * (thresholds[pred] - metric))
+        for metric, level_preds in zip(metrics, preds):
+            first_pred, second_pred = level_preds[0], level_preds[1]
 
-            label_levels[label] += elevation_prob
-            label_counts[label] += 1
+            w = np.square(weights[first_pred])
+            elevation_prob = self._sigmoid(w * (thresholds[first_pred] - metric))
+            stay_prob = 1.0 - elevation_prob
 
-        avg_rates = label_levels / (label_counts + SMALL_NUMBER)
+            stay_probs[first_pred] += stay_prob
+            stay_counts[first_pred] += 1
+
+            elevate_probs[second_pred] += elevation_prob
+            elevate_counts[second_pred] += 1
+
+        stay_rates = stay_probs / (stay_counts + SMALL_NUMBER)
+        elevate_rates = elevate_probs / (elevate_counts + SMALL_NUMBER)
 
         # Compute the loss as a weighted average based on label frequency
-        total_count = len(preds)
-        label_weights = label_counts / total_count
+        #total_count = len(preds)
+        #label_weights = label_counts / total_count
 
-        loss = float(np.sum(label_weights * np.abs(avg_rates - self.target)))
+        stay_loss = float(np.sum(np.abs(stay_rates - (1.0 - self.target))))
+        elevate_loss = float(np.sum(np.abs(elevate_rates - self.target)))
 
-        return loss, avg_rates
+        loss = stay_loss + elevate_loss
 
-    def derivative(self, probs: np.ndarray, labels: np.ndarray, avg_rates: np.ndarray, thresholds: np.ndarray, weights: np.ndarray) -> np.ndarray:
-        per_label_diff = 2.0 * (avg_rates > self.target).astype(float) - 1.0
+        return loss, stay_rates, elevate_rates, stay_counts, elevate_counts
 
+    def derivative(self,
+                   probs: np.ndarray,
+                   preds: np.ndarray,
+                   stay_rates: np.ndarray,
+                   elevate_rates: np.ndarray,
+                   stay_counts: np.ndarray,
+                   elevate_counts: np.ndarray,
+                   thresholds: np.ndarray,
+                   weights: np.ndarray) -> np.ndarray:
+        # Compute the (approx) derivative of the absolute value term for both staying and elevating
+        d_stay = 2.0 * (stay_rates > (1.0 - self.target)).astype(float) - 1.0
+        d_elevate = 2.0 * (elevate_rates > self.target).astype(float) - 1.0 
+
+        # Create arrays in which to accumulate gradients
         threshold_gradient = np.zeros_like(thresholds)
         weight_gradient = np.zeros_like(weights)
         num_samples = probs.shape[0]
 
         # Compute the per-label loss weight
-        total_count = len(labels)
-        label_counts = np.bincount(labels, minlength=self._num_labels)
-        label_weights = label_counts / total_count
-
-        preds = np.argmax(probs, axis=-1)
         metrics = self.compute_metric(probs=probs)
-        label_counts = np.bincount(labels, minlength=self._num_labels)
 
-        for pred, metric, label in zip(preds, metrics, labels):
-            w = np.square(weights[pred])
-            diff = thresholds[pred] - metric
+        for metric, level_preds in zip(metrics, preds):
+            first_pred, second_pred = level_preds[0], level_preds[1]
+
+            # Get the weight and threshold used during this inference
+            weight = weights[first_pred]
+            w = np.square(weight)
+            t = thresholds[first_pred]
+
+            # Compute the derivative of the sigmoid funcion w.r.t. the input (no chain rule yet)
+            diff = t - metric
             ds = self._sigmoid.derivative(w * diff)
 
-            dL_ds = (per_label_diff[label] / label_counts[label]) * ds
+            # Compute the gradient with respect the first prediction result (stay)
+            dL_ds = (d_stay[first_pred] / stay_counts[first_pred]) * (-1 * ds)
             dL_dt = dL_ds * w
-            dL_dw = dL_ds * 2 * weights[pred] * diff
+            dL_dw = dL_ds * 2 * weight * diff
+
+            threshold_gradient[first_pred] += dL_dt
+            weight_gradient[first_pred] += dL_dw
+
+            # Compute the gradient with respect to the second prediction result (elevate)
+            dL_ds = (d_elevate[second_pred] / elevate_counts[second_pred]) * ds
+            dL_dt = dL_ds * w
+            dL_dw = dL_ds * 2 * weight * diff
 
             #dL_dt = label_weights[label] * (per_label_diff[label] / label_counts[label]) * self._sigmoid.derivative(thresholds[pred] - metric)
-            threshold_gradient[pred] += dL_dt
-            weight_gradient[pred] += dL_dw
+
+            # Accumulate using the first prediction values, as both parameters come from the first
+            # prediction (as we do not necessarily execute the second)
+            threshold_gradient[first_pred] += dL_dt
+            weight_gradient[first_pred] += dL_dw
 
         # Add the regularization loss gradient
         #dR_dw = (-2 * self._reg_weight * weight) / np.square(w)
@@ -204,7 +240,7 @@ class ThresholdObjective:
 
 
 def fit_thresholds_grad(probs: np.ndarray,
-                        labels: np.ndarray, 
+                        preds: np.ndarray,
                         target: float,
                         start_thresholds: np.ndarray,
                         start_weights: np.ndarray,
@@ -213,14 +249,14 @@ def fit_thresholds_grad(probs: np.ndarray,
                         learning_rate: float,
                         metric_name: str) -> np.ndarray:
     rand = np.random.RandomState(seed=25893)
-    num_labels = np.max(labels) + 1
+    num_labels = probs.shape[-1]
 
     thresholds = np.copy(start_thresholds)
     weights = np.copy(start_weights)
     objective = ThresholdObjective(target=target, num_labels=num_labels, metric_name=metric_name)
 
     # Compute the initial loss for reference
-    loss, rates = objective(probs=probs, labels=labels, thresholds=thresholds, weights=weights)
+    loss, _, rates, _, _ = objective(probs=probs, preds=preds, thresholds=thresholds, weights=weights)
     step_size = learning_rate
 
     # Set the parameters to detect the best result
@@ -238,34 +274,41 @@ def fit_thresholds_grad(probs: np.ndarray,
 
     for _ in range(MAX_ITERS):
         # Compute the loss for this iteration
-        loss, avg_rates = objective(probs=probs, labels=labels, thresholds=thresholds, weights=weights)
+        loss, stay_rates, elevate_rates, stay_counts, elevate_counts = objective(probs=probs, preds=preds, thresholds=thresholds, weights=weights)
 
         # Compute the gradients
-        dthresholds, dweights = objective.derivative(probs=probs, labels=labels, avg_rates=avg_rates, thresholds=thresholds, weights=weights)
+        dthresholds, dweights = objective.derivative(probs=probs,
+                                                     preds=preds,
+                                                     stay_rates=stay_rates,
+                                                     elevate_rates=elevate_rates,
+                                                     stay_counts=stay_counts,
+                                                     elevate_counts=elevate_counts,
+                                                     thresholds=thresholds,
+                                                     weights=weights)
 
         #approx_grad = np.zeros_like(thresholds)
         #epsilon = 1e-5
 
         #for i in range(num_labels):
         #    thresholds[i] += epsilon
-        #    upper_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds, weights=weights)
+        #    upper_loss, _, _, _, _ = objective(probs=probs, preds=preds, thresholds=thresholds, weights=weights)
 
         #    thresholds[i] -= 2 * epsilon
-        #    lower_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds, weights=weights)
+        #    lower_loss, _, _, _, _ = objective(probs=probs, preds=preds, thresholds=thresholds, weights=weights)
 
         #    thresholds[i] += epsilon
         #    approx_grad[i] = (upper_loss - lower_loss) / (2 * epsilon)
 
-        #epsilon = 1e-5
+        ##epsilon = 1e-5
 
-        #weight += epsilon
-        #upper_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds, weight=weight)
+        ##weight += epsilon
+        ##upper_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds, weight=weight)
 
-        #weight -= 2 * epsilon
-        #lower_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds, weight=weight)
+        ##weight -= 2 * epsilon
+        ##lower_loss, _ = objective(probs=probs, labels=labels, thresholds=thresholds, weight=weight)
 
-        #weight += epsilon
-        #approx_grad = (upper_loss - lower_loss) / (2 * epsilon)
+        ##weight += epsilon
+        ##approx_grad = (upper_loss - lower_loss) / (2 * epsilon)
 
         #print('True: {}'.format(dthresholds))
         #print('Approx: {}'.format(approx_grad))
@@ -293,17 +336,6 @@ def fit_thresholds_grad(probs: np.ndarray,
             scaled_step_size = step_size / np.sqrt(expected_weights_grad + SMALL_NUMBER)
             weights -= scaled_step_size * dweights
 
-        # Track the 'best' loss result
-        #if loss < best_loss:
-        #    best_loss = loss
-        #    best_thresholds = np.copy(thresholds)
-        #    best_weights = np.copy(weights)
-        #    num_not_improved = 0
-        #else:
-        #    num_not_improved += 1
- 
-        #print('Loss: {:.6f}, Best Loss: {:.6f}'.format(loss, best_loss), end='\r')
-
         if (num_not_improved + 1) % anneal_patience == 0:
             step_size *= ANNEAL_RATE
             thresholds = np.copy(best_thresholds)
@@ -314,7 +346,10 @@ def fit_thresholds_grad(probs: np.ndarray,
             break
 
     # Compute the final loss for reporting
-    best_loss, best_rates = objective(probs=probs, labels=labels, thresholds=best_thresholds, weights=best_weights)
+    best_loss, _, best_rates, _, _ = objective(probs=probs,
+                                               preds=preds,
+                                               thresholds=best_thresholds,
+                                               weights=best_weights)
 
     print('Final Rates: {}'.format(best_rates))
 

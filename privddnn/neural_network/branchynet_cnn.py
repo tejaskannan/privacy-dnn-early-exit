@@ -73,9 +73,9 @@ class BranchyNetCNNSmall(EarlyExitNeuralNetwork):
         is_fine_tune = (model_mode == ModelMode.FINE_TUNE)
 
         # Create the convolution blocks
-        conv1_block, _, _ = fitnet_block(inputs=inputs, num_filters=8, pool_size=4, pool_stride=2, name='block1')
+        conv1_block, _, _ = fitnet_block(inputs=inputs, num_filters=8, pool_size=4, pool_stride=2, name='block1', trainable=True)
         #conv2_block, conv2_interm, _ = fitnet_block(inputs=conv1_block, num_filters=6, pool_size=4, pool_stride=2, name='block2')
-        conv2_block, _, _ = fitnet_block(inputs=conv1_block, num_filters=8, pool_size=2, pool_stride=1, name='block2')
+        conv2_block, _, _ = fitnet_block(inputs=conv1_block, num_filters=8, pool_size=2, pool_stride=1, name='block2', trainable=True)
 
         # Create the first output layer. We use global average pooling here to reduce the number of parameters
         flattened_one = tf2.reduce_mean(conv1_block, axis=[1, 2])  # [B, C]
@@ -84,6 +84,7 @@ class BranchyNetCNNSmall(EarlyExitNeuralNetwork):
                            use_dropout=False,
                            dropout_keep_rate=dropout_keep_rate,
                            activation='linear',
+                           trainable=True,
                            name='output1')  # [B, K]
 
         # Create the second output layer by first flattening out the pixels
@@ -95,6 +96,7 @@ class BranchyNetCNNSmall(EarlyExitNeuralNetwork):
                            use_dropout=False,
                            dropout_keep_rate=dropout_keep_rate,
                            activation='linear',
+                           trainable=True,
                            name='output2')  # [B, K]
 
         # Stack the logits together
@@ -106,8 +108,6 @@ class BranchyNetCNNSmall(EarlyExitNeuralNetwork):
         if is_fine_tune:
             logits = tf2.stop_gradient(logits)
 
-        self.create_stop_layer(logits=logits)
+        #self.create_stop_layer(logits=logits)
 
         return logits
-
-
