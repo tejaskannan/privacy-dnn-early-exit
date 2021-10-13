@@ -4,7 +4,8 @@ from typing import Type
 
 from privddnn.classifier import OpName, ModelMode
 from .base import NeuralNetwork
-from .branchynet_cnn import BranchyNetCNN
+from .branchynet_cnn import BranchyNetCNN, BranchyNetCNNSmall
+from .branchynet_dnn import BranchyNetDNN
 from .anytime_cnn import AnytimeCNN
 from .independent_cnn import IndependentCNN
 
@@ -14,10 +15,14 @@ def get_model_class(name: str) -> Type[NeuralNetwork]:
 
     if name == 'branchynet-cnn':
         return BranchyNetCNN
+    elif name == 'branchynet-cnn-small':
+        return BranchyNetCNNSmall
     elif name == 'anytime-cnn':
         return AnytimeCNN
     elif name == 'independent-cnn':
         return IndependentCNN
+    elif name == 'branchynet-dnn':
+        return BranchyNetDNN
     else:
         raise ValueError('Unknown neural network with name: {}'.format(name))
 
