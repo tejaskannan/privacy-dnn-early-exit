@@ -4,7 +4,7 @@ import numpy as np
 
 from .base import NeuralNetwork
 from .layers import conv2d, dense
-from .constants import MetaName
+from .constants import MetaName, ModelMode
 
 
 class BranchyNetDNN(NeuralNetwork):
@@ -13,7 +13,7 @@ class BranchyNetDNN(NeuralNetwork):
     def name(self) -> str:
         return 'branchynet-dnn'
 
-    def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf2.Tensor, num_labels: int) -> tf2.Tensor:
+    def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf2.Tensor, num_labels: int, model_mode: ModelMode) -> tf2.Tensor:
         # Flatten the inputs
         num_features = np.prod(self.metadata[MetaName.INPUT_SHAPE])
         inputs = tf2.reshape(inputs, (-1, num_features))
@@ -63,13 +63,13 @@ class BranchyNetDNN(NeuralNetwork):
 
         return logits
 
-    def make_loss(self, logits: tf2.Tensor, labels: tf1.placeholder) -> tf2.Tensor:
+    def make_loss(self, logits: tf2.Tensor, labels: tf1.placeholder, model_mode: ModelMode) -> tf2.Tensor:
         num_outputs = logits.get_shape()[1]  # L
         labels = tf2.expand_dims(labels, axis=1)  # [B, 1]
         labels = tf2.tile(labels, multiples=(1, num_outputs))  # [B, L]
 
         loss = tf2.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits)  # [B, L]
-        loss_weights = tf2.constant([[0.5, 0.5]], dtype=loss.dtype)
+        loss_weights = tf2.constant([[0.3, 0.7]], dtype=loss.dtype)
 
         weighted_loss = tf2.reduce_sum(loss * loss_weights, axis=-1)  # [B]
         return tf2.reduce_mean(weighted_loss)  # Scalar
