@@ -48,25 +48,6 @@ def execute_for_rate(test_probs: np.ndarray,
 
     return result
 
-    ## Compute the result metrics
-    #accuracy = compute_accuracy(result.predictions, labels=test_labels)
-    #mutual_information = compute_mutual_info(result.output_levels, test_labels)
-    #observed_rate = result.observed_rates[1]  # Fraction stopping at the larger model
-
-    ## Fit the attack model
-    #val_result = policy.test(test_probs=val_probs)
-    #policy.fit_attack_model(val_outputs=val_result.output_levels,
-    #                        val_labels=val_labels,
-    #                        window_size=10,
-    #                        num_samples=1000)
-
-    #attack_accuracy = policy.test_attack_model(test_outputs=result.output_levels,
-    #                                           test_labels=test_labels,
-    #                                           window_size=10,
-    #                                           num_samples=1000)
-
-    #return accuracy, mutual_information, observed_rate, attack_accuracy
-
 
 if __name__ == '__main__':
     parser = ArgumentParser()

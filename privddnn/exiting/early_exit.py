@@ -55,8 +55,13 @@ class EarlyExiter:
         self._prior = np.bincount(val_preds, minlength=num_labels).astype(float)
         self._prior /= val_probs.shape[0]
 
-    def select_output(self, probs: int, rand_rate: float) -> int:
+    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
         raise NotImplementedError()
+
+    def get_level(self, probs: np.ndarray) -> Tuple[int, int]:
+        assert len(probs.shape) == 1, 'Must provide a 1d array of predicted probabilities'
+        reshaped_probs = probs.reshape(1, -1)  # [1, L]
+        return self.select_output(probs=reshaped_probs, rand_rate=0.0)
 
     def test(self, test_probs: np.ndarray, target_exit_rates: np.ndarray) -> np.ndarray:
         num_samples, num_outputs, num_labels = test_probs.shape
