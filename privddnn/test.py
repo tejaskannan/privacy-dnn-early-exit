@@ -5,20 +5,12 @@ from collections import defaultdict
 from enum import Enum, auto
 from typing import List, Tuple, DefaultDict, Dict
 
-from neural_network import restore_model, NeuralNetwork, OpName, ModelMode
-from exiting.early_exit import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
+from privddnn.classifier import BaseClassifier, ModelMode, OpName
+from privddnn.exiting.early_exit import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
+from privddnn.restore import restore_classifier
 from privddnn.utils.metrics import compute_accuracy, compute_mutual_info, compute_target_exit_rates
 from privddnn.utils.plotting import to_label
 from privddnn.utils.file_utils import save_json_gz
-
-
-COLORS = {
-    ExitStrategy.RANDOM: '#756bb1',
-    ExitStrategy.MAX_PROB: '#3182bd',
-    ExitStrategy.ENTROPY: '#31a354',
-    ExitStrategy.LABEL_MAX_PROB: '#9ecae1',
-    ExitStrategy.LABEL_ENTROPY: '#a1d99b',
-}
 
 
 def execute_for_rate(test_probs: np.ndarray,
@@ -58,7 +50,7 @@ if __name__ == '__main__':
     assert args.trials >= 1, 'Must provide a positive number of trials'
 
     # Restore the model
-    model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
+    model: BaseClassifier = restore_classifier(model_path=args.model_path, model_mode=ModelMode.TEST)
 
     # Get the predictions from the models
     test_probs = model.test(op=OpName.PROBS)  # [B, K]
@@ -74,7 +66,7 @@ if __name__ == '__main__':
     results: Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]] = dict(val=dict(), test=dict())
 
     #strategies = [ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY, ExitStrategy.HYBRID_MAX_PROB, ExitStrategy.HYBRID_ENTROPY, ExitStrategy.RANDOM]
-    strategies = [ExitStrategy.ENTROPY, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.EVEN_LABEL_MAX_PROB, ExitStrategy.EVEN_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.GREEDY_EVEN, ExitStrategy.RANDOM]
 
     for strategy in strategies:
         strategy_name = strategy.name.lower()

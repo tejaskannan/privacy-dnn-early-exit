@@ -1,6 +1,6 @@
 import numpy as np
 import os.path
-from collections import namedtuple, defaultdict
+from collections import namedtuple, defaultdict, Counter
 from enum import Enum, auto
 from sklearn.ensemble import AdaBoostClassifier
 from typing import List, Tuple, Dict, DefaultDict, Optional
@@ -27,7 +27,9 @@ class ExitStrategy(Enum):
     LABEL_MAX_PROB = auto()
     HYBRID_MAX_PROB = auto()
     HYBRID_ENTROPY = auto()
-    EVEN_RANDOMIZED = auto()
+    GREEDY_EVEN = auto()
+    EVEN_MAX_PROB = auto()
+    EVEN_LABEL_MAX_PROB = auto()
 
 
 class EarlyExiter:
@@ -58,6 +60,12 @@ class EarlyExiter:
     def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
         raise NotImplementedError()
 
+    def update(self, pred: int, level: int):
+        pass
+
+    def reset(self):
+        pass
+
     def get_level(self, probs: np.ndarray) -> Tuple[int, int]:
         assert len(probs.shape) == 1, 'Must provide a 1d array of predicted probabilities'
         reshaped_probs = probs.reshape(1, -1)  # [1, L]
@@ -70,6 +78,8 @@ class EarlyExiter:
 
         predictions: List[int] = []
         output_levels: List[int] = []
+
+        self.reset()
 
         # Assume a uniform prior
         #controller = RandomnessController(targets=target_exit_rates[0],
@@ -85,6 +95,8 @@ class EarlyExiter:
 
             level = self.select_output(probs=sample_probs, rand_rate=rand_rate)
             pred = np.argmax(sample_probs[level])
+
+            self.update(pred=pred, level=level)
 
             # Update the controller if the level is 1
             #controller.update(pred=pred, level=level)
@@ -109,6 +121,30 @@ class RandomExit(EarlyExiter):
     def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
         level = np.random.choice(self._output_idx, size=1, p=self.rates)
         return int(level)
+
+
+
+class GreedyEvenExit(EarlyExiter):
+
+    def __init__(self, rates: List[float]):
+        super().__init__(rates=rates)
+        self._stay_counter: Counter = Counter()
+        self._elevate_counter: Counter = Counter()
+
+    def update(self, pred: int, level: int):
+        if level == 0:
+            self._stay_counter[pred] += 1
+        else:
+            self._elevate_counter[pred] += 1
+
+    def reset(self):
+        self._stay_counter = Counter()
+        self._elevate_counter = Counter()
+
+    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
+        first_pred = np.argmax(probs[0])
+        stay_rate = self._stay_counter[first_pred] / (self._stay_counter[first_pred] + self._elevate_counter[first_pred] + SMALL_NUMBER)
+        return int(stay_rate > self.rates[0])
 
 
 class EvenRandomizedExit(EarlyExiter):
@@ -187,10 +223,55 @@ class EntropyExit(ThresholdExiter):
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_entropy_metric(probs=probs)
 
+
 class MaxProbExit(ThresholdExiter):
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_max_prob_metric(probs=probs)
+
+
+class EvenThresholdExiter(ThresholdExiter):
+
+    def __init__(self, epsilon: float, rates: List[float]):
+        super().__init__(rates=rates)
+        self._epsilon = epsilon
+        self._stay_counter: Counter = Counter()
+        self._elevate_counter: Counter = Counter()
+
+    @property
+    def epsilon(self) -> float:
+        return self._epsilon
+
+    def update(self, pred: int, level: int):
+        if level == 0:
+            self._stay_counter[pred] += 1
+        else:
+            self._elevate_counter[pred] += 1
+
+    def reset(self):
+        self._stay_counter = Counter()
+        self._elevate_counter = Counter()
+
+    def select_output(self, probs: np.ndarray, rand_rate: float):
+        first_pred = np.argmax(probs[0])
+        stay_rate = self._stay_counter[first_pred] / (self._stay_counter[first_pred] + self._elevate_counter[first_pred] + SMALL_NUMBER)
+
+        if (stay_rate >= (self.rates[0] - self.epsilon)) and (stay_rate <= (self.rates[0] + self.epsilon)):
+            return super().select_output(probs=probs, rand_rate=rand_rate)
+        else:
+            return int(stay_rate > self.rates[0])
+
+
+class EvenMaxProbExit(EvenThresholdExiter):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_max_prob_metric(probs=probs)
+
+
+class EvenEntropyExit(EvenThresholdExiter):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_entropy_metric(probs=probs)
 
 
 class LabelThresholdExiter(EarlyExiter):
@@ -278,6 +359,50 @@ class LabelMaxProbExit(LabelThresholdExiter):
 
 
 class LabelEntropyExit(LabelThresholdExiter):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_entropy_metric(probs=probs)
+
+
+class EvenLabelThresholdExiter(LabelThresholdExiter):
+
+    def __init__(self, epsilon: float, rates: List[float]):
+        super().__init__(rates=rates)
+        self._epsilon = epsilon
+        self._stay_counter: Counter = Counter()
+        self._elevate_counter: Counter = Counter()
+
+    @property
+    def epsilon(self) -> float:
+        return self._epsilon
+
+    def update(self, pred: int, level: int):
+        if level == 0:
+            self._stay_counter[pred] += 1
+        else:
+            self._elevate_counter[pred] += 1
+
+    def reset(self):
+        self._stay_counter = Counter()
+        self._elevate_counter = Counter()
+
+    def select_output(self, probs: np.ndarray, rand_rate: float):
+        first_pred = np.argmax(probs[0])
+        stay_rate = self._stay_counter[first_pred] / (self._stay_counter[first_pred] + self._elevate_counter[first_pred] + SMALL_NUMBER)
+
+        if (stay_rate >= (self.rates[0] - self.epsilon)) and (stay_rate <= (self.rates[0] + self.epsilon)):
+            return super().select_output(probs=probs, rand_rate=rand_rate)
+        else:
+            return int(stay_rate > self.rates[0])
+
+
+class EvenLabelMaxProbExit(EvenLabelThresholdExiter):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_max_prob_metric(probs=probs)
+
+
+class EvenLabelEntropyExit(EvenLabelThresholdExiter):
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_entropy_metric(probs=probs)
@@ -457,7 +582,11 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
         return HybridMaxProbExit(rates=rates, path=model_path)
     elif strategy == ExitStrategy.HYBRID_ENTROPY:
         return HybridEntropyExit(rates=rates, path=model_path)
-    elif strategy == ExitStrategy.EVEN_RANDOMIZED:
-        return EvenRandomizedExit(rates=rates)
+    elif strategy == ExitStrategy.GREEDY_EVEN:
+        return GreedyEvenExit(rates=rates)
+    elif strategy == ExitStrategy.EVEN_MAX_PROB:
+        return EvenMaxProbExit(rates=rates, epsilon=0.001)
+    elif strategy == ExitStrategy.EVEN_LABEL_MAX_PROB:
+        return EvenLabelMaxProbExit(rates=rates, epsilon=0.001)
     else:
         raise ValueError('No policy {}'.format(strategy))

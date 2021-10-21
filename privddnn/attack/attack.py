@@ -103,7 +103,7 @@ if __name__ == '__main__':
 
     rates = [str(round(r / 20.0, 2)) for r in range(21)]
     #policy_names = ['random', 'max_prob', 'label_max_prob', 'hybrid_max_prob', 'entropy', 'label_entropy', 'hybrid_entropy']
-    policy_names = ['random', 'max_prob', 'entropy']
+    policy_names = ['random', 'max_prob', 'greedy_even']
 
     window_size = 25
     noise_rate = 0.2

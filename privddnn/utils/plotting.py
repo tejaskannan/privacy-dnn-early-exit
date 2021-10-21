@@ -16,7 +16,9 @@ COLORS = {
     'entropy': '#9ebcda',
     'label_entropy': '#8c96c6',
     'hybrid_entropy': '#810f7c',
-    'most_freq': 'red'
+    'greedy_even': 'red',
+    'even_max_prob': 'blue',
+    'even_label_max_prob': 'green'
 }
 
 def to_label(name: str) -> str:

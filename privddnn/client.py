@@ -70,7 +70,8 @@ class Client:
             # Get the response message which encodes the prediction
             response = self._socket.recv(round_to_block(INT_SIZE, block_size=AES_BLOCK_SIZE) + AES_BLOCK_SIZE)
             
-            # Record the elapsed time
+            # Record the elapsed time. Assuming the attacker monitors this result remotely (e.g. by timing network
+            # packets), the decryption should not be part of the attacker's time.
             end = time.time()
             elapsed = end - start
 

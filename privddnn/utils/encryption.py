@@ -108,9 +108,6 @@ def decrypt_aes128(ciphertext: bytes, key: bytes) -> bytes:
     iv = ciphertext[:AES_BLOCK_SIZE]
     ciphertext = ciphertext[AES_BLOCK_SIZE:]
 
-    print('IV Length: {}'.format(len(iv)))
-    print('Ciphertext Length: {}'.format(len(ciphertext)))
-
     # Decrypt the message
     cipher = AES.new(key, AES.MODE_CBC, iv)
     message = cipher.decrypt(ciphertext)
