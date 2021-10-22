@@ -8,7 +8,7 @@ from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.plotting import PLOT_STYLE, to_label, COLORS, LEGEND_FONT, AXIS_FONT, TITLE_FONT
 
 
-def get_exit_rate_per_label(preds: List[int], output_levels: List[int]) -> List[float]:
+def get_exit_rate_per_label(preds: List[int], output_levels: List[int], num_labels: int) -> List[float]:
     elevate_counter: Counter = Counter()
     total_counter: Counter = Counter()
 
@@ -18,8 +18,11 @@ def get_exit_rate_per_label(preds: List[int], output_levels: List[int]) -> List[
 
     result: List[float] = []
 
-    for pred in sorted(elevate_counter.keys()):
-        result.append(elevate_counter[pred] / total_counter[pred])
+    for pred in range(num_labels):
+        if pred in elevate_counter:
+            result.append(elevate_counter[pred] / total_counter[pred])
+        else:
+            result.append(0)
 
     return result
 
@@ -41,9 +44,9 @@ if __name__ == '__main__':
         rate_results = test_log[policy_name][str(round(args.rate, 2))]
         preds = rate_results[0]['preds']
         output_levels = rate_results[0]['output_levels']
-
-        exit_rate = get_exit_rate_per_label(preds=preds, output_levels=output_levels)
         num_labels = np.amax(preds) + 1
+
+        exit_rate = get_exit_rate_per_label(preds=preds, output_levels=output_levels, num_labels=num_labels)
 
         exit_rates[policy_name] = exit_rate
 

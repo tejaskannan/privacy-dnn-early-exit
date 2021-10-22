@@ -35,7 +35,8 @@ def plot_rates(confusion_mat: np.ndarray):
         ax.set_xlabel('Predicted Class')
         ax.set_ylabel('Fraction of Instances')
 
-        plt.savefig('../results/18-10/pen_digits_adaboost_prediction_rates.pdf', bbox_inches='tight', transparent=True)
+        #plt.savefig('../results/18-10/pen_digits_adaboost_prediction_rates.pdf', bbox_inches='tight', transparent=True)
+        plt.show()
 
 
 if __name__ == '__main__':

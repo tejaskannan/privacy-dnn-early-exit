@@ -9,16 +9,16 @@ LABEL_FONT = 12
 LEGEND_FONT = 12
 
 COLORS = {
-    'max_prob': '#a1dab4',
-    'label_max_prob': '#41b6c4',
+    'max_prob': '#c7e9b4',
+    'label_max_prob': '#51b6c4',
     'hybrid_max_prob': '#225ea8',
     'random': 'black',
     'entropy': '#9ebcda',
     'label_entropy': '#8c96c6',
     'hybrid_entropy': '#810f7c',
-    'greedy_even': 'red',
-    'even_max_prob': 'blue',
-    'even_label_max_prob': 'green'
+    'greedy_even': '#969696',
+    'even_max_prob': '#2c7fb8',
+    'even_label_max_prob': '#253494'
 }
 
 def to_label(name: str) -> str:
