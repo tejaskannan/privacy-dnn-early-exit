@@ -15,6 +15,9 @@ class BaseClassifier:
     def name(self) -> str:
         raise NotImplementedError()
 
+    def predict_sample(self, inputs: np.ndarray, level: int) -> np.ndarray:
+        raise NotImplementedError()
+
     def validate(self, opName: OpName) -> np.ndarray:
         raise NotImplementedError()
 

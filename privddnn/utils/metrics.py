@@ -209,9 +209,42 @@ def compute_target_exit_rates(probs: np.ndarray, rates: np.ndarray) -> np.ndarra
     # Normalize over the label counts in a weighted manner
     rates = np.expand_dims(rates, axis=-1)  # [K, 1]
     weighted_counts = pred_counts * rates  # [K, L]
-    pred_freq = weighted_counts / np.sum(weighted_counts, axis=0, keepdims=True)
+    pred_freq = weighted_counts / (np.sum(weighted_counts, axis=0, keepdims=True) + SMALL_NUMBER)
 
     return pred_freq
+
+
+def compute_stop_counts(probs: np.ndarray) -> np.ndarray:
+    """
+    Computes the largest stop rate possible using the given validation probabilities.
+
+    Args:
+        probs: A [B, K, L] array of predicted probabilities for each sample (B) and output level (K).
+    Returns:
+        A [L] array of the maximum stop rates for each (predicted) label (L)
+    """
+    assert len(probs.shape) == 3, 'Must provide a 3d array.'
+    assert probs.shape[1] == 2, 'Computation only works on 2-level models.'
+
+    # Unpack the shape
+    num_samples, _, num_labels = probs.shape
+
+    stay_counts = np.zeros(shape=(num_labels, ))  # [L]
+    elev_counts = np.zeros_like(stay_counts)  # [L]
+
+    preds = np.argmax(probs, axis=-1)  # [B, K]
+
+    for sample_idx in range(num_samples):
+        first_pred, second_pred = preds[sample_idx, 0], preds[sample_idx, 1]
+
+        stay_counts[first_pred] += 1
+
+        if first_pred != second_pred:
+            elev_counts[second_pred] += 1
+
+    return np.vstack([np.expand_dims(stay_counts, axis=0), np.expand_dims(elev_counts, axis=0)])
+    #max_stop_rates = stay_counts / (stay_counts + elev_counts + SMALL_NUMBER)
+    #return max_stop_rates
 
 
 def compute_avg_level_per_class(output_levels: List[int], labels: List[int]) -> List[float]:

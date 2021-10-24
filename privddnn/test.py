@@ -3,42 +3,36 @@ import os.path
 from argparse import ArgumentParser
 from collections import defaultdict
 from enum import Enum, auto
-from typing import List, Tuple, DefaultDict, Dict
+from typing import List, Tuple, DefaultDict, Dict, Optional
 
-from neural_network import restore_model, NeuralNetwork, OpName, ModelMode
-from exiting.early_exit import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
-from privddnn.utils.metrics import compute_accuracy, compute_mutual_info, compute_target_exit_rates
+from privddnn.classifier import BaseClassifier, ModelMode, OpName
+from privddnn.exiting.early_exit import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
+from privddnn.restore import restore_classifier
+from privddnn.utils.metrics import compute_accuracy, compute_mutual_info, compute_target_exit_rates, compute_stop_counts
 from privddnn.utils.plotting import to_label
 from privddnn.utils.file_utils import save_json_gz
-
-
-COLORS = {
-    ExitStrategy.RANDOM: '#756bb1',
-    ExitStrategy.MAX_PROB: '#3182bd',
-    ExitStrategy.ENTROPY: '#31a354',
-    ExitStrategy.LABEL_MAX_PROB: '#9ecae1',
-    ExitStrategy.LABEL_ENTROPY: '#a1d99b',
-}
 
 
 def execute_for_rate(test_probs: np.ndarray,
                      val_probs: np.ndarray,
                      test_labels: np.ndarray,
                      val_labels: np.ndarray,
+                     pred_rates: np.ndarray,
                      rate: float,
                      model_path: str,
                      strategy: ExitStrategy,
-                     num_trials: int) -> Dict[str, Dict[str, List[float]]]:
+                     num_trials: int,
+                     max_num_samples: Optional[int]) -> Dict[str, Dict[str, List[float]]]:
     # Make the exit policy
     rates = [rate, 1.0 - rate]
     policy = make_policy(strategy=strategy, rates=rates, model_path=model_path)
     policy.fit(val_probs=val_probs, val_labels=val_labels)
 
-    target_exit_rates = compute_target_exit_rates(probs=val_probs, rates=rates)
+    #target_exit_rates = compute_target_exit_rates(probs=val_probs, rates=rates)
 
     # Run the policy on the validation and test sets
-    val_result = policy.test(test_probs=val_probs, target_exit_rates=target_exit_rates)
-    test_result = policy.test(test_probs=test_probs, target_exit_rates=target_exit_rates)
+    val_result = policy.test(test_probs=val_probs, pred_rates=pred_rates, max_num_samples=max_num_samples)
+    test_result = policy.test(test_probs=test_probs, pred_rates=pred_rates, max_num_samples=max_num_samples)
 
     result = dict(val=list(), test=list())
 
@@ -48,44 +42,41 @@ def execute_for_rate(test_probs: np.ndarray,
 
     return result
 
-    ## Compute the result metrics
-    #accuracy = compute_accuracy(result.predictions, labels=test_labels)
-    #mutual_information = compute_mutual_info(result.output_levels, test_labels)
-    #observed_rate = result.observed_rates[1]  # Fraction stopping at the larger model
-
-    ## Fit the attack model
-    #val_result = policy.test(test_probs=val_probs)
-    #policy.fit_attack_model(val_outputs=val_result.output_levels,
-    #                        val_labels=val_labels,
-    #                        window_size=10,
-    #                        num_samples=1000)
-
-    #attack_accuracy = policy.test_attack_model(test_outputs=result.output_levels,
-    #                                           test_labels=test_labels,
-    #                                           window_size=10,
-    #                                           num_samples=1000)
-
-    #return accuracy, mutual_information, observed_rate, attack_accuracy
-
 
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--model-path', type=str, required=True, help='Path to the saved model weights')
     parser.add_argument('--trials', type=int, required=True, help='The number of trials per policy.')
+    parser.add_argument('--max-num-samples', type=int, help='Optional maximum number of samples (for testing)')
     args = parser.parse_args()
 
     assert args.trials >= 1, 'Must provide a positive number of trials'
 
     # Restore the model
-    model: NeuralNetwork = restore_model(path=args.model_path, model_mode=ModelMode.TEST)
+    model: BaseClassifier = restore_classifier(model_path=args.model_path, model_mode=ModelMode.TEST)
 
     # Get the predictions from the models
-    test_probs = model.test(op=OpName.PROBS)  # [B, K]
-    val_probs = model.validate(op=OpName.PROBS)
+    test_probs = model.test(op=OpName.PROBS)  # [C, L, K]
+    val_probs = model.validate(op=OpName.PROBS)  # [B, L, K]
 
     test_labels = model.dataset.get_test_labels()
     val_labels = model.dataset.get_val_labels()
 
+    # Compute the prediction rates for each level based on the validation set
+    #val_preds = np.argmax(val_probs, axis=-1)  # [B, L]
+
+    #pred_rates_list: List[np.ndarray] = []
+    #for level in range(val_preds.shape[1]):
+    #    pred_counts = np.bincount(val_preds[:, level], minlength=val_probs.shape[-1])
+    #    pred_rates = pred_counts / np.sum(pred_counts)
+    #    pred_rates_list.append(np.expand_dims(pred_rates, axis=0))
+
+    #pred_rates = np.vstack(pred_rates_list)  # [L, K]
+    stop_counts = compute_stop_counts(probs=val_probs)
+    print(stop_counts)
+
+    #print(max_stop_rates)
+    
     rates = list(sorted(np.arange(0.0, 1.01, 0.05)))
     rand = np.random.RandomState(seed=591)
 
@@ -93,7 +84,7 @@ if __name__ == '__main__':
     results: Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]] = dict(val=dict(), test=dict())
 
     #strategies = [ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY, ExitStrategy.HYBRID_MAX_PROB, ExitStrategy.HYBRID_ENTROPY, ExitStrategy.RANDOM]
-    strategies = [ExitStrategy.ENTROPY, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.RANDOM, ExitStrategy.GREEDY_EVEN, ExitStrategy.MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.EVEN_MAX_PROB, ExitStrategy.EVEN_LABEL_MAX_PROB]
 
     for strategy in strategies:
         strategy_name = strategy.name.lower()
@@ -105,10 +96,12 @@ if __name__ == '__main__':
                                            val_probs=val_probs,
                                            test_labels=test_labels,
                                            val_labels=val_labels,
+                                           pred_rates=stop_counts,
                                            rate=rate,
                                            model_path=args.model_path,
                                            strategy=strategy,
-                                           num_trials=args.trials)
+                                           num_trials=args.trials,
+                                           max_num_samples=args.max_num_samples)
 
             # Log the results
             rate_key = str(round(rate, 2))

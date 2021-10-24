@@ -82,6 +82,28 @@ class AdaBoostClassifier(BaseClassifier):
         self._num_labels = num_labels
         self._is_fit = True
 
+    def predict_sample(self, inputs: np.ndarray, level: int) -> np.ndarray:
+        """
+        Gets the predicted probabilities for the given input using the
+        specified model level.
+        """
+        assert level in (0, 1), 'The model level must be either 0 or 1'
+
+        num_classifiers = len(self._clfs) if level == 1 else self.exit_size
+        probs = np.zeros(shape=(1, self._num_labels))
+        expanded_inputs = np.expand_dims(inputs, axis=0)  # [1, D]
+
+        for idx in range(num_classifiers):
+            preds = self._clfs[idx].predict(expanded_inputs)  # [1]
+            one_hot = to_one_hot(preds, num_labels=self._num_labels)  # [1, K]
+            boost_weight = self._boost_weights[idx]
+
+            weighted_preds = boost_weight * one_hot
+            probs += weighted_preds
+
+        probs = softmax(probs, axis=-1)
+        return probs.reshape(-1)
+
     def validate(self, op: OpName) -> np.ndarray:
         #assert op in (OpName.PROBS, OpName.PREDICTIONS), 'Operation must be either probs or predictions. Got: {}'.format(op)
         probs = self.predict_proba(inputs=self.dataset.get_val_inputs())

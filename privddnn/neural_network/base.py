@@ -262,7 +262,6 @@ class NeuralNetwork(BaseClassifier):
 
         return { OpName[name]: value for name, value in results.items() }
 
-
     def load_metadata(self):
         """
         Extracts the input shape and fits the data scaler

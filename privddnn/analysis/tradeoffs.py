@@ -61,7 +61,7 @@ if __name__ == '__main__':
 
                 rates.append(round(1.0 - float(rate), 2))
 
-            print('{} & {:.5f} & {:.5f} & {:.5f} & {:.5f}'.format(policy_name, np.average(accuracy), np.max(accuracy), np.average(mut_info), np.max(mut_info)))
+            print('{} & {:.5f} & {:.5f} & {:.5f} & {:.5f} \\\\'.format(policy_name, np.average(accuracy), np.max(accuracy), np.average(mut_info), np.max(mut_info)))
 
             ax1.errorbar(rates, accuracy, yerr=accuracy_std, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=3)
             ax2.errorbar(rates, mut_info, yerr=mut_info_std, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=3)
