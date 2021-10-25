@@ -168,6 +168,16 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-1 * x))
 
 
+def linear_step(x: float, width: float, clip: float) -> float:
+    if (x >= (width / 2.0)):
+        return clip
+    elif (x <= -1 * (width / 2.0)):
+        return -1 * clip
+    else:
+        slope = (2 * clip) / width
+        return slope * x
+
+
 def compute_max_prob_metric(probs: np.ndarray) -> np.ndarray:
     return np.max(probs, axis=-1)
 
