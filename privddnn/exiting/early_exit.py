@@ -7,6 +7,7 @@ from typing import List, Tuple, Dict, DefaultDict, Optional
 
 from privddnn.utils.metrics import compute_entropy, create_confusion_matrix, sigmoid
 from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metric, linear_step
+from privddnn.utils.np_utils import mask_non_max
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.file_utils import read_json
 from privddnn.controllers.runtime_controller import RandomnessController
@@ -283,7 +284,7 @@ class EvenThresholdExiter(ThresholdExiter):
 
     def get_prediction(self, probs: np.ndarray, level: int) -> int:
         level_probs = probs[level]  # [K]
-        adjusted_probs = level_probs + self._prob_adjustments[level]  # [K]
+        adjusted_probs = level_probs + mask_non_max(self._prob_adjustments[level])  # [K]
 
         return np.argmax(adjusted_probs)
 
@@ -315,35 +316,43 @@ class EvenThresholdExiter(ThresholdExiter):
         #self._pred_weights /= np.sum(self._pred_weights)
 
     def select_output(self, probs: np.ndarray, rand_rate: float):
-        adjusted_probs = self._prob_adjustments + probs
-
-        #print('Prob Adjustments: {}'.format(self._prob_adjustments))
+        adjusted_probs = mask_non_max(self._prob_adjustments) + probs
 
         first_pred = np.argmax(adjusted_probs[0])
-        stay_rate = (self._stay_counter[first_pred]) / (self._stay_counter[first_pred] + self._elevate_counter[first_pred] + SMALL_NUMBER)
+        total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred] + 1
+        stay_rate = (self._stay_counter[first_pred] + 1) / total_count
         stay_cost = abs(stay_rate - self.rates[0])
 
-        #print('Pred: {}, Adj Prob: {}, Original Probs: {}'.format(first_pred, adjusted_probs[0, first_pred], probs[0]))
-
         # Compute the expected cost of elevating
-        elevate_probs = self._prior[first_pred] / np.sum(self._prior[first_pred])  # [L]
-        expected_rate = 0.0
+        #elevate_probs = self._prior[first_pred] / np.sum(self._prior[first_pred])  # [L]
+        #expected_rate = 0.0
 
-        for pred in range(len(elevate_probs)):
-            expected_rate += elevate_probs[pred] * ((self._elevate_counter[pred]) / (self._stay_counter[pred] + self._elevate_counter[pred] + SMALL_NUMBER))
+        #for pred in range(len(elevate_probs)):
+        #    expected_rate += elevate_probs[pred] * ((self._elevate_counter[pred]) / (self._stay_counter[pred] + self._elevate_counter[pred] + SMALL_NUMBER))
 
-        elevate_cost = abs(expected_rate - self.rates[1])
+        #elevate_cost = abs(expected_rate - self.rates[1])
+
+        #total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred]
 
         # Compute the level from both data-dependent exiting and even-ness exiting
         # to avoid timing attacks against this conditional behavior
         policy_level = super().select_output(probs=probs, rand_rate=rand_rate)
         even_level = int(stay_rate > self.rates[0])
+        #even_level = int(elevate_cost < stay_cost)
+
+        all_elevate = np.all(np.isclose(self._prob_adjustments[0], -1.0))
+        all_stay = np.all(np.isclose(self._prob_adjustments[0], 1.0))
+        even_bound = min(max((self.horizon - 1.0), self.epsilon * total_count) / total_count, self.epsilon)
 
         if self.rates[0] < SMALL_NUMBER:
             return 1
         elif self.rates[1] < SMALL_NUMBER:
             return 0
-        elif (stay_cost < self.epsilon) and (elevate_cost < self.epsilon):
+        elif all_elevate:
+            return 1
+        elif all_stay:
+            return 0
+        elif (stay_cost < even_bound):
             return policy_level
         else:
             return even_level
@@ -712,7 +721,7 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
     elif strategy == ExitStrategy.GREEDY_EVEN:
         return GreedyEvenExit(rates=rates)
     elif strategy == ExitStrategy.EVEN_MAX_PROB:
-        return EvenMaxProbExit(rates=rates, epsilon=0.001, horizon=10)
+        return EvenMaxProbExit(rates=rates, epsilon=0.001, horizon=5)
     elif strategy == ExitStrategy.EVEN_LABEL_MAX_PROB:
         return EvenLabelMaxProbExit(rates=rates, epsilon=0.001)
     else:
