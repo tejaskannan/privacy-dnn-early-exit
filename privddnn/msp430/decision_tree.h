@@ -1,4 +1,4 @@
-#include "stdint.h"
+#include <stdint.h>
 #include "utils/array.h"
 #include "utils/fixed_point.h"
 
@@ -17,12 +17,13 @@ struct decision_tree {
 struct adaboost_ensemble {
     uint8_t numTrees;
     uint8_t exitPoint;
+    uint8_t numLabels;
     struct decision_tree **trees;
     int16_t *boostWeights;
 };
 
 
 uint8_t decision_tree_inference(int16_t *inputs, struct decision_tree *tree);
-uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, int16_t exitThreshold);
+uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, int16_t exitThreshold, uint8_t precision);
 
 #endif

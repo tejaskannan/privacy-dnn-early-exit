@@ -1,8 +1,8 @@
 #include "decision_tree.h"
 
-
-//static const uint16_t BUFFER_SIZE = 16;
-//static int32_t PROBS_BUFFER[BUFFER_SIZE];
+#define BUFFER_SIZE 16
+static int32_t WEIGHTS_BUFFER[BUFFER_SIZE];
+static int32_t PROBS_BUFFER[BUFFER_SIZE];
 
 
 uint8_t decision_tree_inference(int16_t *inputs, struct decision_tree *tree) {
@@ -26,14 +26,41 @@ uint8_t decision_tree_inference(int16_t *inputs, struct decision_tree *tree) {
 }
 
 
-//uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, int16_t exitThreshold) {
-//    // Zero out the probability buffer
-//    uint16_t i;
-//    for (i = 0; i < BUFFER_SIZE; i++) {
-//         PROBS_BUFFER[i] = 0;
-//    }
-//
-//    // Execute the decision trees in order
-//    
-//
-//}
+uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, int16_t exitThreshold, uint8_t precision) {
+    // Zero out the probability buffers
+    volatile uint16_t i;
+    for (i = 0; i < BUFFER_SIZE; i++) {
+         PROBS_BUFFER[i] = 0;
+	 WEIGHTS_BUFFER[i] = 0;
+    }
+
+    // Execute the decision trees in order
+    uint8_t pred;
+    int32_t predWeight;
+    int32_t currentWeight;
+
+    for (i = 0; i < ensemble->numTrees; i++) {
+	// Perform early-exiting if possible
+	if (i == ensemble->exitPoint) {
+	    array32_fixed_point_normalize(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
+	    pred = array32_argmax(PROBS_BUFFER, ensemble->numLabels);
+
+	    // For now, this only support MaxProb exiting
+	    if (PROBS_BUFFER[pred] >= exitThreshold) {
+	        return pred;
+	    }
+	}
+
+	// Execute the decision tree
+        pred = decision_tree_inference(inputs, ensemble->trees[i]);
+
+	// Add the prediction to the running weights, scaled by the AdaBoost factor
+	currentWeight = WEIGHTS_BUFFER[pred];
+        predWeight = fp32_mul(currentWeight, ensemble->boostWeights[i], precision);
+	WEIGHTS_BUFFER[pred] = fp32_add(predWeight, currentWeight);
+    }
+
+    // Compute the final prediction
+    array32_fixed_point_normalize(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
+    return array32_argmax(PROBS_BUFFER, ensemble->numLabels);
+}

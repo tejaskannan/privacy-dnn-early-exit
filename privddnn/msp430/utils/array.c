@@ -31,11 +31,11 @@ int32_t array32_fixed_point_sum(int32_t *array, uint8_t n) {
 }
 
 
-void array32_fixed_point_normalize(int32_t *array, uint8_t n, uint8_t precision) {
-    int32_t sum = array32_fixed_point_sum(array, n);
+void array32_fixed_point_normalize(int32_t *src, int32_t *dst, uint8_t n, uint8_t precision) {
+    int32_t sum = array32_fixed_point_sum(src, n);
 
     uint8_t i;
     for (i = 0; i < n; i++) {
-        array[i] = fp32_div(array[i], sum, precision);
+        dst[i] = fp32_div(src[i], sum, precision);
     }
 }
