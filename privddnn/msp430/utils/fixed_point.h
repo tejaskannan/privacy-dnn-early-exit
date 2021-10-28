@@ -1,0 +1,14 @@
+#include <stdint.h>
+
+#ifndef FIXED_POINT_H_
+#define FIXED_POINT_H_
+
+int16_t fp16_add(int16_t x, int16_t y);
+int16_t fp16_mul(int16_t x, int16_t y, uint8_t precision);
+int16_t fp16_div(int16_t x, int16_t y, uint8_t precision);
+
+int32_t fp32_add(int32_t x, int32_t y);
+int32_t fp32_mul(int32_t x, int32_t y, uint8_t precision);
+int32_t fp32_div(int32_t x, int32_t y, uint8_t precision);
+
+#endif

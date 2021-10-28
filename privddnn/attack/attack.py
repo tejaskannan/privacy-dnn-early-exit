@@ -36,7 +36,7 @@ if __name__ == '__main__':
     #policy_names = ['random', 'max_prob', 'label_max_prob', 'hybrid_max_prob', 'entropy', 'label_entropy', 'hybrid_entropy']
     policy_names = ['random', 'even_max_prob', 'max_prob']
 
-    window_size = 25
+    window_size = 10
     noise_rate = 0.2
     num_trials = 1
 

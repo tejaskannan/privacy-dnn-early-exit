@@ -42,7 +42,7 @@ if __name__ == '__main__':
                     color=COLORS[policy_name])
 
         ax.set_xlabel('Frac Stopping at 2nd Output', fontsize=AXIS_FONT)
-        ax.set_ylabel('Test Accuracy Above Most Freq (%)', fontsize=AXIS_FONT)
+        ax.set_ylabel('Test Accuracy (%) Above Most Freq', fontsize=AXIS_FONT)
         ax.set_title('Attack {} Against Exit Policies'.format(args.metric.capitalize()), fontsize=TITLE_FONT)
 
         ax.legend(fontsize=LEGEND_FONT)

@@ -1,4 +1,6 @@
 import numpy as np
+import tensorflow as tf2
+import tensorflow.compat.v1 as tf1
 from collections import defaultdict
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.linear_model import LogisticRegression
@@ -200,16 +202,3 @@ class LogisticRegressionClassifier(AttackClassifier):
             ACCURACY: float(accuracy),
             TOP2: float(top2)
         }
-
-
-#class DeepSetClassifier(AttackClassifier):
-#
-#    def __init__(self, hidden_size: int):
-#        self._rand = np.random.RandomState(seed=32809)
-#        self._hidden_size = hidden_size
-#
-#        # Initialize the trainable variables
-#        self._lambda0 = rand.uniform(low=-0.7, high=0.7)
-#        self._gamma0 = rand.uniform(low=-0.7, high=0.7)
-#        self._lambda1 = rand.uniform(low=-0.7, high=0.7)
-#        self._gamma1 = rand.uniform(low=-0.7, high=0.7)
