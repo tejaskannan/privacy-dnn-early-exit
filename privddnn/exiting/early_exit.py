@@ -299,22 +299,6 @@ class EvenThresholdExiter(ThresholdExiter):
         self._prob_adjustments = np.zeros(shape=(2, num_labels))
         self._num_labels = num_labels
 
-        #self._pred_rates = pred_rates
-        #self._preds_to_avoid: Set[int] = set()
-
-        #for pred in range(num_labels):
-        #    first_rate = pred_rates[0, pred]
-        #    second_rate = pred_rates[1, pred]
-
-        #    max_stop_rate = (first_rate) / max(first_rate + (1.0 - self.rates[0]) * second_rate, SMALL_NUMBER)
-
-        #    if (max_stop_rate < (self.rates[0] - self.epsilon)) and (self.rates[0] < (1.0 - SMALL_NUMBER)) and (self.rates[0] > SMALL_NUMBER):
-        #        self._preds_to_avoid.add(pred)
-
-        #self._pred_space = list(range(num_labels))
-        #self._pred_weights = np.array([float(pred not in self._preds_to_avoid) for pred in range(num_labels)])
-        #self._pred_weights /= np.sum(self._pred_weights)
-
     def select_output(self, probs: np.ndarray, rand_rate: float):
         adjusted_probs = mask_non_max(self._prob_adjustments) + probs
 
@@ -323,22 +307,10 @@ class EvenThresholdExiter(ThresholdExiter):
         stay_rate = (self._stay_counter[first_pred] + 1) / total_count
         stay_cost = abs(stay_rate - self.rates[0])
 
-        # Compute the expected cost of elevating
-        #elevate_probs = self._prior[first_pred] / np.sum(self._prior[first_pred])  # [L]
-        #expected_rate = 0.0
-
-        #for pred in range(len(elevate_probs)):
-        #    expected_rate += elevate_probs[pred] * ((self._elevate_counter[pred]) / (self._stay_counter[pred] + self._elevate_counter[pred] + SMALL_NUMBER))
-
-        #elevate_cost = abs(expected_rate - self.rates[1])
-
-        #total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred]
-
         # Compute the level from both data-dependent exiting and even-ness exiting
         # to avoid timing attacks against this conditional behavior
         policy_level = super().select_output(probs=probs, rand_rate=rand_rate)
         even_level = int(stay_rate > self.rates[0])
-        #even_level = int(elevate_cost < stay_cost)
 
         all_elevate = np.all(np.isclose(self._prob_adjustments[0], -1.0))
         all_stay = np.all(np.isclose(self._prob_adjustments[0], 1.0))
