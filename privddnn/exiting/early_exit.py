@@ -260,8 +260,6 @@ class EvenThresholdExiter(ThresholdExiter):
             self._elevate_counter[pred] += 1
             self._prior[first_pred, pred] += 1
 
-        #print('Level: {}, Pred: {}, Stay: {}, Elevate: {}'.format(level, pred, self._stay_counter[pred], self._elevate_counter[pred]))
-
         for pred in range(self._num_labels):
             total_count = self._stay_counter[pred] + self._elevate_counter[pred]
 
@@ -276,7 +274,6 @@ class EvenThresholdExiter(ThresholdExiter):
 
             stay_diff = expected_stay - stay_count
             elevate_diff = expected_elevate - elevate_count
-            #shift = self.horizon / 2.0
             width = self.horizon * 2.0
 
             self._prob_adjustments[0, pred] = linear_step(x=stay_diff, width=width, clip=1.0)
@@ -285,12 +282,7 @@ class EvenThresholdExiter(ThresholdExiter):
     def get_prediction(self, probs: np.ndarray, level: int) -> int:
         level_probs = probs[level]  # [K]
         adjusted_probs = level_probs + mask_non_max(self._prob_adjustments[level])  # [K]
-
         return np.argmax(adjusted_probs)
-
-        #if pred in self._preds_to_avoid:
-        #    return int(np.random.choice(self._pred_space, p=self._pred_weights, size=1))
-        #return pred
 
     def reset(self, num_labels: int, pred_rates: np.ndarray):
         self._stay_counter = Counter()
@@ -434,15 +426,20 @@ class LabelEntropyExit(LabelThresholdExiter):
 
 class EvenLabelThresholdExiter(LabelThresholdExiter):
 
-    def __init__(self, epsilon: float, rates: List[float]):
+    def __init__(self, epsilon: float, horizon: int, rates: List[float]):
         super().__init__(rates=rates)
         self._epsilon = epsilon
+        self._horizon = horizon
         self._stay_counter: Counter = Counter()
         self._elevate_counter: Counter = Counter()
 
     @property
     def epsilon(self) -> float:
         return self._epsilon
+
+    @property
+    def horizon(self) -> int:
+        return self._horizon
 
     def update(self, first_pred: int, pred: int, level: int):
         if level == 0:
@@ -451,54 +448,63 @@ class EvenLabelThresholdExiter(LabelThresholdExiter):
             self._elevate_counter[pred] += 1
             self._prior[first_pred, pred] += 1
 
-    def get_prediction(self, preds: np.ndarray, level: int) -> int:
-        pred = preds[level]
+        for pred in range(self._num_labels):
+            total_count = self._stay_counter[pred] + self._elevate_counter[pred]
 
-        if pred in self._preds_to_avoid:
-            return int(np.random.choice(self._pred_space, p=self._pred_weights, size=1))
-        return pred
+            stay_count = self._stay_counter[pred]
+            elevate_count = self._elevate_counter[pred]
+
+            expected_stay = total_count * self.rates[0]
+            expected_elevate = total_count * self.rates[1]
+
+            stay_count = stay_count if total_count > 0 else 0
+            elevate_count = elevate_count if total_count > 0 else 0
+
+            stay_diff = expected_stay - stay_count
+            elevate_diff = expected_elevate - elevate_count
+            width = self.horizon * 2.0
+
+            self._prob_adjustments[0, pred] = linear_step(x=stay_diff, width=width, clip=1.0)
+            self._prob_adjustments[1, pred] = linear_step(x=elevate_diff, width=width, clip=1.0)
+
+    def get_prediction(self, probs: np.ndarray, level: int) -> int:
+        level_probs = probs[level]  # [K]
+        adjusted_probs = level_probs + mask_non_max(self._prob_adjustments[level])  # [K]
+        return np.argmax(adjusted_probs)
 
     def reset(self, num_labels: int, pred_rates: np.ndarray):
         self._stay_counter = Counter()
         self._elevate_counter = Counter()
         self._prior = np.eye(num_labels)
-
-        self._pred_rates = pred_rates
-        self._preds_to_avoid: Set[int] = set()
-
-        for pred in range(num_labels):
-            first_rate = pred_rates[0, pred]
-            second_rate = pred_rates[1, pred]
-
-            max_stop_rate = (first_rate) / max(first_rate + (1.0 - self.rates[0]) * second_rate, SMALL_NUMBER)
-
-            if (max_stop_rate < (self.rates[0] - self.epsilon)) and (self.rates[0] < (1.0 - SMALL_NUMBER)) and (self.rates[0] > SMALL_NUMBER):
-                self._preds_to_avoid.add(pred)
-
-        self._pred_space = list(range(num_labels))
-        self._pred_weights = np.array([float(pred not in self._preds_to_avoid) for pred in range(num_labels)])
-        self._pred_weights /= np.sum(self._pred_weights)
+        self._prob_adjustments = np.zeros(shape=(2, num_labels))
+        self._num_labels = num_labels
 
     def select_output(self, probs: np.ndarray, rand_rate: float):
-        first_pred = np.argmax(probs[0])
-        stay_rate = (self._stay_counter[first_pred]) / (self._stay_counter[first_pred] + self._elevate_counter[first_pred] + SMALL_NUMBER)
+        adjusted_probs = mask_non_max(self._prob_adjustments) + probs
+
+        first_pred = np.argmax(adjusted_probs[0])
+        total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred] + 1
+        stay_rate = (self._stay_counter[first_pred] + 1) / total_count
         stay_cost = abs(stay_rate - self.rates[0])
-
-        # Compute the expected cost of elevating
-        elevate_probs = self._prior[first_pred] / np.sum(self._prior[first_pred])  # [L]
-        expected_rate = 0.0
-
-        for pred in range(len(elevate_probs)):
-            expected_rate += elevate_probs[pred] * ((self._elevate_counter[pred]) / (self._stay_counter[pred] + self._elevate_counter[pred] + SMALL_NUMBER))
-
-        elevate_cost = abs(expected_rate - self.rates[1])
 
         # Compute the level from both data-dependent exiting and even-ness exiting
         # to avoid timing attacks against this conditional behavior
         policy_level = super().select_output(probs=probs, rand_rate=rand_rate)
         even_level = int(stay_rate > self.rates[0])
 
-        if (stay_cost < self.epsilon) and (elevate_cost < self.epsilon):
+        all_elevate = np.all(np.isclose(self._prob_adjustments[0], -1.0))
+        all_stay = np.all(np.isclose(self._prob_adjustments[0], 1.0))
+        even_bound = min(max((self.horizon - 1.0), self.epsilon * total_count) / total_count, self.epsilon)
+
+        if self.rates[0] < SMALL_NUMBER:
+            return 1
+        elif self.rates[1] < SMALL_NUMBER:
+            return 0
+        elif all_elevate:
+            return 1
+        elif all_stay:
+            return 0
+        elif (stay_cost < even_bound):
             return policy_level
         else:
             return even_level
@@ -693,8 +699,8 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
     elif strategy == ExitStrategy.GREEDY_EVEN:
         return GreedyEvenExit(rates=rates)
     elif strategy == ExitStrategy.EVEN_MAX_PROB:
-        return EvenMaxProbExit(rates=rates, epsilon=0.001, horizon=5)
+        return EvenMaxProbExit(rates=rates, epsilon=0.001, horizon=10)
     elif strategy == ExitStrategy.EVEN_LABEL_MAX_PROB:
-        return EvenLabelMaxProbExit(rates=rates, epsilon=0.001)
+        return EvenLabelMaxProbExit(rates=rates, epsilon=0.001, horizon=10)
     else:
         raise ValueError('No policy {}'.format(strategy))

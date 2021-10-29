@@ -129,6 +129,26 @@ class Dataset:
     def num_test(self) -> int:
         return self._test_inputs.shape[0]
 
+    def get_inputs(self, fold: DataFold) -> np.ndarray:
+        if fold == DataFold.TRAIN:
+            return self.get_train_inputs()
+        elif fold == DataFold.VAL:
+            return self.get_val_inputs()
+        elif fold == DataFold.TEST:
+            return self.get_test_inputs()
+        else:
+            raise ValueError('Unknown data fold: {}'.format(fold.name))
+
+    def get_labels(self, fold: DataFold) -> np.ndarray:
+        if fold == DataFold.TRAIN:
+            return self.get_train_labels()
+        elif fold == DataFold.VAL:
+            return self.get_val_labels()
+        elif fold == DataFold.TEST:
+            return self.get_test_labels()
+        else:
+            raise ValueError('Unknown data fold: {}'.format(fold.name))
+
     def get_train_inputs(self) -> np.ndarray:
         return self._train_inputs
 

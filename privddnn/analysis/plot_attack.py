@@ -27,7 +27,7 @@ if __name__ == '__main__':
         rates = [round(r / 20.0, 2) for r in range(21)]
 
         for policy_name, attack_results in attack_accuracy.items():
-            metric_results = [(r[args.metric] - b[args.metric]) for r, b in zip(attack_results[args.attack_model], attack_results[MOST_FREQ])]
+            metric_results = [r[args.metric] for r, b in zip(attack_results[args.attack_model], attack_results[MOST_FREQ])]
 
             print('{} & {:.5f} & {:.5f}'.format(policy_name, sum(metric_results) / len(metric_results), max(metric_results)))
 
@@ -42,7 +42,7 @@ if __name__ == '__main__':
                     color=COLORS[policy_name])
 
         ax.set_xlabel('Frac Stopping at 2nd Output', fontsize=AXIS_FONT)
-        ax.set_ylabel('Test Accuracy (%) Above Most Freq', fontsize=AXIS_FONT)
+        ax.set_ylabel('Attack Accuracy (%)', fontsize=AXIS_FONT)
         ax.set_title('Attack {} Against Exit Policies'.format(args.metric.capitalize()), fontsize=TITLE_FONT)
 
         ax.legend(fontsize=LEGEND_FONT)

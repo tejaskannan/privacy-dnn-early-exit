@@ -34,11 +34,11 @@ if __name__ == '__main__':
 
     rates = [str(round(r / 20.0, 2)) for r in range(21)]
     #policy_names = ['random', 'max_prob', 'label_max_prob', 'hybrid_max_prob', 'entropy', 'label_entropy', 'hybrid_entropy']
-    policy_names = ['random', 'even_max_prob', 'max_prob']
+    policy_names = ['random', 'greedy_even', 'max_prob', 'label_max_prob', 'even_max_prob', 'even_label_max_prob']
 
     window_size = 10
     noise_rate = 0.2
-    num_trials = 1
+    num_samples = 2000
 
     # Maps policy name -> { clf type -> [accuracy] }
     train_attack_results: Dict[str, DefaultDict[str, List[float]]] = dict()
@@ -60,6 +60,8 @@ if __name__ == '__main__':
         for rate in rates:
             train_policy_name = policy_name if args.train_policy is None else args.train_policy
 
+            print('Starting {} on {}'.format(policy_name, rate))
+
             # Get the results from training and validation
             val_levels = train_log['val'][train_policy_name][rate][0]['output_levels']
             val_preds = train_log['val'][train_policy_name][rate][0]['preds']
@@ -67,21 +69,17 @@ if __name__ == '__main__':
             test_levels = eval_log['test'][policy_name][rate][0]['output_levels']
             test_preds = eval_log['test'][policy_name][rate][0]['preds']
 
-            rand = np.random.RandomState(seed=5234)
-
             # Build the attack datasets
             train_attack_inputs, train_attack_outputs = make_noisy_dataset(levels=val_levels,
                                                                            preds=val_preds,
                                                                            window_size=window_size,
-                                                                           num_trials=num_trials,
-                                                                           rand=rand,
+                                                                           num_samples=num_samples,
                                                                            noise_rate=noise_rate)
 
             test_attack_inputs, test_attack_outputs = make_noisy_dataset(levels=test_levels,
                                                                          preds=test_preds,
                                                                          window_size=window_size,
-                                                                         num_trials=num_trials,
-                                                                         rand=rand,
+                                                                         num_samples=num_samples,
                                                                          noise_rate=noise_rate)
 
             # Evaluate the most-frequent classifier
@@ -102,14 +100,14 @@ if __name__ == '__main__':
             test_attack_results[policy_name][majority_clf.name].append(test_acc)
 
             # Fit and evaluate the decision tree ensemble classifier
-            lr_clf = LogisticRegressionClassifier()
-            lr_clf.fit(train_attack_inputs, train_attack_outputs)
+            #lr_clf = LogisticRegressionClassifier()
+            #lr_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
-            test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
+            #train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
+            #test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
 
-            train_attack_results[policy_name][lr_clf.name].append(train_acc)
-            test_attack_results[policy_name][lr_clf.name].append(test_acc)
+            #train_attack_results[policy_name][lr_clf.name].append(train_acc)
+            #test_attack_results[policy_name][lr_clf.name].append(test_acc)
 
     # Save the results
     eval_log['attack_test'] = test_attack_results

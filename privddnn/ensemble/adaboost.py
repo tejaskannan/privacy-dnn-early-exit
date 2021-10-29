@@ -101,7 +101,8 @@ class AdaBoostClassifier(BaseClassifier):
             weighted_preds = boost_weight * one_hot
             probs += weighted_preds
 
-        probs = softmax(probs, axis=-1)
+        # Normalize the probabiltiies. We avoid non-linearties here for better numerical stability on the MSP430
+        probs = probs / np.sum(probs, axis=-1, keepdims=True)
         return probs.reshape(-1)
 
     def validate(self, op: OpName) -> np.ndarray:

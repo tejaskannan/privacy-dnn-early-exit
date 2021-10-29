@@ -1,3 +1,4 @@
+import numpy as np
 from typing import List
 
 
@@ -11,6 +12,13 @@ def float_to_fixed_point(x: float, precision: int, width: int) -> int:
         return -1 * max_value
     else:
         return int(mult)
+
+
+def array_to_fixed_point(x: np.ndarray, precision: int, width: int) -> np.ndarray:
+    mult = x * (1 << precision)
+    max_value = (1 << (width - 1)) - 1
+    quantized = np.clip(mult, a_min=-max_value, a_max=max_value)
+    return quantized.astype(int)
 
 
 def serialize_int_array(var_name: str, array: List[int], dtype: str) -> str:

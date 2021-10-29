@@ -7,19 +7,21 @@ from privddnn.utils.file_utils import read_pickle_gz
 
 
 def make_noisy_dataset(levels: List[int],
-                        preds: List[int],
-                        window_size: int,
-                        num_trials: int,
-                        noise_rate: float,
-                        rand: np.random.RandomState) -> Tuple[np.ndarray, np.ndarray]:
+                       preds: List[int],
+                       window_size: int,
+                       num_samples: int,
+                       noise_rate: float) -> Tuple[np.ndarray, np.ndarray]:
     assert len(levels) == len(preds), 'Levels ({}) and Preds ({}) are misaligned.'.format(len(levels), len(preds))
 
     level_dist: DefaultDict[int, List[int]] = defaultdict(list)
     for level, pred in zip(levels, preds):
         level_dist[pred].append(level)
 
-    num_samples = len(levels) * num_trials
     num_labels = len(level_dist)
+
+    rand = np.random.RandomState(seed=8996083)
+    sample_idx = np.arange(len(levels))
+    selected_idx = rand.choice(sample_idx, size=num_samples, replace=True)
 
     input_list: List[np.ndarray] = []
     output_list: List[np.ndarray] = []
@@ -27,9 +29,8 @@ def make_noisy_dataset(levels: List[int],
     # The number of elements per window that come from any label
     num_noise = int(noise_rate * window_size)
 
-    for idx in range(num_samples):
+    for sample_idx in selected_idx:
         # Derive the input features from the given sample index
-        sample_idx = idx % len(levels)
         pred = preds[sample_idx]
         level_counts = level_dist[pred]
 

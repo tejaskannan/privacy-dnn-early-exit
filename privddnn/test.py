@@ -83,8 +83,8 @@ if __name__ == '__main__':
     results: Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]] = dict(val=dict(), test=dict())
 
     #strategies = [ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY, ExitStrategy.HYBRID_MAX_PROB, ExitStrategy.HYBRID_ENTROPY, ExitStrategy.RANDOM]
-    #strategies = [ExitStrategy.RANDOM, ExitStrategy.GREEDY_EVEN, ExitStrategy.MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.EVEN_MAX_PROB, ExitStrategy.EVEN_LABEL_MAX_PROB]
-    strategies = [ExitStrategy.RANDOM, ExitStrategy.EVEN_MAX_PROB, ExitStrategy.MAX_PROB]
+    strategies = [ExitStrategy.RANDOM, ExitStrategy.GREEDY_EVEN, ExitStrategy.MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.EVEN_MAX_PROB, ExitStrategy.EVEN_LABEL_MAX_PROB]
+    #strategies = [ExitStrategy.EVEN_LABEL_MAX_PROB]
 
     for strategy in strategies:
         strategy_name = strategy.name.lower()
