@@ -8,7 +8,7 @@ from privddnn.ensemble.adaboost import AdaBoostClassifier
 from privddnn.serialize.utils import serialize_int_array, serialize_float_array
 
 
-def serialize_tree(clf: DecisionTreeClassifier, name: str, precision: int):
+def serialize_tree(clf: DecisionTreeClassifier, name: str, precision: int, should_print: bool):
     root = clf.tree_
     lines: List[str] = []
     num_nodes = len(root.feature)
@@ -65,9 +65,8 @@ def serialize_ensemble(ensemble: AdaBoostClassifier, precision: int) -> str:
 
     for idx, clf in enumerate(clfs):
         name = 'TREE_{}'.format(idx)
-        lines.append(serialize_tree(clf, name=name, precision=precision))
-
-    var_names.append(name)
+        lines.append(serialize_tree(clf, name=name, precision=precision, should_print=(idx == 0)))
+        var_names.append(name)
 
     # Create the array of decision trees
     trees_var = 'static struct decision_tree *TREES[] = {{ {} }};'.format(','.join(('&{}'.format(n) for n in var_names)))

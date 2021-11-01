@@ -9,8 +9,8 @@ from utils.file_utils import read_json
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--model-name', type=str, help='Name of the neural network model to train.')
-    parser.add_argument('--dataset-name', type=str, help='Name of the dataset.', choices=['mnist', 'fashion_mnist', 'cifar_10'])
+    parser.add_argument('--model-name', type=str, help='Name of the neural network model to train.', required=True)
+    parser.add_argument('--dataset-name', type=str, help='Name of the dataset.', required=True)
     parser.add_argument('--hypers-path', type=str, help='Optional JSON file to override hyperparameters.')
     parser.add_argument('--save-folder', type=str, default='saved_models', help='Folder in which to save the results')
     args = parser.parse_args()

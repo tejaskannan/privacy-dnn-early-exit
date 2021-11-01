@@ -9,7 +9,7 @@ if __name__ == '__main__':
     # Load the data
     with h5py.File(args.file, 'r') as fin:
         inputs = fin['inputs'][:]
-        labels = fin['labels'][:]
+        labels = fin['output'][:]
 
     input_shape = inputs.shape
     inputs = inputs.reshape(input_shape[0], -1)

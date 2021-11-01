@@ -67,6 +67,11 @@ class Dataset:
             X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'uci_har', 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'uci_har', 'test.h5'))
             has_val_split = True
+        elif dataset_name == 'land_cover':
+            X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'land_cover', 'train.h5'))
+            X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'land_cover', 'val.h5'))
+            X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'land_cover', 'test.h5'))
+            has_val_split = True
         else:
             raise ValueError('Unknown dataset with name: {}'.format(dataset_name))
 

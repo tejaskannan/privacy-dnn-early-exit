@@ -366,7 +366,6 @@ class NeuralNetwork(BaseClassifier):
 
                 if ((batch_num + 1) % 20 == 0) or (batch_num == (num_train_batches - 1)):
                     print('Train Batch {}/{}. Loss: {:.4f}, Accuracy: {:.4f}'.format(batch_num + 1, num_train_batches, avg_train_loss, train_accuracy), end='\r')
-                    break
 
             print()
 
@@ -406,7 +405,6 @@ class NeuralNetwork(BaseClassifier):
 
                 if ((batch_num + 1) % 20 == 0) or (batch_num == (num_val_batches - 1)):
                     print('Val Batch {}/{}, Loss: {:.4f}, Accuracy: {:.4f}'.format(batch_num + 1, num_val_batches, avg_val_loss, val_accuracy), end='\r')
-                    break
 
             print()
 

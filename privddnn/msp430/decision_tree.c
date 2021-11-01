@@ -55,9 +55,7 @@ uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, 
         pred = decision_tree_inference(inputs, ensemble->trees[i]);
 
 	// Add the prediction to the running weights, scaled by the AdaBoost factor
-	currentWeight = WEIGHTS_BUFFER[pred];
-        predWeight = fp32_mul(currentWeight, ensemble->boostWeights[i], precision);
-	WEIGHTS_BUFFER[pred] = fp32_add(predWeight, currentWeight);
+	WEIGHTS_BUFFER[pred] = fp32_add(ensemble->boostWeights[i], WEIGHTS_BUFFER[pred]);
     }
 
     // Compute the final prediction
