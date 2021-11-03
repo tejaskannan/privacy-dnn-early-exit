@@ -73,10 +73,9 @@ if __name__ == '__main__':
 
     #pred_rates = np.vstack(pred_rates_list)  # [L, K]
     stop_counts = compute_stop_counts(probs=val_probs)
-    print(stop_counts)
 
     #print(max_stop_rates)
-    
+
     rates = list(sorted(np.arange(0.0, 1.01, 0.05)))
     rand = np.random.RandomState(seed=591)
 

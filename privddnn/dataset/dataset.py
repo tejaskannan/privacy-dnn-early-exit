@@ -5,7 +5,7 @@ import os.path
 from enum import Enum, auto
 from typing import List, Tuple, Iterable
 
-from privddnn.utils.loading import load_h5_dataset
+from privddnn.utils.loading import load_h5_dataset, load_npz_dataset
 from privddnn.utils.constants import SMALL_NUMBER
 
 
@@ -53,6 +53,9 @@ class Dataset:
         elif dataset_name == 'fashion_mnist':
             tf_dataset = tf2.keras.datasets.fashion_mnist
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
+        elif dataset_name == 'kmnist':
+            X_train, y_train = load_npz_dataset(path=os.path.join(dir_path, '..', 'data', 'kmnist'), fold='train')
+            X_test, y_test = load_npz_dataset(path=os.path.join(dir_path, '..', 'data', 'kmnist'), fold='test')
         elif dataset_name == 'cifar_10':
             tf_dataset = tf2.keras.datasets.cifar10
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
