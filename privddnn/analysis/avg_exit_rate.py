@@ -1,11 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
-from collections import Counter
+from collections import Counter, namedtuple
 from typing import List, Dict
 
 from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.plotting import PLOT_STYLE, to_label, COLORS, LEGEND_FONT, AXIS_FONT, TITLE_FONT
+
+
+ExitRates = namedtuple('ExitRates', ['elevated', 'total'])
 
 
 def get_exit_rate_per_label(preds: List[int], output_levels: List[int], num_labels: int) -> List[float]:
@@ -16,13 +19,12 @@ def get_exit_rate_per_label(preds: List[int], output_levels: List[int], num_labe
         elevate_counter[pred] += level
         total_counter[pred] += 1
 
-    result: List[float] = []
+    result: List[ExitRates] = []
 
     for pred in range(num_labels):
-        if pred in elevate_counter:
-            result.append(elevate_counter[pred] / total_counter[pred])
-        else:
-            result.append(0)
+        elevated = elevate_counter[pred]
+        total = total_counter.get(pred, 1)
+        result.append(ExitRates(elevated=elevated, total=total))        
 
     return result
 
@@ -48,7 +50,9 @@ if __name__ == '__main__':
 
         exit_rate = get_exit_rate_per_label(preds=preds, output_levels=output_levels, num_labels=num_labels)
 
-        exit_rates[policy_name] = exit_rate
+        print('{}: {}'.format(policy_name, exit_rate))
+
+        exit_rates[policy_name] = [(r.elevated / r.total) for r in exit_rate]
 
     xs = np.arange(num_labels)
     width = 1.0 / (len(policies) + 1)

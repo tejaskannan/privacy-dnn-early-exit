@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
-from typing import List
+from typing import Any, Dict, List
 
 from privddnn.classifier import BaseClassifier, OpName, ModelMode
 from privddnn.utils.constants import SMALL_NUMBER
@@ -9,12 +9,10 @@ from privddnn.utils.file_utils import save_pickle_gz, read_pickle_gz
 from privddnn.utils.metrics import softmax, to_one_hot
 
 
-MAX_DEPTH = 3
-
 
 class AdaBoostClassifier(BaseClassifier):
 
-    def __init__(self, num_estimators: int, exit_size: int, clf_name: str, dataset_name: str):
+    def __init__(self, num_estimators: int, exit_size: int, clf_name: str, dataset_name: str, **kwargs: Dict[str, Any]):
         super().__init__(dataset_name=dataset_name)
         assert num_estimators > exit_size, 'Ensemble size must be greater than the exit size'
         assert num_estimators > 1, 'Must provide at least 2 estimators'
@@ -26,7 +24,7 @@ class AdaBoostClassifier(BaseClassifier):
         self._clfs = []
         for _ in range(num_estimators):
             if clf_name == 'decision_tree':
-                self._clfs.append(DecisionTreeClassifier(max_depth=MAX_DEPTH))
+                self._clfs.append(DecisionTreeClassifier(max_depth=int(kwargs['max_depth'])))
             elif clf_name == 'logistic_regression':
                 self._clfs.append(LogisticRegression(C=0.1, penalty='l2', max_iter=2500))
             else:
@@ -63,6 +61,8 @@ class AdaBoostClassifier(BaseClassifier):
         weights = np.ones(shape=(num_samples, )) / num_samples
 
         for idx, clf in enumerate(self._clfs):
+            print('Fitting model {}/{}'.format(idx + 1, len(self._clfs)), end='\r')
+
             # Fit the classifier according to the current data weights
             clf.fit(inputs, labels, sample_weight=weights)
 
@@ -79,6 +79,7 @@ class AdaBoostClassifier(BaseClassifier):
             weights = weights * np.exp(alpha * (1.0 - is_correct))
             weights /= np.sum(weights)
 
+        print()
         self._num_labels = num_labels
         self._is_fit = True
 
@@ -101,7 +102,8 @@ class AdaBoostClassifier(BaseClassifier):
             weighted_preds = boost_weight * one_hot
             probs += weighted_preds
 
-        probs = softmax(probs, axis=-1)
+        # Normalize the probabiltiies. We avoid non-linearties here for better numerical stability on the MSP430
+        probs = probs / np.sum(probs, axis=-1, keepdims=True)
         return probs.reshape(-1)
 
     def validate(self, op: OpName) -> np.ndarray:
@@ -143,8 +145,14 @@ class AdaBoostClassifier(BaseClassifier):
             second_level_probs += weighted_preds
 
         # Normalize the weights to create a 'probability' distribution
-        first_level_probs = np.expand_dims(softmax(first_level_probs, axis=-1), axis=1)  # [N, 1, K]
-        second_level_probs = np.expand_dims(softmax(second_level_probs, axis=-1), axis=1)  # [N, 1, K]
+        first_level_probs = first_level_probs / np.sum(first_level_probs, axis=-1, keepdims=True)  # [N, K]
+        first_level_probs = np.expand_dims(first_level_probs, axis=1)  # [N, 1, K]
+        
+        second_level_probs = second_level_probs / np.sum(second_level_probs, axis=-1, keepdims=True)  # [N, K]
+        second_level_probs = np.expand_dims(second_level_probs, axis=1)  # [N, 1, K]
+
+        #first_level_probs = np.expand_dims(softmax(first_level_probs, axis=-1), axis=1)  # [N, 1, K]
+        #second_level_probs = np.expand_dims(softmax(second_level_probs, axis=-1), axis=1)  # [N, 1, K]
 
         return np.concatenate([first_level_probs, second_level_probs], axis=1)  # [N, 2, K]
 
@@ -166,10 +174,14 @@ class AdaBoostClassifier(BaseClassifier):
     def restore(cls, path: str, model_mode: ModelMode):
         serialized = read_pickle_gz(path)
 
+        clf_name = serialized['classifier_name']
+        max_depth = serialized['classifiers'][0].get_params()['max_depth'] if (clf_name == 'decision_tree') else 0
+
         model = cls(num_estimators=serialized['num_estimators'],
                     exit_size=serialized['exit_size'],
-                    clf_name=serialized['classifier_name'],
-                    dataset_name=serialized['dataset_name'])
+                    clf_name=clf_name,
+                    dataset_name=serialized['dataset_name'],
+                    max_depth=max_depth)
 
         model._clfs = serialized['classifiers']
         model._boost_weights = serialized['boost_weights']

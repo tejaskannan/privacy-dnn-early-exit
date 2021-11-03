@@ -21,24 +21,27 @@ class BranchyNetDNN(NeuralNetwork):
 
         # Create the hidden layers
         hidden1 = dense(inputs=inputs,
-                        output_units=128,
+                        output_units=24,
                         use_dropout=False,
                         dropout_keep_rate=dropout_keep_rate,
-                        activation='leaky_relu',
+                        activation='relu',
+                        trainable=True,
                         name='hidden1')
 
         hidden2 = dense(inputs=hidden1,
                         output_units=128,
                         use_dropout=False,
                         dropout_keep_rate=dropout_keep_rate,
-                        activation='leaky_relu',
+                        activation='relu',
+                        trainable=True,
                         name='hidden2')
 
         hidden3 = dense(inputs=hidden2,
                         output_units=64,
                         use_dropout=False,
                         dropout_keep_rate=dropout_keep_rate,
-                        activation='leaky_relu',
+                        activation='relu',
+                        trainable=True,
                         name='hidden3')
 
         # Create the output layers
@@ -47,6 +50,7 @@ class BranchyNetDNN(NeuralNetwork):
                            use_dropout=False,
                            dropout_keep_rate=dropout_keep_rate,
                            activation='linear',
+                           trainable=True,
                            name='output1')  # [B, K]
 
         output_two = dense(inputs=hidden3,
@@ -54,6 +58,7 @@ class BranchyNetDNN(NeuralNetwork):
                            use_dropout=False,
                            dropout_keep_rate=dropout_keep_rate,
                            activation='linear',
+                           trainable=True,
                            name='output2')  # [B, K]
 
         # Stack the logits together

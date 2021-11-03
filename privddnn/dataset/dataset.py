@@ -73,6 +73,11 @@ class Dataset:
             X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'uci_har', 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'uci_har', 'test.h5'))
             has_val_split = True
+        elif dataset_name == 'land_cover':
+            X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'land_cover', 'train.h5'))
+            X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'land_cover', 'val.h5'))
+            X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'land_cover', 'test.h5'))
+            has_val_split = True
         else:
             raise ValueError('Unknown dataset with name: {}'.format(dataset_name))
 
@@ -134,6 +139,26 @@ class Dataset:
     @property
     def num_test(self) -> int:
         return self._test_inputs.shape[0]
+
+    def get_inputs(self, fold: DataFold) -> np.ndarray:
+        if fold == DataFold.TRAIN:
+            return self.get_train_inputs()
+        elif fold == DataFold.VAL:
+            return self.get_val_inputs()
+        elif fold == DataFold.TEST:
+            return self.get_test_inputs()
+        else:
+            raise ValueError('Unknown data fold: {}'.format(fold.name))
+
+    def get_labels(self, fold: DataFold) -> np.ndarray:
+        if fold == DataFold.TRAIN:
+            return self.get_train_labels()
+        elif fold == DataFold.VAL:
+            return self.get_val_labels()
+        elif fold == DataFold.TEST:
+            return self.get_test_labels()
+        else:
+            raise ValueError('Unknown data fold: {}'.format(fold.name))
 
     def get_train_inputs(self) -> np.ndarray:
         return self._train_inputs
