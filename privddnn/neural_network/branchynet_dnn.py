@@ -28,7 +28,8 @@ class BranchyNetDNN(NeuralNetwork):
                         trainable=True,
                         name='hidden1')
 
-        hidden2 = dense(inputs=hidden1,
+        hidden2_inputs = tf2.concat([inputs, hidden1], axis=-1)
+        hidden2 = dense(inputs=hidden2_inputs,
                         output_units=128,
                         use_dropout=False,
                         dropout_keep_rate=dropout_keep_rate,

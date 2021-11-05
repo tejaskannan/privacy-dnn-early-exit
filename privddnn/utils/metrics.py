@@ -169,9 +169,9 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
 
 
 def linear_step(x: float, width: float, clip: float) -> float:
-    if (x > ((width - 1.0) / 2.0)):
+    if (x > ((width / 2.0) - 1.0)):
         return clip
-    elif (x < -1 * ((width - 1.0) / 2.0)):
+    elif (x < -1 * ((width / 2.0) - 1.0)):
         return -1 * clip
     else:
         return 0.0

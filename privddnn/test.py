@@ -28,8 +28,6 @@ def execute_for_rate(test_probs: np.ndarray,
     policy = make_policy(strategy=strategy, rates=rates, model_path=model_path)
     policy.fit(val_probs=val_probs, val_labels=val_labels)
 
-    #target_exit_rates = compute_target_exit_rates(probs=val_probs, rates=rates)
-
     # Run the policy on the validation and test sets
     val_result = policy.test(test_probs=val_probs, pred_rates=pred_rates, max_num_samples=max_num_samples)
     test_result = policy.test(test_probs=test_probs, pred_rates=pred_rates, max_num_samples=max_num_samples)
@@ -37,8 +35,24 @@ def execute_for_rate(test_probs: np.ndarray,
     result = dict(val=list(), test=list())
 
     for _ in range(num_trials):
-        result['val'].append(dict(preds=val_result.predictions.tolist(), output_levels=val_result.output_levels.tolist()))
-        result['test'].append(dict(preds=test_result.predictions.tolist(), output_levels=test_result.output_levels.tolist()))
+        val_dict = {
+            'preds': val_result.predictions.tolist(),
+            'output_levels': val_result.output_levels.tolist(),
+            'num_changed': val_result.num_changed,
+            'num_policy': val_result.num_policy,
+            'num_greedy': val_result.num_greedy
+        }
+
+        test_dict = {
+            'preds': test_result.predictions.tolist(),
+            'output_levels': test_result.output_levels.tolist(),
+            'num_changed': test_result.num_changed,
+            'num_policy': test_result.num_policy,
+            'num_greedy': test_result.num_greedy
+        }
+
+        result['val'].append(val_dict)
+        result['test'].append(test_dict)
 
     return result
 
@@ -74,19 +88,15 @@ if __name__ == '__main__':
     #pred_rates = np.vstack(pred_rates_list)  # [L, K]
     stop_counts = compute_stop_counts(probs=val_probs)
 
-    #print(max_stop_rates)
-    
     rates = list(sorted(np.arange(0.0, 1.01, 0.05)))
     rand = np.random.RandomState(seed=591)
-
-    rates = [0.0]
 
     # Execute all early stopping policies
     results: Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]] = dict(val=dict(), test=dict())
 
     #strategies = [ExitStrategy.MAX_PROB, ExitStrategy.ENTROPY, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.LABEL_ENTROPY, ExitStrategy.HYBRID_MAX_PROB, ExitStrategy.HYBRID_ENTROPY, ExitStrategy.RANDOM]
-    #strategies = [ExitStrategy.RANDOM, ExitStrategy.GREEDY_EVEN, ExitStrategy.MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.EVEN_MAX_PROB, ExitStrategy.EVEN_LABEL_MAX_PROB]
-    strategies = [ExitStrategy.RANDOM, ExitStrategy.ENTROPY, ExitStrategy.MAX_PROB]
+    strategies = [ExitStrategy.RANDOM, ExitStrategy.GREEDY_EVEN, ExitStrategy.MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.EVEN_MAX_PROB]
+    #strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB]
 
     for strategy in strategies:
         strategy_name = strategy.name.lower()
