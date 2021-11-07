@@ -17,7 +17,7 @@ from .threshold_optimizer import fit_thresholds_grad, fit_randomization, fit_sha
 from .random_optimizer import fit_even_randomization
 
 
-EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'observed_rates'])
+EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'observed_rates', 'num_changed', 'num_greedy', 'num_policy'])
 
 
 class ExitStrategy(Enum):
@@ -33,14 +33,16 @@ class ExitStrategy(Enum):
     EVEN_LABEL_MAX_PROB = auto()
 
 
+class SelectionType(Enum):
+    GREEDY = auto()
+    POLICY = auto()
+
+
 class EarlyExiter:
 
     def __init__(self, rates: List[float]):
         assert np.isclose(np.sum(rates), 1.0), 'Rates must sum to 1'
-
-        self._attack_model = AdaBoostClassifier()
         self._rates = rates
-        self._prior = np.zeros(shape=(1, ))
 
     @property
     def rates(self) -> List[float]:
@@ -51,12 +53,9 @@ class EarlyExiter:
         return len(self._rates)
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
-        num_labels = val_probs.shape[-1]
-        val_preds = np.argmax(val_probs[:, -1, :], axis=-1)  # [B]
-        self._prior = np.bincount(val_preds, minlength=num_labels).astype(float)
-        self._prior /= val_probs.shape[0]
+        pass
 
-    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
+    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
         raise NotImplementedError()
 
     def update(self, first_pred: int, pred: int, level: int):
@@ -65,15 +64,10 @@ class EarlyExiter:
     def reset(self, num_labels: int, pred_rates: np.ndarray):
         pass
 
-    def get_level(self, probs: np.ndarray) -> Tuple[int, int]:
-        assert len(probs.shape) == 1, 'Must provide a 1d array of predicted probabilities'
-        reshaped_probs = probs.reshape(1, -1)  # [1, L]
-        return self.select_output(probs=reshaped_probs, rand_rate=0.0)
+    def get_prediction(self, probs: np.ndarray, level: int) -> Tuple[int, bool]:
+        return np.argmax(probs[level]), False
 
-    def get_prediction(self, probs: np.ndarray, level: int) -> int:
-        return np.argmax(probs[level])
-
-    def test(self, test_probs: np.ndarray, pred_rates: np.ndarray, max_num_samples: Optional[int]) -> np.ndarray:
+    def test(self, test_probs: np.ndarray, pred_rates: np.ndarray, max_num_samples: Optional[int]) -> EarlyExitResult:
         num_samples, num_outputs, num_labels = test_probs.shape
         assert num_outputs == self.num_outputs, 'Expected {} outputs. Got {}'.format(self.num_outputs, num_outputs)
         assert pred_rates.shape == (num_outputs, num_labels), 'Exit rates should be a ({}, {}) array. Got {}'.format(num_outputs, num_labels, pred_rates.shape)
@@ -83,29 +77,27 @@ class EarlyExiter:
 
         self.reset(num_labels=num_labels, pred_rates=pred_rates)
 
-        # Assume a uniform prior
-        #controller = RandomnessController(targets=target_exit_rates[0],
-        #                                  num_labels=num_labels,
-        #                                  significance=self._significance,
-        #                                  window=self._window)
-        #controller.reset()
+        num_changed = 0
+        num_greedy = 0
+        num_policy = 0
 
         for sample_idx, sample_probs in enumerate(test_probs):
             if (max_num_samples is not None) and (sample_idx >= max_num_samples):
                 break
 
-            # Get the randomness rate for this sample
-            #rand_rate = controller.get_rate(sample_idx=sample_idx)
-            rand_rate = 0.0
+            level, selection_type = self.select_output(probs=sample_probs)
 
-            level = self.select_output(probs=sample_probs, rand_rate=rand_rate)
-            pred = self.get_prediction(probs=sample_probs, level=level)
+            pred, did_change = self.get_prediction(probs=sample_probs, level=level)
             first_pred = np.argmax(sample_probs[0])
 
             self.update(first_pred=first_pred, pred=pred, level=level)
 
-            # Update the controller if the level is 1
-            #controller.update(pred=pred, level=level)
+            if selection_type == SelectionType.GREEDY:
+                num_greedy += 1
+            else:
+                num_policy += 1
+
+            num_changed += int(did_change)
 
             predictions.append(pred)
             output_levels.append(level)
@@ -115,7 +107,10 @@ class EarlyExiter:
 
         return EarlyExitResult(predictions=np.vstack(predictions).reshape(-1),
                                output_levels=np.vstack(output_levels).reshape(-1),
-                               observed_rates=observed_rates)
+                               observed_rates=observed_rates,
+                               num_greedy=num_greedy,
+                               num_policy=num_policy,
+                               num_changed=num_changed)
 
 
 class RandomExit(EarlyExiter):
@@ -124,9 +119,9 @@ class RandomExit(EarlyExiter):
         super().__init__(rates=rates)
         self._output_idx = list(range(len(rates)))
 
-    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
+    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
         level = np.random.choice(self._output_idx, size=1, p=self.rates)
-        return int(level)
+        return int(level), SelectionType.POLICY
 
 
 class GreedyEvenExit(EarlyExiter):
@@ -146,31 +141,11 @@ class GreedyEvenExit(EarlyExiter):
         self._stay_counter = Counter()
         self._elevate_counter = Counter()
 
-    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
+    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
         first_pred = np.argmax(probs[0])
         stay_rate = self._stay_counter[first_pred] / (self._stay_counter[first_pred] + self._elevate_counter[first_pred] + SMALL_NUMBER)
 
-        return int(stay_rate > self.rates[0])
-
-
-class EvenRandomizedExit(EarlyExiter):
-
-    def __init__(self, rates: List[float]):
-        super().__init__(rates=rates)
-        self._output_idx = list(range(len(rates)))
-
-    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
-        level = np.random.choice(self._output_idx, size=1, p=self.rates)
-        return int(level)
-
-    def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
-        super().fit(val_probs=val_probs, val_labels=val_labels)
-
-        assert val_probs.shape[0] == val_labels.shape[0], 'misaligned probabilites and labels'
-        assert self.num_outputs == 2, 'threshold exiting only works with 2 outputs'
-        assert val_probs.shape[1] == self.num_outputs, 'expected {} outputs. got {}'.format(self.num_outputs, val_probs.shape[1])
-
-        rand_rates = fit_even_randomization(preds=np.argmax(val_probs, axis=-1), target=self.rates[1], num_labels=val_probs.shape[-1])
+        return int(stay_rate > self.rates[0]), SelectionType.POLICY
 
 
 class ThresholdExiter(EarlyExiter):
@@ -193,10 +168,10 @@ class ThresholdExiter(EarlyExiter):
         assert level >= 0 and level < self.num_outputs, 'Level must be in [0, {})'.format(self.num_outputs)
         self._thresholds[level] = t
 
-    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
+    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
         metric = self.compute_metric(probs)
         comp = np.greater(metric, self.thresholds).astype(int)  # [L]
-        return np.argmax(comp)  # Breaks ties by selecting the first value
+        return np.argmax(comp), SelectionType.POLICY  # Breaks ties by selecting the first value
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
         super().fit(val_probs=val_probs, val_labels=val_labels)
@@ -260,29 +235,72 @@ class EvenThresholdExiter(ThresholdExiter):
             self._elevate_counter[pred] += 1
             self._prior[first_pred, pred] += 1
 
-        for pred in range(self._num_labels):
-            total_count = self._stay_counter[pred] + self._elevate_counter[pred]
+        #should_print = np.any(np.isclose(self._prob_adjustments, 1.0))
 
-            stay_count = self._stay_counter[pred]
-            elevate_count = self._elevate_counter[pred]
+        total_count = self._stay_counter[pred] + self._elevate_counter[pred]
+        stay_count = self._stay_counter[pred]
+        elevate_count = self._elevate_counter[pred]
 
-            expected_stay = total_count * self.rates[0]
-            expected_elevate = total_count * self.rates[1]
+        expected_stay = total_count * self.rates[0]
+        expected_elevate = total_count * self.rates[1]
 
-            stay_count = stay_count if total_count > 0 else 0
-            elevate_count = elevate_count if total_count > 0 else 0
+        stay_count = stay_count if total_count > 0 else 0
+        elevate_count = elevate_count if total_count > 0 else 0
 
-            stay_diff = expected_stay - stay_count
-            elevate_diff = expected_elevate - elevate_count
-            width = self.horizon * 2.0
+        stay_diff = expected_stay - stay_count
+        elevate_diff = expected_elevate - elevate_count
+        width = self.horizon * 2.0
 
-            self._prob_adjustments[0, pred] = linear_step(x=stay_diff, width=width, clip=1.0)
-            self._prob_adjustments[1, pred] = linear_step(x=elevate_diff, width=width, clip=1.0)
+        #if should_print and (pred == np.argmax(self._prob_adjustments[0])):
+        #    print('Pred {}, Stay Count: {}, Elevate Count: {}, Expected Stay: {}, Expected Elevate: {}'.format(pred, stay_count, elevate_count, expected_stay, expected_elevate))
 
-    def get_prediction(self, probs: np.ndarray, level: int) -> int:
+        self._prob_adjustments[0, pred] = linear_step(x=stay_diff, width=width, clip=1.0)
+        self._prob_adjustments[1, pred] = linear_step(x=elevate_diff, width=width, clip=1.0)
+
+    def get_prediction(self, probs: np.ndarray, level: int) -> Tuple[int, bool]:
         level_probs = probs[level]  # [K]
         adjusted_probs = level_probs + mask_non_max(self._prob_adjustments[level])  # [K]
-        return np.argmax(adjusted_probs)
+
+        pred = np.argmax(level_probs)
+
+        # Make sure the prediction does not go out of the hard bound
+        stay_count = self._stay_counter[pred]
+        elevate_count = self._elevate_counter[pred]
+        total_count = stay_count + elevate_count + 1  # Account for this sample
+
+        expected_stay = self._rates[0] * total_count
+        expected_elevate = self._rates[1] * total_count
+
+        if (level == 0) and (abs(expected_stay - (stay_count + 1)) > self.horizon):
+            sorted_preds = np.argsort(level_probs)[::-1]
+
+            #print('Stay. Pred: {}, Stay Counts: {}, Elevate Counts: {}'.format(pred, self._stay_counter, self._elevate_counter))
+
+            for i in range(1, len(sorted_preds)):
+                stay_count = self._stay_counter[sorted_preds[i]] + 1
+                total_count = stay_count + self._elevate_counter[sorted_preds[i]]
+                expected_stay = self._rates[0] * total_count
+
+                if abs(expected_stay - stay_count) <= self.horizon:
+                    return sorted_preds[i], True
+        elif (level == 1) and (abs(expected_elevate - (elevate_count + 1)) > self.horizon):
+            sorted_preds = np.argsort(level_probs)[::-1]
+
+            #print('Elevate. Pred: {}, Stay Counts: {}, Elevate Counts: {}'.format(pred, self._stay_counter, self._elevate_counter))
+
+            for i in range(1, len(sorted_preds)):
+                elevate_count = self._elevate_counter[sorted_preds[i]] + 1
+                total_count = elevate_count + self._stay_counter[sorted_preds[i]]
+                expected_elevate = self._rates[1] * total_count
+
+                if abs(expected_elevate - elevate_count) <= self.horizon:
+                    return sorted_preds[i], True
+
+        return pred, False
+
+        #pred = np.argmax(adjusted_probs)
+        #original_pred = np.argmax(level_probs)
+        #return pred, (pred != original_pred)
 
     def reset(self, num_labels: int, pred_rates: np.ndarray):
         self._stay_counter = Counter()
@@ -291,35 +309,38 @@ class EvenThresholdExiter(ThresholdExiter):
         self._prob_adjustments = np.zeros(shape=(2, num_labels))
         self._num_labels = num_labels
 
-    def select_output(self, probs: np.ndarray, rand_rate: float):
-        adjusted_probs = mask_non_max(self._prob_adjustments) + probs
-
-        first_pred = np.argmax(adjusted_probs[0])
+    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
+        first_pred = np.argmax(probs[0])
         total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred] + 1
         stay_rate = (self._stay_counter[first_pred] + 1) / total_count
         stay_cost = abs(stay_rate - self.rates[0])
 
         # Compute the level from both data-dependent exiting and even-ness exiting
         # to avoid timing attacks against this conditional behavior
-        policy_level = super().select_output(probs=probs, rand_rate=rand_rate)
+        policy_level, _ = super().select_output(probs=probs)
         even_level = int(stay_rate > self.rates[0])
 
         all_elevate = np.all(np.isclose(self._prob_adjustments[0], -1.0))
         all_stay = np.all(np.isclose(self._prob_adjustments[0], 1.0))
-        even_bound = min(max((self.horizon - 1.0), self.epsilon * total_count) / total_count, self.epsilon)
+        even_bound = min((self.horizon - 2.0) / (total_count), self.epsilon)
+
+        #if np.any(np.isclose(self._prob_adjustments, 1.0)):
+        #    print('Adjustments: {}'.format(self._prob_adjustments))
+        #    print('Stay Counts: {}'.format(self._stay_counter))
+        #    print('Elevate Counts: {}'.format(self._elevate_counter))
 
         if self.rates[0] < SMALL_NUMBER:
-            return 1
+            return 1, SelectionType.POLICY
         elif self.rates[1] < SMALL_NUMBER:
-            return 0
+            return 0, SelectionType.POLICY
         elif all_elevate:
-            return 1
+            return 1, SelectionType.GREEDY
         elif all_stay:
-            return 0
+            return 0, SelectionType.GREEDY
         elif (stay_cost < even_bound):
-            return policy_level
+            return policy_level, SelectionType.POLICY
         else:
-            return even_level
+            return even_level, SelectionType.GREEDY
 
 
 class EvenMaxProbExit(EvenThresholdExiter):
@@ -400,7 +421,7 @@ class LabelThresholdExiter(EarlyExiter):
             self.set_threshold(t=t, level=0, label=pred)
             self.set_threshold(t=0.0, level=1, label=pred)
 
-    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
+    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
         # Get the threshold
         first_probs = probs[0, :]
         first_pred = int(np.argmax(first_probs))
@@ -409,7 +430,7 @@ class LabelThresholdExiter(EarlyExiter):
         # Get the metric on the first prediction
         metric = self.compute_metric(first_probs)
 
-        return int(metric < t)
+        return int(metric < t), SelectionType.POLICY
 
 
 class LabelMaxProbExit(LabelThresholdExiter):
@@ -479,7 +500,7 @@ class EvenLabelThresholdExiter(LabelThresholdExiter):
         self._prob_adjustments = np.zeros(shape=(2, num_labels))
         self._num_labels = num_labels
 
-    def select_output(self, probs: np.ndarray, rand_rate: float):
+    def select_output(self, probs: np.ndarray) -> int:
         adjusted_probs = mask_non_max(self._prob_adjustments) + probs
 
         first_pred = np.argmax(adjusted_probs[0])
@@ -489,7 +510,7 @@ class EvenLabelThresholdExiter(LabelThresholdExiter):
 
         # Compute the level from both data-dependent exiting and even-ness exiting
         # to avoid timing attacks against this conditional behavior
-        policy_level = super().select_output(probs=probs, rand_rate=rand_rate)
+        policy_level = super().select_output(probs=probs)
         even_level = int(stay_rate > self.rates[0])
 
         all_elevate = np.all(np.isclose(self._prob_adjustments[0], -1.0))
@@ -555,9 +576,9 @@ class HybridRandomExit(LabelThresholdExiter):
     def compute_metric(self, probs: np.ndarray) -> float:
         raise NotImplementedError()
 
-    def select_output(self, probs: np.ndarray, rand_rate: float) -> int:
+    def select_output(self, probs: np.ndarray) -> int:
         if self._rand_rate is None:
-            return super().select_output(probs, rand_rate=rand_rate)
+            return super().select_output(probs)
 
         # Get the maximum probability and prediction on the first output
         first_probs = probs[0, :]

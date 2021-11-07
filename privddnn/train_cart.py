@@ -13,7 +13,7 @@ if __name__ == '__main__':
     parser.add_argument('--classifier', type=str, required=True)
     args = parser.parse_args()
 
-    model = AdaBoostClassifier(num_estimators=100, exit_size=10, clf_name=args.classifier, dataset_name=args.dataset_name, max_depth=2)
+    model = AdaBoostClassifier(num_estimators=100, exit_size=10, clf_name=args.classifier, dataset_name=args.dataset_name, max_depth=3)
     model.fit()
 
     # Make the output file name
