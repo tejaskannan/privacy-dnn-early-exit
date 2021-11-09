@@ -4,6 +4,7 @@ import tensorflow.compat.v1 as tf1
 from collections import defaultdict
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import BernoulliNB
 from sklearn.metrics import accuracy_score, top_k_accuracy_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
@@ -13,6 +14,7 @@ from typing import Dict, List, DefaultDict
 MAJORITY = 'Majority'
 MOST_FREQ = 'MostFrequent'
 LOGISTIC_REGRESSION = 'LogisticRegression'
+NAIVE_BAYES = 'NaiveBayes'
 
 
 ACCURACY = 'accuracy'
@@ -155,19 +157,14 @@ class MostFrequentClassifier(AttackClassifier):
         return rankings[0:top_k].astype(int).tolist()
 
 
-class LogisticRegressionClassifier(AttackClassifier):
+class SklearnClassifier(AttackClassifier):
 
     def __init__(self):
-        self._clf = LogisticRegression(random_state=243089, max_iter=1000)
         self._scaler = StandardScaler()
-
-    @property
-    def name(self) -> str:
-        return LOGISTIC_REGRESSION
 
     def fit(self, inputs: np.ndarray, labels: np.ndarray):
         """
-        Fits a decision tree classifier for the given dataset.
+        Fits a classifier for the given dataset.
         """
         scaled_inputs = self._scaler.fit_transform(inputs)
         self._clf.fit(scaled_inputs, labels)
@@ -202,3 +199,25 @@ class LogisticRegressionClassifier(AttackClassifier):
             ACCURACY: float(accuracy),
             TOP2: float(top2)
         }
+
+
+class LogisticRegressionClassifier(SklearnClassifier):
+
+    def __init__(self):
+        super().__init__()
+        self._clf = LogisticRegression(random_state=243089, max_iter=1000)
+
+    @property
+    def name(self) -> str:
+        return LOGISTIC_REGRESSION
+
+
+class NaiveBayesClassifier(SklearnClassifier):
+
+    def __init__(self):
+        super().__init__()
+        self._clf = BernoulliNB(alpha=1.0, fit_prior=True)
+
+    @property
+    def name(self) -> str:
+        return NAIVE_BAYES

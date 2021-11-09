@@ -16,6 +16,9 @@ if __name__ == '__main__':
 
         field_values: List[float] = []
         for rate, results in sorted(test_log[policy_name].items()):
-            field_values.append(results[0][args.field] / len(results[0]['preds']))
+            num_samples = len(results[0]['preds'])
+            value = results[0][args.field] if args.field == 'num_changed' else results[0]['selection_counts'].get(args.field.upper(), 0)
+
+            field_values.append(value / num_samples)
 
         print('{} & {}'.format(policy_name, ' & '.join(map(str, field_values))))

@@ -124,6 +124,10 @@ class Dataset:
         return self._train_inputs.shape[1:]
 
     @property
+    def num_features(self) -> int:
+        return self.input_shape[-1]
+
+    @property
     def num_labels(self) -> int:
         return self._num_labels
 
