@@ -19,6 +19,11 @@ uint8_t array32_argmax(int32_t *array, uint8_t n) {
 }
 
 
+int32_t array32_max(int32_t *array, uint8_t n) {
+    return array[array32_argmax(array, n)];
+}
+
+
 int32_t array32_fixed_point_sum(int32_t *array, uint8_t n) {
     volatile int32_t sum = 0;
 

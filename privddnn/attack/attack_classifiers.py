@@ -15,6 +15,7 @@ MAJORITY = 'Majority'
 MOST_FREQ = 'MostFrequent'
 LOGISTIC_REGRESSION = 'LogisticRegression'
 NAIVE_BAYES = 'NaiveBayes'
+NGRAM = 'Ngram'
 
 
 ACCURACY = 'accuracy'
@@ -109,6 +110,52 @@ class MajorityClassifier(AttackClassifier):
         count = np.sum(inputs)
         rankings = self._clf.get(count, self._most_freq)
         return rankings[0:top_k].astype(int).tolist()
+
+
+class NgramClassifier(AttackClassifier):
+
+    def __init__(self):
+        self._clf: Dict[Tuple[int, ...], np.ndarray] = dict()
+        self._most_freq = 0
+
+    @property
+    def name(self) -> str:
+        return NGRAM
+
+    def fit(self, inputs: np.ndarray, labels: np.ndarray):
+        """
+        Fits the majority classifier which maps labels to the most
+        frequent label for each level count.
+
+        Args:
+            inputs: A [B, D] array of input features (D) for each input sample (B)
+            labels: A [B] array of data labels for each input sample (B)
+        """
+        assert len(inputs.shape) == 2, 'Must provide a 2d array of inputs'
+        assert len(labels.shape) == 1, 'Must provide a 1d array of labels'
+        assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
+
+        label_counts: DefaultDict[Tuple[int, ...], List[int]] = defaultdict(list)
+        num_labels = np.max(labels) + 1
+
+        for input_features, label in zip(inputs, labels):
+            features = tuple(input_features.astype(int).tolist())
+            label_counts[features].append(label)
+
+        for features, feature_labels in sorted(label_counts.items()):
+            freq = np.bincount(feature_labels, minlength=num_labels)
+            most_freq = np.argsort(freq)[::-1]
+            self._clf[features] = most_freq
+
+        label_counts = np.bincount(labels, minlength=num_labels)
+        self._most_freq = np.argsort(label_counts)[::-1]
+
+    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
+        assert len(inputs.shape) == 1, 'Must provide a 1d array of input features'
+        features = tuple(inputs.astype(int).tolist())
+        rankings = self._clf.get(features, self._most_freq)
+        return rankings[0:top_k].astype(int).tolist()
+
 
 
 class MostFrequentClassifier(AttackClassifier):

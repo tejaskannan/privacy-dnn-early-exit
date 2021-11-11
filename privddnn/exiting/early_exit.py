@@ -1,7 +1,7 @@
 import numpy as np
 import os.path
 import time
-from collections import namedtuple, defaultdict, Counter
+from collections import namedtuple, defaultdict, Counter, deque
 from enum import Enum, auto
 from sklearn.ensemble import AdaBoostClassifier
 from typing import List, Tuple, Dict, DefaultDict, Optional
@@ -241,6 +241,9 @@ class EvenThresholdExiter(ThresholdExiter):
         self._stay_counter: Counter = Counter()
         self._elevate_counter: Counter = Counter()
 
+        self._level_window = deque()
+        self._window_size = 25
+
     @property
     def epsilon(self) -> float:
         return self._epsilon
@@ -258,6 +261,12 @@ class EvenThresholdExiter(ThresholdExiter):
 
         #should_print = np.any(np.isclose(self._prob_adjustments, 1.0))
 
+        # Update the recent window
+        self._level_window.append(level)
+        while len(self._level_window) > self._window_size:
+            self._level_window.popleft()
+
+        # Update the probability adjustments
         total_count = self._stay_counter[pred] + self._elevate_counter[pred]
         stay_count = self._stay_counter[pred]
         elevate_count = self._elevate_counter[pred]
@@ -334,24 +343,30 @@ class EvenThresholdExiter(ThresholdExiter):
         first_pred = np.argmax(probs[0])
         total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred] + 1
         stay_rate = (self._stay_counter[first_pred] + 1) / total_count
-        stay_cost = abs(stay_rate - self.rates[0])
+        local_cost = abs(stay_rate - self.rates[0])
+
+        # Elevation Rate in the last W steps
+        num_elevated = sum(self._level_window) if len(self._level_window) > 0 else 0
+        expected_elevated = self.rates[1] * len(self._level_window)
+        global_rate = num_elevated / len(self._level_window) if len(self._level_window) > 0 else self.rates[1]
+        global_cost = abs(global_rate - self.rates[1])
+
+        # Total cost is the average over local and global terms
+        #stay_cost = 0.9 * local_cost + 0.1 * global_cost
 
         # Compute the level from both data-dependent exiting and even-ness exiting
-        # to avoid timing attacks against this conditional behavior
+        # to mitigate timing attacks against this conditional behavior
         policy_level, _ = super().select_output(probs=probs)
         even_level = int(stay_rate > self.rates[0])
-        rand_level = int(np.random.uniform() < self.rates[1])
+
+        rand_rate = min(max(self.rates[1] - (global_rate - self.rates[1]), 0.01), 0.99)
+        rand_level = int(np.random.uniform() < rand_rate)
+        r = np.random.uniform()
 
         all_elevate = np.all(np.isclose(self._prob_adjustments[0], -1.0))
         all_stay = np.all(np.isclose(self._prob_adjustments[0], 1.0))
         even_bound = min((self.horizon - 2.0) / (total_count), self.epsilon)
-
-        #if np.any(np.isclose(self._prob_adjustments, 1.0)):
-        #    print('Adjustments: {}'.format(self._prob_adjustments))
-        #    print('Stay Counts: {}'.format(self._stay_counter))
-        #    print('Elevate Counts: {}'.format(self._elevate_counter))
-
-        #rand_prob = np.clip((stay_cost - even_bound) / (self.horizon / total_count), a_min=0.0, a_max=1.0)
+        #global_bound = np.sqrt(self._window_size * self.rates[0] * self.rates[1])
 
         if self.rates[0] < SMALL_NUMBER:
             return 1, SelectionType.POLICY
@@ -361,9 +376,9 @@ class EvenThresholdExiter(ThresholdExiter):
             return 1, SelectionType.GREEDY
         elif all_stay:
             return 0, SelectionType.GREEDY
-        elif (np.random.uniform() < 0.5):
+        elif (r < 0.5):
             return rand_level, SelectionType.RANDOM
-        elif (stay_cost < even_bound):
+        elif (local_cost < even_bound):
             return policy_level, SelectionType.POLICY
         else:
             return even_level, SelectionType.GREEDY
@@ -480,6 +495,9 @@ class EvenLabelThresholdExiter(LabelThresholdExiter):
         self._stay_counter: Counter = Counter()
         self._elevate_counter: Counter = Counter()
 
+        self._level_window = deque()
+        self._window_size = 25
+
     @property
     def epsilon(self) -> float:
         return self._epsilon
@@ -494,6 +512,11 @@ class EvenLabelThresholdExiter(LabelThresholdExiter):
         else:
             self._elevate_counter[pred] += 1
             self._prior[first_pred, pred] += 1
+
+        # Update the recent window
+        self._level_window.append(level)
+        while len(self._level_window) > self._window_size:
+            self._level_window.popleft()
 
         for pred in range(self._num_labels):
             total_count = self._stay_counter[pred] + self._elevate_counter[pred]

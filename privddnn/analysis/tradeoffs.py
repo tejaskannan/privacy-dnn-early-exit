@@ -20,7 +20,7 @@ if __name__ == '__main__':
 
     test_log = read_json_gz(args.test_log)['test']
     policies = list(test_log.keys())
-    n = 3
+    n = 9
 
     #tokens = args.test_log.split(os.sep)
     #dataset = Dataset(tokens[-3])
@@ -91,12 +91,12 @@ if __name__ == '__main__':
         ax1.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
         ax2.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
-        ax2.set_ylabel('Mutual Information', fontsize=AXIS_FONT)
+        ax2.set_ylabel('Empirical Mutual Information (bits)', fontsize=AXIS_FONT)
         ax2.set_title('Mut Info: Label vs Exit', fontsize=TITLE_FONT)
         ax2.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
         ax3.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
-        ax3.set_ylabel('Mutual Information', fontsize=AXIS_FONT)
+        ax3.set_ylabel('Empirical Mutual Information (bits)', fontsize=AXIS_FONT)
         ax3.set_title('{}-gram Mut Info: Label vs Exit'.format(n), fontsize=TITLE_FONT)
         ax3.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 

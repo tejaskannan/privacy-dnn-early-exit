@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import DefaultDict, List, Tuple, Dict
 
 from privddnn.attack.attack_dataset import make_similar_dataset, make_noisy_dataset, make_sequential_dataset
-from privddnn.attack.attack_classifiers import MostFrequentClassifier, MajorityClassifier, LogisticRegressionClassifier, NaiveBayesClassifier
+from privddnn.attack.attack_classifiers import MostFrequentClassifier, MajorityClassifier, LogisticRegressionClassifier, NaiveBayesClassifier, NgramClassifier
 from privddnn.classifier import BaseClassifier, ModelMode, OpName
 from privddnn.restore import restore_classifier
 from privddnn.utils.file_utils import read_json_gz, save_json_gz
@@ -30,7 +30,7 @@ if __name__ == '__main__':
     rates = [str(round(r / 20.0, 2)) for r in range(21)]
     #policy_names = ['random', 'max_prob', 'label_max_prob', 'hybrid_max_prob', 'entropy', 'label_entropy', 'hybrid_entropy']
     #policy_names = ['random', 'greedy_even', 'max_prob', 'label_max_prob', 'even_max_prob', 'even_label_max_prob']
-    policy_names = ['random', 'even_max_prob']
+    policy_names = ['random', 'even_max_prob', 'greedy_even']
 
     #num_samples = 2000
 
@@ -92,25 +92,35 @@ if __name__ == '__main__':
             train_attack_results[policy_name][majority_clf.name].append(train_acc)
             test_attack_results[policy_name][majority_clf.name].append(test_acc)
 
-            # Fit and evaluate the logistic regression classifier
-            lr_clf = LogisticRegressionClassifier()
-            lr_clf.fit(train_attack_inputs, train_attack_outputs)
+            # Fit and evaluate the NGram classifier
+            ngram_clf = NgramClassifier()
+            ngram_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
-            test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
+            train_acc = ngram_clf.score(train_attack_inputs, train_attack_outputs)
+            test_acc = ngram_clf.score(test_attack_inputs, test_attack_outputs)
 
-            train_attack_results[policy_name][lr_clf.name].append(train_acc)
-            test_attack_results[policy_name][lr_clf.name].append(test_acc)
+            train_attack_results[policy_name][ngram_clf.name].append(train_acc)
+            test_attack_results[policy_name][ngram_clf.name].append(test_acc)
 
-            # Fit and evaluate the naive bayes classifier
-            nb_clf = NaiveBayesClassifier()
-            nb_clf.fit(train_attack_inputs, train_attack_outputs)
+            ## Fit and evaluate the logistic regression classifier
+            #lr_clf = LogisticRegressionClassifier()
+            #lr_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            train_acc = nb_clf.score(train_attack_inputs, train_attack_outputs)
-            test_acc = nb_clf.score(test_attack_inputs, test_attack_outputs)
+            #train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
+            #test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
 
-            train_attack_results[policy_name][nb_clf.name].append(train_acc)
-            test_attack_results[policy_name][nb_clf.name].append(test_acc)
+            #train_attack_results[policy_name][lr_clf.name].append(train_acc)
+            #test_attack_results[policy_name][lr_clf.name].append(test_acc)
+
+            ## Fit and evaluate the naive bayes classifier
+            #nb_clf = NaiveBayesClassifier()
+            #nb_clf.fit(train_attack_inputs, train_attack_outputs)
+
+            #train_acc = nb_clf.score(train_attack_inputs, train_attack_outputs)
+            #test_acc = nb_clf.score(test_attack_inputs, test_attack_outputs)
+
+            #train_attack_results[policy_name][nb_clf.name].append(train_acc)
+            #test_attack_results[policy_name][nb_clf.name].append(test_acc)
 
         print()
 

@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 from typing import List
 
-from privddnn.utils.ngrams import create_ngrams
+from privddnn.utils.ngrams import create_ngrams, create_ngram_counts
+from privddnn.utils.metrics import compute_mutual_info
 from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.plotting import PLOT_STYLE
 
@@ -32,8 +33,10 @@ if __name__ == '__main__':
     parser.add_argument('--test-log', type=str, required=True)
     args = parser.parse_args()
 
-    test_log = read_json_gz(args.test_log)['test']['greedy_even']['0.5'][0]
-    n = 3
+    policy_name = 'random'
+    rate = '0.5'
+    test_log = read_json_gz(args.test_log)['val'][policy_name][rate][0]
+    n = 7
 
     output_levels = np.array(test_log['output_levels'])
     preds = np.array(test_log['preds'])
@@ -45,24 +48,34 @@ if __name__ == '__main__':
     #preds = preds[sample_idx]
 
     ngram_levels, ngram_preds = create_ngrams(levels=output_levels, preds=preds, n=n)
+    count_levels, count_preds = create_ngram_counts(levels=output_levels, preds=preds, n=n)
 
-    num_ngrams = (1 << n)
-    ngram_partitions = partition(ngrams=ngram_levels, preds=ngram_preds, num_ngrams=num_ngrams)
+    ngram_mut_info = compute_mutual_info(ngram_levels, ngram_preds, should_normalize=False)
+    count_mut_info = compute_mutual_info(count_levels, count_preds, should_normalize=False)
+    standard_mut_info = compute_mutual_info(output_levels, preds, should_normalize=False)
 
-    print(np.bincount(ngram_preds))
+    print('Policy: {}, Rate: {}'.format(policy_name, rate))
+    print('{}-Gram Mutual Information: {}'.format(n, ngram_mut_info))
+    print('Count Mutual Information: {}'.format(count_mut_info))
+    print('Standard Mutual Information: {}'.format(standard_mut_info))
 
-    with plt.style.context(PLOT_STYLE):
-        fig, ax = plt.subplots()
-
-        num_labels = len(ngram_partitions)
-        xs = np.arange(num_ngrams)
-        offset = (-(num_labels - 1) / 2) * WIDTH
-
-        for i in range(num_labels):
-            ax.bar(xs - offset, ngram_partitions[i], width=WIDTH)
-            offset += WIDTH
-
-        #ax.bar(xs, ngram_counts, width=WIDTH)
-
-        plt.show()
-
+#    num_ngrams = (1 << n)
+#    ngram_partitions = partition(ngrams=ngram_levels, preds=ngram_preds, num_ngrams=num_ngrams)
+#
+#    print(np.bincount(ngram_preds))
+#
+#    with plt.style.context(PLOT_STYLE):
+#        fig, ax = plt.subplots()
+#
+#        num_labels = len(ngram_partitions)
+#        xs = np.arange(num_ngrams)
+#        offset = (-(num_labels - 1) / 2) * WIDTH
+#
+#        for i in range(num_labels):
+#            ax.bar(xs - offset, ngram_partitions[i], width=WIDTH)
+#            offset += WIDTH
+#
+#        #ax.bar(xs, ngram_counts, width=WIDTH)
+#
+#        plt.show()
+#
