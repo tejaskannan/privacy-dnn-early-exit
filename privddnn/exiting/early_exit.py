@@ -326,45 +326,7 @@ class BufferedExiter(ThresholdExiter):
                 confidence_scores = [s[0] for s in map(self.compute_metric, window_data)]
                 sorted_indices = np.argsort(confidence_scores)
 
-                #print(sum(self._stay_counter.values()) + sum(self._elevate_counter.values()))
-
-                # Get the optimal number of stay / elevate samples
-                #for idx in range(self.window_size):
-                #    first_pred = np.argmax(window_data[idx][0], axis=-1)
-                #    total_count = self._stay_counter[first_pred] + self._elevate_count[first_pred] + 1
-
                 window_count = elev_count + int(np.random.uniform() < elev_remainder)
-
-                #first_preds = [np.argmax(p[0], axis=-1) for p in window_data]
-                #pred_counts = np.bincount(first_preds, minlength=num_labels)  # [L]
-                #
-                #sample_elev_count = 0
-
-                #for label in range(num_labels):
-                #    pred_count = pred_counts[label]
-                #    stay_count = self._stay_counter[label]
-                #    expected_stay = self.rates[0] * (stay_count + self._elevate_counter[label] + pred_count)
-                #    max_stay = self.pred_window + expected_stay - stay_count
-
-                #    sample_elev_count += max(pred_count - max_stay, 0)
-
-                ## Clip the count into the feasible range
-                #sample_elev_count = min(max(elev_count, elev_count), upper_count)
-                #rand_count = np.random.randint(low=lower_count, high=upper_count) + int(np.random.uniform() < elev_remainder)
-                #r = np.random.uniform()
-
-                ##print('Sample Elev Count: {}'.format(sample_elev_count))
-                ##print('Pred Counts: {}'.format(pred_counts))
-                ##print('========')
-
-                #if (r < 0.5):
-                #    window_count = rand_count
-                #else:
-                #    window_count = sample_elev_count
-
-                #print('Confidence: {}'.format(confidence_scores))
-                #print('Labels: {}'.format(window_labels))
-                #print('Level Preds: {}'.format([np.argmax(p, axis=-1) for p in window_data]))
 
                 result_levels = np.zeros(self.window_size, dtype=int)
                 result_preds = np.zeros(self.window_size, dtype=int) - 1
@@ -412,10 +374,6 @@ class BufferedExiter(ThresholdExiter):
                         pred, did_change = self.get_prediction(window_data[window_idx], level=1)
                         num_changed += int(did_change)
                         result_changed[window_idx] = int(did_change)
-
-                        #pred = np.argmax(window_data[window_idx][1])
-
-                        #print('Actual Pred: {}'.format(pred))
 
                         self.update(first_pred=-1, pred=pred, level=1)
                         result_preds[window_idx] = pred
@@ -1028,6 +986,6 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
     elif strategy == ExitStrategy.EVEN_LABEL_MAX_PROB:
         return EvenLabelMaxProbExit(rates=rates, epsilon=0.001, horizon=10)
     elif strategy == ExitStrategy.BUFFERED_MAX_PROB:
-        return BufferedMaxProb(rates=rates, window_size=10, epsilon=0.001, pred_window=20)
+        return BufferedMaxProb(rates=rates, window_size=10, epsilon=0.001, pred_window=50)
     else:
         raise ValueError('No policy {}'.format(strategy))
