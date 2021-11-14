@@ -48,6 +48,32 @@ def make_noisy_dataset(levels: List[int],
     return np.vstack(input_list), np.vstack(output_list).reshape(-1)
 
 
+def make_sequential_dataset(levels: List[int], preds: List[int], window_size: int) -> Tuple[np.ndarray, np.ndarray]:
+    input_list: List[np.ndarray] = []
+    output_list: List[int] = []
+
+    for idx in range(0, len(preds), window_size):
+        sample_levels = levels[idx:idx+window_size]
+
+        if len(sample_levels) < window_size:
+            continue
+
+        # Get the majority prediction
+        pred_counter: Counter = Counter()
+        for pred in preds[idx:idx+window_size]:
+            pred_counter[pred] += 1
+
+        sample_pred = pred_counter.most_common(1)[0][0]
+        
+        input_list.append(np.expand_dims(sample_levels, axis=0))
+        output_list.append(sample_pred)
+
+    inputs = np.vstack(input_list)
+    inputs = 2 * inputs - 1  # Translate into +1, -1 values
+
+    return inputs, np.vstack(output_list).reshape(-1)
+
+
 def make_similar_dataset(levels: List[int],
                          preds: List[int],
                          window_size: int,
@@ -58,7 +84,7 @@ def make_similar_dataset(levels: List[int],
     output_list: List[int] = []
     nearest = NearestIndex(levels=levels, preds=preds, path=path)
 
-    for idx in len(preds):
+    for idx in range(len(preds)):
         sample_pred, sample_levels = nearest.get_neighbors(idx=idx, count=window_size)
 
         input_list.append(np.expand_dims(sample_levels, axis=0))

@@ -62,7 +62,7 @@ def compute_entropy(probs: np.ndarray, axis: int) -> np.ndarray:
     """
     Computes the (empirical) entropy of the given distributions along the given axis.
     """
-    log_probs = np.log(probs + SMALL_NUMBER)
+    log_probs = np.log2(probs + SMALL_NUMBER)
     return -1 * np.sum(probs * log_probs, axis=axis)
 
 
@@ -97,7 +97,7 @@ def compute_kl_divergence(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
 
     assert len(probs_x) == len(probs_y), 'P(x) and P(y) must have the same length'
 
-    log_ratio = np.log(probs_x / (probs_y + SMALL_NUMBER) + SMALL_NUMBER)
+    log_ratio = np.log2(probs_x / (probs_y + SMALL_NUMBER) + SMALL_NUMBER)
     return np.sum(probs_x * log_ratio)
 
 
@@ -115,7 +115,7 @@ def compute_conditional_entropy(joint_distribution: np.ndarray) -> np.ndarray:
     for i in range(joint_distribution.shape[0]):
         for j in range(joint_distribution.shape[1]):
             joint_prob = joint_distribution[i, j]
-            cond_entropy -= joint_prob * np.log((joint_prob / (probs_y[j] + SMALL_NUMBER)) + SMALL_NUMBER)
+            cond_entropy -= joint_prob * np.log2((joint_prob / (probs_y[j] + SMALL_NUMBER)) + SMALL_NUMBER)
 
     return cond_entropy
 
@@ -130,7 +130,7 @@ def compute_joint_entropy(joint_distribution: np.ndarray) -> np.ndarray:
     for i in range(joint_distribution.shape[0]):
         for j in range(joint_distribution.shape[1]):
             joint_prob = joint_distribution[i, j]
-            joint_entropy -= joint_prob * np.log(joint_prob + SMALL_NUMBER)
+            joint_entropy -= joint_prob * np.log2(joint_prob + SMALL_NUMBER)
 
     return joint_entropy
 

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from argparse import ArgumentParser
 
-from privddnn.attack.attack_classifiers import MOST_FREQ, MAJORITY, LOGISTIC_REGRESSION
+from privddnn.attack.attack_classifiers import MOST_FREQ, MAJORITY, LOGISTIC_REGRESSION, NAIVE_BAYES, NGRAM
 from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.plotting import to_label, COLORS, AXIS_FONT, TITLE_FONT, LEGEND_FONT
 from privddnn.utils.plotting import LINE_WIDTH, MARKER, MARKER_SIZE, PLOT_STYLE
@@ -13,7 +13,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--test-log', type=str, required=True)
     parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2'])
-    parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION])
+    parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION, NAIVE_BAYES, MOST_FREQ, NGRAM])
     parser.add_argument('--output-file', type=str)
     args = parser.parse_args()
 
@@ -27,7 +27,7 @@ if __name__ == '__main__':
         rates = [round(r / 20.0, 2) for r in range(21)]
 
         for policy_name, attack_results in attack_accuracy.items():
-            metric_results = [r[args.metric] for r, b in zip(attack_results[args.attack_model], attack_results[MOST_FREQ])]
+            metric_results = [r[args.metric] for r in attack_results[args.attack_model]]
 
             print('{} & {:.5f} & {:.5f}'.format(policy_name, sum(metric_results) / len(metric_results), max(metric_results)))
 
