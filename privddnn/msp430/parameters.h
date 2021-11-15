@@ -2,6 +2,14 @@
 #include "decision_tree.h"
 #ifndef PARAMETERS_H_
 #define PARAMETERS_H_
+#define EXIT_RATE 614
+#define THRESHOLD 943
+#define IS_MAX_PROB
+#define PRECISION 10
+#define NUM_LABELS 10
+#define NUM_INPUT_FEATURES 16
+
+
 static int8_t TREE_0_FEATURES[15] = { 13,4,9,-2,-2,15,-2,-2,8,14,-2,-2,14,-2,-2 };
 static int16_t TREE_0_THRESHOLDS[15] = { 516,-304,-684,-2048,-2048,-115,-2048,-2048,11,1261,-2048,-2048,595,-2048,-2048 };
 static int8_t TREE_0_CHILDREN_LEFT[15] = { 1,2,3,-1,-1,6,-1,-1,9,10,-1,-1,13,-1,-1 };

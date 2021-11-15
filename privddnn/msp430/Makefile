@@ -9,5 +9,8 @@ earlyexit: utils/fixed_point.h utils/array.h decision_tree.h parameters.h utils/
 fixedpoint: utils/fixed_point.h tests/fixed_point_tests.h utils/fixed_point.c tests/fixed_point_tests.c
 	$(CC) -o fixedpoint utils/fixed_point.c tests/fixed_point_tests.c
 
+array: utils/fixed_point.h utils/array.h tests/array_tests.h utils/fixed_point.c utils/array.c tests/array_tests.c
+	$(CC) -o array utils/fixed_point.c utils/array.c tests/array_tests.c
+
 clean: earlyexit
-	rm -f *.o earlyexit fixedpoint *.dSYM
+	rm -f *.o earlyexit fixedpoint array *.dSYM
