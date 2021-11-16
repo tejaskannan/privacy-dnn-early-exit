@@ -12,5 +12,8 @@ fixedpoint: utils/fixed_point.h tests/fixed_point_tests.h utils/fixed_point.c te
 array: utils/fixed_point.h utils/array.h tests/array_tests.h utils/fixed_point.c utils/array.c tests/array_tests.c
 	$(CC) -o array utils/fixed_point.c utils/array.c tests/array_tests.c
 
+lfsr: utils/lfsr.h tests/lfsr_tests.h utils/lfsr.c tests/lfsr_tests.c
+	$(CC) -o lfsr utils/lfsr.c tests/lfsr_tests.c
+
 clean: earlyexit
 	rm -f *.o earlyexit fixedpoint array *.dSYM

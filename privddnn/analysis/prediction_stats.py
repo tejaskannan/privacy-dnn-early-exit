@@ -8,6 +8,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--test-log', type=str, required=True)
     parser.add_argument('--field', type=str, required=True)
+    parser.add_argument('--dataset-order', type=str, required=True)
     args = parser.parse_args()
 
     test_log = read_json_gz(args.test_log)['test']
@@ -16,8 +17,8 @@ if __name__ == '__main__':
 
         field_values: List[float] = []
         for rate, results in sorted(test_log[policy_name].items()):
-            num_samples = len(results[0]['preds'])
-            value = results[0][args.field] if args.field == 'num_changed' else results[0]['selection_counts'].get(args.field.upper(), 0)
+            num_samples = len(results[args.dataset_order]['preds'])
+            value = results[args.dataset_order][args.field] if args.field == 'num_changed' else results[args.dataset_order]['selection_counts'].get(args.field.upper(), 0)
 
             field_values.append(value / num_samples)
 

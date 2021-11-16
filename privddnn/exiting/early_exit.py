@@ -6,7 +6,7 @@ from enum import Enum, auto
 from sklearn.ensemble import AdaBoostClassifier
 from typing import List, Tuple, Dict, DefaultDict, Optional
 
-from privddnn.dataset.data_iterators import NearestNeighborIterator
+from privddnn.dataset.data_iterators import DataIterator
 from privddnn.utils.metrics import compute_entropy, create_confusion_matrix, sigmoid
 from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metric, linear_step
 from privddnn.utils.np_utils import mask_non_max
@@ -71,7 +71,7 @@ class EarlyExiter:
     def get_prediction(self, probs: np.ndarray, level: int) -> Tuple[int, bool]:
         return np.argmax(probs[level]), False
 
-    def test(self, data_iterator: NearestNeighborIterator,
+    def test(self, data_iterator: DataIterator,
                    num_labels: int,
                    pred_rates: np.ndarray,
                    max_num_samples: Optional[int]) -> EarlyExitResult:
@@ -89,7 +89,7 @@ class EarlyExiter:
         num_samples = 0
         selection_counts: DefaultDict[SelectionType, int] = defaultdict(int)
 
-        for sample_probs, label in data_iterator:
+        for _, sample_probs, label in data_iterator:
             if (max_num_samples is not None) and (num_samples >= max_num_samples):
                 break
 
@@ -232,6 +232,7 @@ class BufferedExiter(ThresholdExiter):
 
         self._stay_counter: Counter = Counter()
         self._elevate_counter: Counter = Counter()
+        self._prior = 10
 
     @property
     def window_size(self) -> int:
@@ -251,42 +252,42 @@ class BufferedExiter(ThresholdExiter):
         else:
             self._elevate_counter[pred] += 1
 
-    def get_prediction(self, probs: np.ndarray, level: int) -> Tuple[int, bool]:
-        level_probs = probs[level]  # [K]
-        pred = np.argmax(level_probs)
+    #def get_prediction(self, probs: np.ndarray, level: int) -> Tuple[int, bool]:
+    #    level_probs = probs[level]  # [K]
+    #    pred = np.argmax(level_probs)
 
-        # Make sure the prediction does not go out of the hard bound
-        stay_count = self._stay_counter[pred]
-        elevate_count = self._elevate_counter[pred]
-        total_count = stay_count + elevate_count + 1  # Account for this sample
+    #    # Make sure the prediction does not go out of the hard bound
+    #    stay_count = self._stay_counter[pred]
+    #    elevate_count = self._elevate_counter[pred]
+    #    total_count = stay_count + elevate_count + 1  # Account for this sample
 
-        expected_stay = self._rates[0] * total_count
-        expected_elevate = self._rates[1] * total_count
+    #    expected_stay = self._rates[0] * total_count
+    #    expected_elevate = self._rates[1] * total_count
 
-        if (level == 0) and (abs(expected_stay - (stay_count + 1)) > self.pred_window):
-            sorted_preds = np.argsort(level_probs)[::-1]
+    #    if (level == 0) and (abs(expected_stay - (stay_count + 1)) > self.pred_window):
+    #        sorted_preds = np.argsort(level_probs)[::-1]
 
-            for i in range(1, len(sorted_preds)):
-                stay_count = self._stay_counter[sorted_preds[i]] + 1
-                total_count = stay_count + self._elevate_counter[sorted_preds[i]]
-                expected_stay = self._rates[0] * total_count
+    #        for i in range(1, len(sorted_preds)):
+    #            stay_count = self._stay_counter[sorted_preds[i]] + 1
+    #            total_count = stay_count + self._elevate_counter[sorted_preds[i]]
+    #            expected_stay = self._rates[0] * total_count
 
-                if abs(expected_stay - stay_count) <= self.pred_window:
-                    return sorted_preds[i], True
-        elif (level == 1) and (abs(expected_elevate - (elevate_count + 1)) > self.pred_window):
-            sorted_preds = np.argsort(level_probs)[::-1]
+    #            if abs(expected_stay - stay_count) <= self.pred_window:
+    #                return sorted_preds[i], True
+    #    elif (level == 1) and (abs(expected_elevate - (elevate_count + 1)) > self.pred_window):
+    #        sorted_preds = np.argsort(level_probs)[::-1]
 
-            for i in range(1, len(sorted_preds)):
-                elevate_count = self._elevate_counter[sorted_preds[i]] + 1
-                total_count = elevate_count + self._stay_counter[sorted_preds[i]]
-                expected_elevate = self._rates[1] * total_count
+    #        for i in range(1, len(sorted_preds)):
+    #            elevate_count = self._elevate_counter[sorted_preds[i]] + 1
+    #            total_count = elevate_count + self._stay_counter[sorted_preds[i]]
+    #            expected_elevate = self._rates[1] * total_count
 
-                if abs(expected_elevate - elevate_count) <= self.pred_window:
-                    return sorted_preds[i], True
+    #            if abs(expected_elevate - elevate_count) <= self.pred_window:
+    #                return sorted_preds[i], True
 
-        return pred, False
+    #    return pred, False
 
-    def test(self, data_iterator: NearestNeighborIterator,
+    def test(self, data_iterator: DataIterator,
                    num_labels: int,
                    pred_rates: np.ndarray,
                    max_num_samples: Optional[int]) -> EarlyExitResult:
@@ -315,7 +316,7 @@ class BufferedExiter(ThresholdExiter):
         num_samples = 0
         selection_counts: DefaultDict[SelectionType, int] = defaultdict(int)
 
-        for sample_probs, label in data_iterator:
+        for _, sample_probs, label in data_iterator:
             if (max_num_samples is not None) and (num_samples >= max_num_samples):
                 break
 
@@ -323,82 +324,117 @@ class BufferedExiter(ThresholdExiter):
             window_labels.append(label)
 
             if len(window_data) == self.window_size:
-                confidence_scores = [s[0] for s in map(self.compute_metric, window_data)]
-                sorted_indices = np.argsort(confidence_scores)
+                confidence_scores = np.array([s[0] for s in map(self.compute_metric, window_data)])
 
                 window_count = elev_count + int(np.random.uniform() < elev_remainder)
+                window_indices = np.arange(self.window_size)
+
+                if np.isclose(self.rates[1], 1.0):
+                    selected_indices = window_indices
+                elif np.isclose(self.rates[1], 0.0):
+                    selected_indices = []
+                else:
+                    # Get the `distance` to the stay rate for each 1st-level prediction
+                    total_counts = np.array([self._stay_counter[pred] + self._elevate_counter[pred] for pred in range(num_labels)])
+                    expected_stay = self.rates[0] * (total_counts + self._prior)
+                    observed_stay = [self._stay_counter[pred] + self.rates[0] * self._prior for pred in range(num_labels)]
+                    pred_diff_factor = np.exp(observed_stay - expected_stay)  # Higher factor for predictions that stay frequently (push toward elevation)
+                    diff_factor = np.array([pred_diff_factor[np.argmax(window_data[i][0])] for i in range(self.window_size)])
+
+                    # Scale the confidence scores by the stay rates
+                    scaled_confidence_scores = (1.0 - confidence_scores) * diff_factor
+
+                    # Compute the sample probabilities
+                    score_sum = np.sum(scaled_confidence_scores)
+                    sample_probs = self._epsilon + (1.0 - self.window_size * self._epsilon) * scaled_confidence_scores / score_sum
+
+                    selected_indices = np.random.choice(window_indices, size=window_count, replace=False, p=sample_probs)
 
                 result_levels = np.zeros(self.window_size, dtype=int)
                 result_preds = np.zeros(self.window_size, dtype=int) - 1
                 result_changed = np.zeros(self.window_size)
 
                 for idx in range(self.window_size):
-                    if np.sum(result_levels) >= window_count:
-                        break
+                    level = int(idx in selected_indices)
+                    pred = np.argmax(window_data[idx][level])
 
-                    first_pred = np.argmax(window_data[idx][0], axis=-1)
-                    total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred] + 1
-                    stay_count = self._stay_counter[first_pred] + 1
-                    expected_stay = self.rates[0] * total_count
+                    self.update(first_pred=-1, pred=pred, level=level)
 
-                    if (abs(expected_stay - (stay_count + 1)) > self.pred_window):
-                        self.update(first_pred=-1, pred=first_pred, level=1)
-                        result_levels[idx] = 1
-                        result_preds[idx] = first_pred
-                        result_changed[idx] = 1
-                        num_changed += 1
+                    result_levels[idx] = level
+                    result_preds[idx] = pred
+                    result_changed[idx] = 0
 
-                for window_idx in sorted_indices:
-                    if np.sum(result_levels) >= window_count:
-                        break
+                #result_levels = np.zeros(self.window_size, dtype=int)
+                #result_preds = np.zeros(self.window_size, dtype=int) - 1
+                #result_changed = np.zeros(self.window_size)
 
-                    if result_preds[window_idx] != -1:
-                        continue
+                #for idx in range(self.window_size):
+                #    if np.sum(result_levels) >= window_count:
+                #        break
 
-                    first_pred = np.argmax(window_data[window_idx][0], axis=-1)
+                #    first_pred = np.argmax(window_data[idx][0], axis=-1)
+                #    total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred] + 1
+                #    stay_count = self._stay_counter[first_pred] + 1
+                #    expected_stay = self.rates[0] * total_count
 
-                    total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred] + 1
-                    stay_rate = (self._stay_counter[first_pred] + 1) / total_count
+                #    if (abs(expected_stay - (stay_count + 1)) > self.pred_window):
+                #        self.update(first_pred=-1, pred=first_pred, level=1)
+                #        result_levels[idx] = 1
+                #        result_preds[idx] = first_pred
+                #        result_changed[idx] = 1
+                #        num_changed += 1
 
-                    elevate_rate = (self._elevate_counter[first_pred] + 1) / total_count
-                    expected_elevate = self.rates[1] * total_count
-                    expected_stay = self.rates[0] * total_count
-                    #elevate_diff = abs(expected_elevate - (self._elevate_counter[first_pred] + 1))
+                # Select elements in a data-dependent manner using a greedy wrapper for
+                # more balanced results
+                #for window_idx in sorted_indices:
+                #    if np.sum(result_levels) >= window_count:
+                #        break
 
-                    #print('First Pred: {}, Stay Rate: {}'.format(first_pred, stay_rate))
-                    #print('Stay Count: {}, Expected Stay: {}'.format(self._stay_counter[first_pred], expected_stay))
-                    #print('Elevate Count: {}, Expected Elevate: {}'.format(self._elevate_counter[first_pred], expected_elevate))
+                #    if result_preds[window_idx] != -1:
+                #        continue
 
-                    if (stay_rate > self.rates[0]) or (abs(stay_rate - self.rates[0]) < self.epsilon):
-                        result_levels[window_idx] = 1
-                        pred, did_change = self.get_prediction(window_data[window_idx], level=1)
-                        num_changed += int(did_change)
-                        result_changed[window_idx] = int(did_change)
+                #    first_pred = np.argmax(window_data[window_idx][0], axis=-1)
 
-                        self.update(first_pred=-1, pred=pred, level=1)
-                        result_preds[window_idx] = pred
+                #    total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred] + 1
+                #    stay_rate = (self._stay_counter[first_pred] + 1) / total_count
 
-                #print('Levels Before: {}'.format(result_levels))
+                #    #elevate_rate = (self._elevate_counter[first_pred] + 1) / total_count
+                #    #expected_elevate = self.rates[1] * total_count
+                #    #expected_stay = self.rates[0] * total_count
+                #    #elevate_diff = abs(expected_elevate - (self._elevate_counter[first_pred] + 1))
 
-                window_idx = 0
-                while np.sum(result_levels) < window_count:
-                    if result_preds[sorted_indices[window_idx]] == -1:
-                        result_levels[sorted_indices[window_idx]] = 1
+                #    #print('First Pred: {}, Stay Rate: {}'.format(first_pred, stay_rate))
+                #    #print('Stay Count: {}, Expected Stay: {}'.format(self._stay_counter[first_pred], expected_stay))
+                #    #print('Elevate Count: {}, Expected Elevate: {}'.format(self._elevate_counter[first_pred], expected_elevate))
 
-                    window_idx += 1
+                #    if stay_rate > (self.rates[0] - self.epsilon):
+                #        result_levels[window_idx] = 1
+                #        pred, did_change = self.get_prediction(window_data[window_idx], level=1)
+                #        num_changed += int(did_change)
+                #        result_changed[window_idx] = int(did_change)
 
-                #print('Levels After: {}'.format(result_levels))
+                #        self.update(first_pred=-1, pred=pred, level=1)
+                #        result_preds[window_idx] = pred
 
-                for idx in range(self.window_size):
-                    if result_preds[idx] == -1:
-                        level = result_levels[idx]
-                        pred, did_change = self.get_prediction(window_data[idx], level=level)
-                        num_changed += int(did_change)
-                        result_changed[idx] = int(did_change)
-                        #pred = np.argmax(window_data[idx][level])
+                # Fill in the remaining window elements based on confidence alone
+                #window_idx = 0
+                #while np.sum(result_levels) < window_count:
+                #    if result_preds[sorted_indices[window_idx]] == -1:
+                #        result_levels[sorted_indices[window_idx]] = 1
 
-                        self.update(first_pred=-1, pred=pred, level=level)
-                        result_preds[idx] = pred
+                #    window_idx += 1
+
+                # Set the levels for all remaining elements (defaults to zero)
+                #for idx in range(self.window_size):
+                #    if result_preds[idx] == -1:
+                #        level = result_levels[idx]
+                #        pred, did_change = self.get_prediction(window_data[idx], level=level)
+                #        num_changed += int(did_change)
+                #        result_changed[idx] = int(did_change)
+                #        #pred = np.argmax(window_data[idx][level])
+
+                #        self.update(first_pred=-1, pred=pred, level=level)
+                #        result_preds[idx] = pred
 
                 #print('Preds: {}'.format(result_preds))
                 #print('Labels: {}'.format(window_labels))
@@ -413,6 +449,7 @@ class BufferedExiter(ThresholdExiter):
                 #print('Result Labels: {}'.format(result_labels))
                 #print('=========')
 
+                # Make each window order-invariant
                 sample_idx = np.arange(self.window_size)
                 np.random.shuffle(sample_idx)
 
@@ -425,7 +462,7 @@ class BufferedExiter(ThresholdExiter):
 
                 window_data = []
                 window_labels = []
-            
+
             num_samples += 1
 
         output_counts = np.bincount(output_levels, minlength=self.num_outputs)
@@ -986,6 +1023,6 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
     elif strategy == ExitStrategy.EVEN_LABEL_MAX_PROB:
         return EvenLabelMaxProbExit(rates=rates, epsilon=0.001, horizon=10)
     elif strategy == ExitStrategy.BUFFERED_MAX_PROB:
-        return BufferedMaxProb(rates=rates, window_size=10, epsilon=0.001, pred_window=50)
+        return BufferedMaxProb(rates=rates, window_size=10, epsilon=0.01, pred_window=50)
     else:
         raise ValueError('No policy {}'.format(strategy))
