@@ -5,6 +5,7 @@ from typing import List, Tuple, Optional, Dict, Any
 
 from privddnn.classifier import BaseClassifier, OpName
 from privddnn.dataset import Dataset
+from privddnn.dataset.build_nearest_neighbor_index import create_index
 
 
 class DataIterator:

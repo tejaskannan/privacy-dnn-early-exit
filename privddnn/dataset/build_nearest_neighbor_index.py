@@ -16,7 +16,7 @@ def create_index(inputs: np.ndarray, path: str):
         index.add_item(idx, features)
 
     index.build(100)
-    index.save('{}.ann'.format(path))
+    index.save(path)
 
 
 if __name__ == '__main__':
@@ -27,5 +27,5 @@ if __name__ == '__main__':
     # Make the dataset
     dataset = Dataset(args.dataset_name)
 
-    create_index(inputs=dataset.get_val_inputs(), path='../data/{}/val'.format(args.dataset_name))
-    create_index(inputs=dataset.get_test_inputs(), path='../data/{}/test'.format(args.dataset_name))
+    create_index(inputs=dataset.get_val_inputs(), path='../data/{}/val.ann'.format(args.dataset_name))
+    create_index(inputs=dataset.get_test_inputs(), path='../data/{}/test.ann'.format(args.dataset_name))

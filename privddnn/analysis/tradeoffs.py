@@ -21,7 +21,7 @@ if __name__ == '__main__':
 
     test_log = read_json_gz(args.test_log)['test']
     policies = list(test_log.keys())
-    n = 7
+    n = 3
 
     #tokens = args.test_log.split(os.sep)
     #dataset = Dataset(tokens[-3])
