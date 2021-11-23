@@ -42,11 +42,11 @@ uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, 
     for (i = 0; i < ensemble->numTrees; i++) {
 	// Perform early-exiting if possible
 	if (i == ensemble->exitPoint) {
-	    array32_fixed_point_normalize(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
+	    array32_fixed_point_softmax(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
 	    pred = array32_argmax(PROBS_BUFFER, ensemble->numLabels);
 
 	    // For now, this only support MaxProb exiting
-	    if (PROBS_BUFFER[pred] >= exitThreshold) {
+	    if (PROBS_BUFFER[pred] > exitThreshold) {
 	        return pred;
 	    }
 	}
@@ -58,7 +58,7 @@ uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, 
 	WEIGHTS_BUFFER[pred] = fp32_add(ensemble->boostWeights[i], WEIGHTS_BUFFER[pred]);
     }
 
-    // Compute the final prediction
-    array32_fixed_point_normalize(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
-    return array32_argmax(PROBS_BUFFER, ensemble->numLabels);
+    // Compute the final prediction. No need to re-normalize here and incur the extra computational cost.
+    // array32_fixed_point_normalize(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
+    return array32_argmax(WEIGHTS_BUFFER, ensemble->numLabels);
 }

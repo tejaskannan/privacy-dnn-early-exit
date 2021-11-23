@@ -10,5 +10,6 @@ void test_add_16(void);
 void test_mul_16(void);
 void test_div_16(void);
 void test_add_32(void);
+void test_exp_32(void);
 
 #endif

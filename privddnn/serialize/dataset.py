@@ -20,6 +20,7 @@ if __name__ == '__main__':
     dataset.fit_normalizer(is_global=False)
     dataset.normalize_data()
 
+    # TODO: Switch to Nearest Neighbor Iterator
     fold = DataFold[args.fold.upper()]
     inputs = dataset.get_inputs(fold=fold)
     labels = dataset.get_labels(fold=fold)

@@ -102,11 +102,11 @@ class AdaBoostClassifier(BaseClassifier):
             weighted_preds = boost_weight * one_hot
             probs += weighted_preds
 
-        return softmax(probs, axis=-1)
+        #return softmax(probs, axis=-1)
 
         # Normalize the probabiltiies. We avoid non-linearties here for better numerical stability on the MSP430
-        #probs = probs / np.sum(probs, axis=-1, keepdims=True)
-        #return probs.reshape(-1)
+        probs = probs / np.sum(probs, axis=-1, keepdims=True)
+        return probs.reshape(-1)
 
     def validate(self, op: OpName) -> np.ndarray:
         #assert op in (OpName.PROBS, OpName.PREDICTIONS), 'Operation must be either probs or predictions. Got: {}'.format(op)
@@ -131,8 +131,8 @@ class AdaBoostClassifier(BaseClassifier):
         assert self._is_fit, 'Must call fit() first'
 
         num_samples = inputs.shape[0]
-        first_level_probs = np.ones(shape=(num_samples, self._num_labels))  # [N, K]
-        second_level_probs = np.ones(shape=(num_samples, self._num_labels))
+        first_level_probs = np.zeros(shape=(num_samples, self._num_labels))  # [N, K]
+        second_level_probs = np.zeros(shape=(num_samples, self._num_labels))
 
         for idx, clf in enumerate(self._clfs):
             preds = clf.predict(inputs)  # [N]
@@ -149,7 +149,7 @@ class AdaBoostClassifier(BaseClassifier):
         # Normalize the weights to create a 'probability' distribution
         #first_level_probs = first_level_probs / np.sum(first_level_probs, axis=-1, keepdims=True)  # [N, K]
         #first_level_probs = np.expand_dims(first_level_probs, axis=1)  # [N, 1, K]
-        
+
         #second_level_probs = second_level_probs / np.sum(second_level_probs, axis=-1, keepdims=True)  # [N, K]
         #second_level_probs = np.expand_dims(second_level_probs, axis=1)  # [N, 1, K]
 

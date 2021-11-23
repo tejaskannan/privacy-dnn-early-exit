@@ -3,8 +3,10 @@ from sklearn import tree
 from sklearn.tree import DecisionTreeClassifier
 
 from privddnn.restore import restore_classifier
-from privddnn.classifier import ModelMode
+from privddnn.classifier import ModelMode, OpName
+from privddnn.exiting.early_exit import make_policy, ExitStrategy
 from privddnn.ensemble.adaboost import AdaBoostClassifier
+from privddnn.serialize.exit_policy import serialize_policy
 from privddnn.serialize.utils import serialize_int_array, serialize_float_array
 
 
@@ -89,9 +91,22 @@ def serialize_ensemble(ensemble: AdaBoostClassifier, precision: int) -> str:
 
 if __name__ == '__main__':
     path = '../saved_models/pen_digits/01-10-2021/decision_tree_01-10-2021-15-55-08.pkl.gz'
+    strategy = ExitStrategy.MAX_PROB
+    rates = [0.6, 0.4]
+    precision = 10
+
     ensemble = restore_classifier(path, model_mode=ModelMode.TEST)
 
-    result = serialize_ensemble(ensemble, precision=10)
+    policy = make_policy(strategy=strategy, rates=rates, model_path=path)
+
+    val_probs = ensemble.validate(op=OpName.PROBS)
+    val_labels = ensemble.dataset.get_val_labels()
+    policy.fit(val_probs, val_labels)
+
+    num_labels = ensemble.dataset.num_labels
+    num_input_features = ensemble.dataset.num_features
+
+    result = serialize_ensemble(ensemble, precision=precision)
 
     with open('../msp430/parameters.h', 'w') as fout:
         fout.write('#include <stdint.h>\n')
@@ -99,6 +114,13 @@ if __name__ == '__main__':
 
         fout.write('#ifndef PARAMETERS_H_\n')
         fout.write('#define PARAMETERS_H_\n')
+
+        fout.write(serialize_policy(policy, precision=precision))
+        fout.write('\n')
+        fout.write('#define PRECISION {}\n'.format(precision))
+        fout.write('#define NUM_LABELS {}\n'.format(num_labels))
+        fout.write('#define NUM_INPUT_FEATURES {}\n'.format(num_input_features))
+        fout.write('\n\n')
 
         fout.write(result)
 

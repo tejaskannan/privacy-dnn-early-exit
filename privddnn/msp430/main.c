@@ -6,10 +6,6 @@
 #include "parameters.h"
 
 #define INPUT_BUFFER_SIZE 1024
-#define LABEL_BUFFER_SIZE 16
-#define NUM_INPUT_FEATURES 16
-#define THRESHOLD 0
-#define PRECISION 10
 
 int main(void) {
 
@@ -19,7 +15,7 @@ int main(void) {
 
     const char *labelPath = "../data/pen_digits/pen_digits_10_labels.txt";
     FILE *labelFile = fopen(labelPath, "r");
-    char labelBuffer[LABEL_BUFFER_SIZE];
+    char labelBuffer[NUM_LABELS];
 
     int16_t inputFeatures[NUM_INPUT_FEATURES];
     uint8_t featureIdx = 0;
@@ -36,7 +32,7 @@ int main(void) {
 	}
 
 	// Fetch the label
-	fgets(labelBuffer, LABEL_BUFFER_SIZE, labelFile);
+	fgets(labelBuffer, NUM_LABELS, labelFile);
 	label = atoi(labelBuffer);
 
 	uint8_t pred = adaboost_inference(inputFeatures, &ENSEMBLE, THRESHOLD, PRECISION);
