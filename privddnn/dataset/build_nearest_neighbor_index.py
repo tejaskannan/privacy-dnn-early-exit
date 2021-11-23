@@ -8,12 +8,12 @@ from privddnn.utils.file_utils import save_pickle_gz
 
 def create_index(inputs: np.ndarray, path: str):
     num_samples = inputs.shape[0]
-    num_features = inputs.shape[-1]
     flattened = inputs.reshape(num_samples, -1)
+    num_features = flattened.shape[-1]
 
     index = AnnoyIndex(num_features, 'euclidean')
     for idx, features in enumerate(inputs):
-        index.add_item(idx, features)
+        index.add_item(idx, features.reshape(-1))
 
     index.build(100)
     index.save('{}.ann'.format(path))
