@@ -1,9 +1,5 @@
 #include "decision_tree.h"
 
-#define BUFFER_SIZE 16
-static int32_t WEIGHTS_BUFFER[BUFFER_SIZE];
-static int32_t PROBS_BUFFER[BUFFER_SIZE];
-
 
 uint8_t decision_tree_inference(int16_t *inputs, struct decision_tree *tree) {
     // Start inference at the root node
@@ -26,39 +22,48 @@ uint8_t decision_tree_inference(int16_t *inputs, struct decision_tree *tree) {
 }
 
 
-uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, int16_t exitThreshold, uint8_t precision) {
-    // Zero out the probability buffers
-    volatile uint16_t i;
-    for (i = 0; i < BUFFER_SIZE; i++) {
-         PROBS_BUFFER[i] = 0;
-	 WEIGHTS_BUFFER[i] = 0;
+void adaboost_inference_early(struct inference_result *result, int16_t *inputs, struct adaboost_ensemble *ensemble, uint8_t precision) {
+    uint8_t pred;
+    uint8_t i;
+
+    // Zero out the logits
+    for (i = 0; i < ensemble->numLabels; i++) {
+        result->logits[i] = 0;
     }
 
-    // Execute the decision trees in order
-    uint8_t pred;
-    int32_t predWeight;
-    int32_t currentWeight;
-
-    for (i = 0; i < ensemble->numTrees; i++) {
-	// Perform early-exiting if possible
-	if (i == ensemble->exitPoint) {
-	    array32_fixed_point_softmax(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
-	    pred = array32_argmax(PROBS_BUFFER, ensemble->numLabels);
-
-	    // For now, this only support MaxProb exiting
-	    if (PROBS_BUFFER[pred] > exitThreshold) {
-	        return pred;
-	    }
-	}
-
+    for (i = 0; i < ensemble->exitPoint; i++) {
 	// Execute the decision tree
         pred = decision_tree_inference(inputs, ensemble->trees[i]);
 
 	// Add the prediction to the running weights, scaled by the AdaBoost factor
-	WEIGHTS_BUFFER[pred] = fp32_add(ensemble->boostWeights[i], WEIGHTS_BUFFER[pred]);
+        result->logits[pred] = fp32_add(ensemble->boostWeights[i], result->logits[pred]);
     }
 
-    // Compute the final prediction. No need to re-normalize here and incur the extra computational cost.
-    // array32_fixed_point_normalize(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
-    return array32_argmax(WEIGHTS_BUFFER, ensemble->numLabels);
+    // Compute the output probabilities
+    array32_fixed_point_softmax(result->logits, result->probs, ensemble->numLabels, precision); 
+
+    // Compute the final prediction
+    result->pred = array32_argmax(result->logits, ensemble->numLabels);
+}
+
+
+void adaboost_inference_full(struct inference_result *result, int16_t *inputs, struct adaboost_ensemble *ensemble, struct inference_result *exitResult) {
+    uint8_t pred;
+    uint8_t i;
+
+    // Copy the logits from the exit point into the result array
+    // IF MSP: Maybe do this via DMA
+    for (i = 0; i < ensemble->numLabels; i++) {
+        result->logits[i] = exitResult->logits[i];
+    }
+
+    for (i = ensemble->exitPoint; i < ensemble->numTrees; i++) {
+	// Execute the decision tree
+        pred = decision_tree_inference(inputs, ensemble->trees[i]);
+
+	// Add the prediction to the running weights, scaled by the AdaBoost factor
+        result->logits[pred] = fp32_add(ensemble->boostWeights[i], result->logits[pred]);
+    }
+
+    result->pred = array32_argmax(result->logits, ensemble->numLabels);
 }
