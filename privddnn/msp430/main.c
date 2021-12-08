@@ -31,7 +31,7 @@ int main(void) {
     int16_t windowInputFeatures[NUM_INPUT_FEATURES * WINDOW_SIZE];
     uint8_t windowLabels[WINDOW_SIZE];
     uint16_t i;
-    uint16_t windowIdx;
+    uint16_t windowIdx = 0;
 
     uint8_t exitResults[WINDOW_SIZE];
 
@@ -78,8 +78,6 @@ int main(void) {
 	label = atoi(labelBuffer);
 
 #ifdef IS_BUFFERED_MAX_PROB
-	windowIdx = totalCount % WINDOW_SIZE;
-
 	adaboost_inference_early(earlyResult + windowIdx, inputFeatures, &ENSEMBLE, PRECISION);
 
 	// Copy inputFeatures into windowInputFeatures[windowIdx]
@@ -87,11 +85,14 @@ int main(void) {
             windowInputFeatures[windowIdx * NUM_INPUT_FEATURES + i] = inputFeatures[i];
 	}
 
-	// Save the label for proper accuracy computation (not needed at runtime in practice)
+	// Save the label for proper accuracy logging (not needed at runtime in practice)
 	windowLabels[windowIdx] = label;
 
+	// Increment the window idx for the next sample	
+	windowIdx += 1;
+
 	// On the last element in the window, perform the buffered exiting
-	if (windowIdx == (WINDOW_SIZE - 1)) {
+	if (windowIdx == WINDOW_SIZE) {
             buffered_max_prob_should_exit(exitResults, earlyResult, lfsrState, ELEVATE_COUNT, ELEVATE_REMAINDER, WINDOW_SIZE);
 
 	    for (i = 0; i < WINDOW_SIZE; i++) {
@@ -107,6 +108,7 @@ int main(void) {
 	    }
 
             lfsrState = lfsr_step(lfsrState);
+	    windowIdx = 0;
 	}
 
 	totalCount += 1;
@@ -128,7 +130,6 @@ int main(void) {
             pred = earlyResult.pred;
 	}
 
-	//uint8_t pred = adaboost_inference(inputFeatures, &ENSEMBLE, THRESHOLD, PRECISION);
 	isCorrect += (pred == label);
 	totalCount += 1;
 #endif

@@ -92,7 +92,7 @@ def serialize_ensemble(ensemble: AdaBoostClassifier, precision: int) -> str:
 if __name__ == '__main__':
     path = '../saved_models/pen_digits/01-10-2021/decision_tree_01-10-2021-15-55-08.pkl.gz'
     strategy = ExitStrategy.BUFFERED_MAX_PROB
-    rates = [0.6, 0.4]
+    rates = [0.7, 0.3]
     precision = 10
 
     ensemble = restore_classifier(path, model_mode=ModelMode.TEST)

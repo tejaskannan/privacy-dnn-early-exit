@@ -17,10 +17,10 @@ def serialize_policy(policy: EarlyExiter, precision: int) -> str:
         lines.append('#define IS_MAX_PROB')
     elif isinstance(policy, BufferedMaxProb):
         lines.append('#define WINDOW_SIZE {}'.format(policy.window_size))
-        lines.append('#define ELEVATE_COUNT {}'.format(int(policy.rates[0] * policy.window_size)))
+        lines.append('#define ELEVATE_COUNT {}'.format(int(policy.rates[1] * policy.window_size)))
 
-        elev_remainder = (policy.rates[0] * policy.window_size) - int(policy.rates[0] * policy.window_size)
-        lines.append('#define ELEVATE_REMAINDER {}'.format(float_to_fixed_point(policy.rates[0], 15, 16)))
+        elev_remainder = (policy.rates[1] * policy.window_size) - int(policy.rates[1] * policy.window_size)
+        lines.append('#define ELEVATE_REMAINDER {}'.format(float_to_fixed_point(elev_remainder, 15, 16)))
 
         lines.append('#define IS_BUFFERED_MAX_PROB')
     elif isinstance(policy, RandomExit):

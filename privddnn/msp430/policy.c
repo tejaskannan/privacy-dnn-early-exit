@@ -24,15 +24,17 @@ uint8_t *buffered_max_prob_should_exit(uint8_t *results, struct inference_result
     // Place the results into the buffers in a sorted order
     int16_t tempProb;
     uint8_t tempIdx;
+    uint8_t pred;
 
     uint8_t i, j, k;
     for (i = 0; i < windowSize; i++) {
         results[i] = 1;  // By default, exit early
 
-        PROBS_BUFFER[i] = earlyResults->probs[i];
+	pred = earlyResults[i].pred;
+	PROBS_BUFFER[i] = earlyResults[i].probs[pred];
 	INDEX_BUFFER[i] = i;
 
-        for (j = i; j > 0; j++) {
+        for (j = i; j > 0; j--) {
             k = j - 1;
 
             if (PROBS_BUFFER[k] <= PROBS_BUFFER[j]) {
