@@ -31,8 +31,28 @@ int main(void) {
     int16_t windowInputFeatures[NUM_INPUT_FEATURES * WINDOW_SIZE];
     uint8_t windowLabels[WINDOW_SIZE];
     uint16_t i;
-#endif
+    uint16_t windowIdx;
 
+    uint8_t exitResults[WINDOW_SIZE];
+
+    int32_t earlyLogits[NUM_LABELS * WINDOW_SIZE];
+    int32_t earlyProbs[NUM_LABELS * WINDOW_SIZE];
+    int32_t fullLogits[NUM_LABELS * WINDOW_SIZE];
+    int32_t fullProbs[NUM_LABELS * WINDOW_SIZE];
+
+    struct inference_result earlyResult[WINDOW_SIZE];
+    struct inference_result fullResult[WINDOW_SIZE];
+
+    for (i = 0; i < WINDOW_SIZE; i++) {
+        earlyResult[i].logits = earlyLogits + (i * NUM_LABELS);
+	earlyResult[i].probs = earlyProbs + (i * NUM_LABELS);
+	earlyResult[i].pred = 0;
+
+    	fullResult[i].logits = fullLogits + (i * NUM_LABELS);
+	fullResult[i].probs = fullProbs + (i * NUM_LABELS);
+	fullResult[i].pred = 0;
+    }
+#else
     int32_t earlyLogits[NUM_LABELS];
     int32_t earlyProbs[NUM_LABELS];
     int32_t fullLogits[NUM_LABELS];
@@ -40,6 +60,8 @@ int main(void) {
 
     struct inference_result earlyResult = { earlyLogits, earlyProbs, 0 };
     struct inference_result fullResult = { fullLogits, fullProbs, 0 };
+#endif
+
     uint8_t pred;
     uint8_t shouldExit;
 
@@ -58,7 +80,7 @@ int main(void) {
 #ifdef IS_BUFFERED_MAX_PROB
 	windowIdx = totalCount % WINDOW_SIZE;
 
-	adaboost_inference_early(earlyResults + windowIdx, inputFeatures, &ENSEMBLE, PRECISION);
+	adaboost_inference_early(earlyResult + windowIdx, inputFeatures, &ENSEMBLE, PRECISION);
 
 	// Copy inputFeatures into windowInputFeatures[windowIdx]
 	for (i = 0; i < NUM_INPUT_FEATURES; i++) {
@@ -70,18 +92,18 @@ int main(void) {
 
 	// On the last element in the window, perform the buffered exiting
 	if (windowIdx == (WINDOW_SIZE - 1)) {
-            buffered_max_prob_should_exit(exitResults, earlyResults, EXIT_RATE, lfsrState, EXIT_COUNT, WINDOW_SIZE);
+            buffered_max_prob_should_exit(exitResults, earlyResult, lfsrState, ELEVATE_COUNT, ELEVATE_REMAINDER, WINDOW_SIZE);
 
 	    for (i = 0; i < WINDOW_SIZE; i++) {
                 if (!exitResults[i]) {
-    		    adaboost_inference_full(&fullResult, windowInputFeatures + i * NUM_INPUT_FEATURES, &ENSEMBLE, &earlyResult);
-                    pred = fullResult.pred;
+    		    adaboost_inference_full(fullResult + i, windowInputFeatures + i * NUM_INPUT_FEATURES, &ENSEMBLE, earlyResult + i);
+                    pred = fullResult[i].pred;
 		} else {
                     numExit += 1;
-		    pred = earlyResults[i].pred;
+		    pred = earlyResult[i].pred;
 		}
 
-		numCorrect += (pred == windowLabels[i]);
+		isCorrect += (pred == windowLabels[i]);
 	    }
 
             lfsrState = lfsr_step(lfsrState);

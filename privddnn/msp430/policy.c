@@ -16,10 +16,10 @@ uint8_t random_should_exit(uint16_t exitRate, uint16_t lfsrState) {
 }
 
 
-uint8_t *buffered_max_prob_should_exit(uint8_t *results, struct inference_result *earlyResults, uint16_t exitRate, uint16_t lfsrState, uint16_t elevateCount, uint16_t windowSize) {
+uint8_t *buffered_max_prob_should_exit(uint8_t *results, struct inference_result *earlyResults, uint16_t lfsrState, uint16_t elevCount, uint16_t elevRem, uint16_t windowSize) {
     // Determine the random adjustment to the elevate count
-    uint16_t shouldIncrease = ((lfsrState & 0x7FFF) <= exitRate);
-    elevateCount += shouldIncrease;
+    uint16_t shouldIncrease = ((lfsrState & 0x7FFF) <= elevRem);
+    elevCount += shouldIncrease;
 
     // Place the results into the buffers in a sorted order
     int16_t tempProb;
@@ -50,10 +50,10 @@ uint8_t *buffered_max_prob_should_exit(uint8_t *results, struct inference_result
     }
 
     // Set the indices in which to use the full model
-    uint8_t elevateIdx;
-    for (i = 0; i < elevateCount; i++) {
-        elevateIdx = INDEX_BUFFER[i];
-        results[elevateIdx] = 0;	
+    uint8_t elevIdx;
+    for (i = 0; i < elevCount; i++) {
+        elevIdx = INDEX_BUFFER[i];
+        results[elevIdx] = 0;	
     }
 
     return results;
