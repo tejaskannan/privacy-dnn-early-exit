@@ -12,14 +12,14 @@ uint8_t decision_tree_inference(int16_t *inputs, struct decision_tree *tree) {
     volatile int16_t threshold;
 
     while ((tree->leftChildren[treeIdx] >= 0) && (tree->rightChildren[treeIdx] >= 0)) {
-	threshold = tree->thresholds[treeIdx];
-	featureIdx = tree->features[treeIdx];
+	    threshold = tree->thresholds[treeIdx];
+	    featureIdx = tree->features[treeIdx];
 
-	if (inputs[featureIdx] <= threshold) {
-	    treeIdx = tree->leftChildren[treeIdx];
-	} else {
-	    treeIdx = tree->rightChildren[treeIdx];
-	}
+	    if (inputs[featureIdx] <= threshold) {
+	        treeIdx = tree->leftChildren[treeIdx];
+	    } else {
+	        treeIdx = tree->rightChildren[treeIdx];
+	    }
     }
 
     return tree->predictions[treeIdx];
@@ -31,7 +31,7 @@ uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, 
     volatile uint16_t i;
     for (i = 0; i < BUFFER_SIZE; i++) {
          PROBS_BUFFER[i] = 0;
-	 WEIGHTS_BUFFER[i] = 0;
+	    WEIGHTS_BUFFER[i] = 0;
     }
 
     // Execute the decision trees in order
@@ -40,25 +40,24 @@ uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, 
     int32_t currentWeight;
 
     for (i = 0; i < ensemble->numTrees; i++) {
-	// Perform early-exiting if possible
-	if (i == ensemble->exitPoint) {
-	    array32_fixed_point_softmax(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
-	    pred = array32_argmax(PROBS_BUFFER, ensemble->numLabels);
+	    // Perform early-exiting if possible
+        if (i == ensemble->exitPoint) {
+            array32_fixed_point_softmax(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
+            pred = array32_argmax(PROBS_BUFFER, ensemble->numLabels);
 
-	    // For now, this only support MaxProb exiting
-	    if (PROBS_BUFFER[pred] > exitThreshold) {
-	        return pred;
-	    }
-	}
+            // For now, this only support MaxProb exiting
+            if (PROBS_BUFFER[pred] > exitThreshold) {
+                return pred;
+            }
+        }
 
-	// Execute the decision tree
+	    // Execute the decision tree
         pred = decision_tree_inference(inputs, ensemble->trees[i]);
 
-	// Add the prediction to the running weights, scaled by the AdaBoost factor
-	WEIGHTS_BUFFER[pred] = fp32_add(ensemble->boostWeights[i], WEIGHTS_BUFFER[pred]);
+	    // Add the prediction to the running weights, scaled by the AdaBoost factor
+	    WEIGHTS_BUFFER[pred] = fp32_add(ensemble->boostWeights[i], WEIGHTS_BUFFER[pred]);
     }
 
     // Compute the final prediction. No need to re-normalize here and incur the extra computational cost.
-    // array32_fixed_point_normalize(WEIGHTS_BUFFER, PROBS_BUFFER, ensemble->numLabels, precision);
     return array32_argmax(WEIGHTS_BUFFER, ensemble->numLabels);
 }

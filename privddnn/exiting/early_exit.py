@@ -203,7 +203,7 @@ class ThresholdExiter(EarlyExiter):
                 t = 1.0
             else:
                 t = np.quantile(metrics[:, level], q=1.0 - self.rates[level])
-            
+
             self.set_threshold(t, level)
 
         # Catch everything at the last level
@@ -354,58 +354,60 @@ class BufferedExiter(ThresholdExiter):
                 elif np.isclose(self.rates[1], 0.0):
                     selected_indices = []
                 else:
+                    selected_indices = np.argsort(confidence_scores)[0:window_count].astype(int).tolist()
+
                     # Get the `distance` to the stay rate for each 1st-level prediction
-                    total_counts = np.array([self._stay_counter[pred] + self._elevate_counter[pred] + self._prior for pred in range(num_labels)])
+                    #total_counts = np.array([self._stay_counter[pred] + self._elevate_counter[pred] + self._prior for pred in range(num_labels)])
 
-                    observed_stay = np.array([self._stay_counter[pred] + self.rates[0] * self._prior for pred in range(num_labels)])
-                    expected_stay = self.rates[0] * total_counts
+                    #observed_stay = np.array([self._stay_counter[pred] + self.rates[0] * self._prior for pred in range(num_labels)])
+                    #expected_stay = self.rates[0] * total_counts
 
-                    observed_elev = np.array([self._elevate_counter[pred] + self.rates[1] * self._prior for pred in range(num_labels)])
-                    expected_elev = self.rates[1] * total_counts
+                    #observed_elev = np.array([self._elevate_counter[pred] + self.rates[1] * self._prior for pred in range(num_labels)])
+                    #expected_elev = self.rates[1] * total_counts
 
-                    # Sort the window indices based on the confidence scores
-                    sorted_indices = np.argsort(confidence_scores)
+                    ## Sort the window indices based on the confidence scores
+                    #sorted_indices = np.argsort(confidence_scores)
 
-                    selected_indices: List[int] = []
-                    selected_mask = np.ones(self.window_size)
+                    #selected_indices: List[int] = []
+                    #selected_mask = np.ones(self.window_size)
 
-                    pred_rates = self._pred_counts / np.sum(self._pred_counts, axis=-1, keepdims=True)
+                    #pred_rates = self._pred_counts / np.sum(self._pred_counts, axis=-1, keepdims=True)
 
-                    for window_idx in sorted_indices:
-                        if len(selected_indices) >= window_count:
-                            break
+                    #for window_idx in sorted_indices:
+                    #    if len(selected_indices) >= window_count:
+                    #        break
 
-                        first_pred = np.argmax(window_data[window_idx][0])
-                        obs_count = np.sum(pred_rates[first_pred] * observed_elev)
-                        expected_count = np.sum(pred_rates[first_pred] * expected_elev)
+                    #    first_pred = np.argmax(window_data[window_idx][0])
+                    #    obs_count = np.sum(pred_rates[first_pred] * observed_elev)
+                    #    expected_count = np.sum(pred_rates[first_pred] * expected_elev)
 
-                        if (observed_stay[first_pred] > (expected_stay[first_pred] - self.window_size)) and (obs_count < (expected_count + self.window_size)):
-                            selected_indices.append(window_idx)
-                            selected_mask[window_idx] = 0
+                    #    if (observed_stay[first_pred] > (expected_stay[first_pred] - self.window_size)) and (obs_count < (expected_count + self.window_size)):
+                    #        selected_indices.append(window_idx)
+                    #        selected_mask[window_idx] = 0
 
-                    if len(selected_indices) < window_count:
-                        # Compute the difference factors we use to scale the confidence scores
-                        diff_factors = np.empty(self.window_size)
-                        for window_idx in range(self.window_size):
-                            first_pred = np.argmax(window_data[window_idx][0])
-                            obs_count = np.sum(pred_rates[first_pred] * observed_elev)
-                            expected_count = np.sum(pred_rates[first_pred] * expected_elev)
+                    #if len(selected_indices) < window_count:
+                    #    # Compute the difference factors we use to scale the confidence scores
+                    #    diff_factors = np.empty(self.window_size)
+                    #    for window_idx in range(self.window_size):
+                    #        first_pred = np.argmax(window_data[window_idx][0])
+                    #        obs_count = np.sum(pred_rates[first_pred] * observed_elev)
+                    #        expected_count = np.sum(pred_rates[first_pred] * expected_elev)
 
-                            diff_factors[window_idx] = (expected_count / obs_count)
+                    #        diff_factors[window_idx] = (expected_count / obs_count)
 
-                        # Create the sample probabilities based on confidence scores
-                        scaled_confidence_scores = (1.0 - confidence_scores) * diff_factors
-                        score_sum = np.sum(scaled_confidence_scores)
-                        sample_probs = self._epsilon + (1.0 - self.window_size * self._epsilon) * scaled_confidence_scores / score_sum
+                    #    # Create the sample probabilities based on confidence scores
+                    #    scaled_confidence_scores = (1.0 - confidence_scores) * diff_factors
+                    #    score_sum = np.sum(scaled_confidence_scores)
+                    #    sample_probs = self._epsilon + (1.0 - self.window_size * self._epsilon) * scaled_confidence_scores / score_sum
 
-                        sample_probs = np.ones(shape=(self.window_size, )) / self.window_size
+                    #    sample_probs = np.ones(shape=(self.window_size, )) / self.window_size
 
-                        # Re-normalize after masking
-                        sample_probs *= selected_mask
-                        sample_probs /= np.sum(sample_probs)
+                    #    # Re-normalize after masking
+                    #    sample_probs *= selected_mask
+                    #    sample_probs /= np.sum(sample_probs)
 
-                        selected = np.random.choice(window_indices, size=window_count - len(selected_indices), p=sample_probs)
-                        selected_indices.extend(selected)
+                    #    selected = np.random.choice(window_indices, size=window_count - len(selected_indices), p=sample_probs)
+                    #    selected_indices.extend(selected)
 
                 for idx in range(self.window_size):
                     level = int(idx in selected_indices)

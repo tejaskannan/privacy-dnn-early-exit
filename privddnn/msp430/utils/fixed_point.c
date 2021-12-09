@@ -42,27 +42,27 @@ int32_t fp32_exp(int32_t x, uint8_t precision) {
     const int32_t negThree = -1 * (3 << precision);
 
     if (x >= threeEighths) {
-	const int32_t two = 2 << precision;
-	const int32_t elevenSixteenths = 11 << (precision - 4);
+	    const int32_t two = 2 << precision;
+	    const int32_t elevenSixteenths = 11 << (precision - 4);
         return two + fp32_mul(two, x - elevenSixteenths, precision);
     } else if (x >= -1 * threeEighths) {
-	const int32_t one = 1 << precision;
-	return one + x;
+	    const int32_t one = 1 << precision;
+	    return one + x;
     } else if (x >= negOne) {
         const int32_t oneHalf = 1 << (precision - 1);
-	const int32_t elevenSixteenths = 11 << (precision - 4);
-	return oneHalf + fp32_mul(oneHalf, x + elevenSixteenths, precision);
+	    const int32_t elevenSixteenths = 11 << (precision - 4);
+	    return oneHalf + fp32_mul(oneHalf, x + elevenSixteenths, precision);
     } else if (x >= negOneThreeQuarters) {
-	const int32_t oneFourth = 1 << (precision - 2);
-	const int32_t threeEighths = 3 << (precision - 3);
-	const int32_t one = 1 << precision;
-	return oneFourth + fp32_mul(oneFourth, x + one + threeEighths, precision);
+	    const int32_t oneFourth = 1 << (precision - 2);
+	    const int32_t threeEighths = 3 << (precision - 3);
+	    const int32_t one = 1 << precision;
+	    return oneFourth + fp32_mul(oneFourth, x + one + threeEighths, precision);
     } else if (x >= negThree) {
         const int32_t oneEighth = 1 << (precision - 3);
-	const int32_t oneSixteenth = 1 << (precision - 4);
-	const int32_t two = 2 << precision;
-	return oneEighth + fp32_mul(oneEighth, x + two + oneSixteenth, precision);
+	    const int32_t oneSixteenth = 1 << (precision - 4);
+	    const int32_t two = 2 << precision;
+	    return oneEighth + fp32_mul(oneEighth, x + two + oneSixteenth, precision);
     } else {
-	return 0;
+	    return 0;
     }
 }

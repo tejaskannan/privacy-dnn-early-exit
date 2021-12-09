@@ -34,7 +34,7 @@ def serialize_tree(clf: DecisionTreeClassifier, name: str, precision: int, shoul
                                         array=root.children_left,
                                         dtype='int8_t')
     lines.append(children_left)
-                               
+
     right_name = '{}_CHILDREN_RIGHT'.format(name)
     children_right = serialize_int_array(var_name=right_name,
                                          array=root.children_right,
