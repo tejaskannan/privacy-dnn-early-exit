@@ -1,107 +1,118 @@
-#include <stdio.h>
-#include <string.h>
+#include <msp430.h> 
 #include <stdint.h>
-#include <stdlib.h>
+
+#include "init.h"
 #include "decision_tree.h"
-#include "policy.h"
 #include "parameters.h"
 #include "data.h"
+#include "policy.h"
 #include "utils/lfsr.h"
 
+#define TIMER_LIMIT 5
 
-int main(void) {
-    int16_t inputFeatures[NUM_FEATURES];
-    uint8_t featureIdx = 0;
-    uint8_t label = 0;
-    uint32_t isCorrect = 0;
-    uint32_t numExit = 0;
-    uint32_t totalCount = 0;
-    uint16_t lfsrState = 3798;
+volatile uint16_t timerIdx = 0;
+volatile uint16_t sampleIdx = 0;
+volatile uint8_t pred = 0;
+volatile uint8_t shouldExit = 0;
+int16_t inputFeatures[NUM_FEATURES];
 
-#ifdef IS_BUFFERED_MAX_PROB
-    int16_t windowInputFeatures[NUM_INPUT_FEATURES * WINDOW_SIZE];
-    uint8_t windowLabels[WINDOW_SIZE];
-    uint16_t i;
-    uint16_t windowIdx = 0;
-
-    uint8_t exitResults[WINDOW_SIZE];
-
-    int32_t earlyLogits[NUM_LABELS * WINDOW_SIZE];
-    int32_t earlyProbs[NUM_LABELS * WINDOW_SIZE];
-    int32_t fullLogits[NUM_LABELS * WINDOW_SIZE];
-    int32_t fullProbs[NUM_LABELS * WINDOW_SIZE];
-
-    struct inference_result earlyResult[WINDOW_SIZE];
-    struct inference_result fullResult[WINDOW_SIZE];
-
-    for (i = 0; i < WINDOW_SIZE; i++) {
-        earlyResult[i].logits = earlyLogits + (i * NUM_LABELS);
-	    earlyResult[i].probs = earlyProbs + (i * NUM_LABELS);
-	    earlyResult[i].pred = 0;
-
-    	fullResult[i].logits = fullLogits + (i * NUM_LABELS);
-	    fullResult[i].probs = fullProbs + (i * NUM_LABELS);
-	    fullResult[i].pred = 0;
-    }
-#else
-    int32_t earlyLogits[NUM_LABELS];
-    int32_t earlyProbs[NUM_LABELS];
-    int32_t fullLogits[NUM_LABELS];
-    int32_t fullProbs[NUM_LABELS];
-
-    struct inference_result earlyResult = { earlyLogits, earlyProbs, 0 };
-    struct inference_result fullResult = { fullLogits, fullProbs, 0 };
+#ifndef IS_MAX_PROB
+uint16_t lfsrState = 2489;
 #endif
 
-    uint8_t pred;
-    uint8_t shouldExit;
-    uint16_t k;
+#if defined(IS_MAX_PROB) || defined(IS_RANDOM)
+int32_t earlyLogits[NUM_LABELS];
+int32_t earlyProbs[NUM_LABELS];
+int32_t fullLogits[NUM_LABELS];
+struct inference_result earlyResult = { earlyLogits, earlyProbs, 0 };
+struct inference_result fullResult = { fullLogits, fullLogits, 0 };
+#elif defined(IS_BUFFERED_MAX_PROB)
+#pragma PERSISTENT(windowInputFeatures)
+int16_t windowInputFeatures[NUM_INPUT_FEATURES * WINDOW_SIZE] = { 0 };
+uint16_t windowIdx = 0;
 
-    for (int k = 0; k < NUM_INPUTS; k++) {
+uint8_t exitResults[WINDOW_SIZE];
+#pragma PERSISTENT(earlyLogits);
+int32_t earlyLogits[NUM_LABELS * WINDOW_SIZE] = { 0 };
+#pragma PERSISTENT(earlyProbs);
+int32_t earlyProbs[NUM_LABELS * WINDOW_SIZE] = { 0 };
+int32_t fullLogits[NUM_LABELS];
 
-        for (int j = 0; j < NUM_FEATURES; j++) {
-            inputFeatures[j] = DATASET_INPUTS[k * NUM_FEATURES + j];
+struct inference_result earlyResult[WINDOW_SIZE];
+struct inference_result fullResult = { fullLogits, fullLogits, 0 };
+#endif
+
+
+
+/**
+ * main.c
+ */
+int main(void)
+{
+	WDTCTL = WDTPW | WDTHOLD;	// stop watchdog timer
+	
+	init_gpio();
+	init_uart_pins();
+	init_uart_system();
+	init_timer();
+
+    // Disable the GPIO power-on default high-impedance mode to activate
+    // previously configured port settings
+    PM5CTL0 &= ~LOCKLPM5;
+
+    sampleIdx = 0;
+    timerIdx = 0;
+    uint16_t i;
+
+    #ifdef IS_BUFFERED_MAX_PROB
+    for (i = 0; i < WINDOW_SIZE; i++) {
+        earlyResult[i].logits = earlyLogits + (i * NUM_LABELS);
+        earlyResult[i].probs = earlyProbs + (i * NUM_LABELS);
+    }
+    #endif
+
+    // Put into Low Power Mode
+    __bis_SR_register(LPM3_bits | GIE);
+
+
+    while (1) {
+
+        // Get the current input sample
+        for (i = 0; i < NUM_FEATURES; i++) {
+            inputFeatures[i] = DATASET_INPUTS[sampleIdx * NUM_FEATURES + i];
         }
 
-        label = DATASET_LABELS[k];
-
 #ifdef IS_BUFFERED_MAX_PROB
-	    adaboost_inference_early(earlyResult + windowIdx, inputFeatures, &ENSEMBLE, PRECISION);
+        adaboost_inference_early(earlyResult + windowIdx, inputFeatures, &ENSEMBLE, PRECISION);
 
-	    // Copy inputFeatures into windowInputFeatures[windowIdx]
-	    for (i = 0; i < NUM_INPUT_FEATURES; i++) {
+        // Copy the input features for possible later elevation
+        for (i = 0; i < NUM_FEATURES; i++) {
             windowInputFeatures[windowIdx * NUM_INPUT_FEATURES + i] = inputFeatures[i];
-	    }
+        }
 
-	    // Save the label for proper accuracy logging (not needed at runtime in practice)
-	    windowLabels[windowIdx] = label;
+        // Increment the window index for the next sample
+        windowIdx += 1;
 
-	    // Increment the window idx for the next sample	
-	    windowIdx += 1;
-
-	    // On the last element in the window, perform the buffered exiting
-	    if (windowIdx == WINDOW_SIZE) {
+        // Ony the last element in the window, perform buffered exiting
+        if (windowIdx == WINDOW_SIZE) {
             buffered_max_prob_should_exit(exitResults, earlyResult, lfsrState, ELEVATE_COUNT, ELEVATE_REMAINDER, WINDOW_SIZE);
 
-	        for (i = 0; i < WINDOW_SIZE; i++) {
+            for (i = 0; i < WINDOW_SIZE; i++) {
                 if (!exitResults[i]) {
-    	            adaboost_inference_full(fullResult + i, windowInputFeatures + i * NUM_INPUT_FEATURES, &ENSEMBLE, earlyResult + i);
-                    pred = fullResult[i].pred;
-	            } else {
-                    numExit += 1;
-	                pred = earlyResult[i].pred;
-	            }
-
-	            isCorrect += (pred == windowLabels[i]);
-	        }
+                    adaboost_inference_full(&fullResult, windowInputFeatures + i * NUM_FEATURES, &ENSEMBLE, earlyResult + i);
+                    pred = fullResult.pred;
+                } else {
+                    pred = (earlyResult + i)->pred;
+                }
+            }
 
             lfsrState = lfsr_step(lfsrState);
-	        windowIdx = 0;
-	    }
-
-	    totalCount += 1;
+            windowIdx = 0;
+        }
 #else
-	    adaboost_inference_early(&earlyResult, inputFeatures, &ENSEMBLE, PRECISION);
+
+        // Perform the early inference
+        adaboost_inference_early(&earlyResult, inputFeatures, &ENSEMBLE, PRECISION);
 
         #ifdef IS_MAX_PROB
         shouldExit = max_prob_should_exit(&earlyResult, THRESHOLD);
@@ -110,20 +121,57 @@ int main(void) {
         lfsrState = lfsr_step(lfsrState);
         #endif
 
-	    if (!shouldExit) {
+        if (!shouldExit) {
+            P1OUT |= BIT0;
             adaboost_inference_full(&fullResult, inputFeatures, &ENSEMBLE, &earlyResult);
             pred = fullResult.pred;
+            P1OUT &= ~BIT0;
         } else {
-	        numExit += 1;
             pred = earlyResult.pred;
-	    }
-
-	    isCorrect += (pred == label);
-	    totalCount += 1;
+        }
 #endif
+
+        // Update the state indices
+        timerIdx = 0;
+        sampleIdx += 1;
+
+        if (sampleIdx == NUM_INPUTS) {
+            sampleIdx = 0;
+        }
+
+        // Place the device back into LPM
+        __bis_SR_register(LPM3_bits | GIE);
     }
 
-    printf("Accuracy: %d / %d\n", isCorrect, totalCount);
-    printf("Exit Rate: %d / %d\n", numExit, totalCount);
-    return 0;
+	return 0;
+}
+
+
+/**
+ * ISR for Timer A overflow
+ */
+#pragma vector = TIMER0_A1_VECTOR
+__interrupt void Timer0_A1_ISR (void) {
+    /**
+     * Timer Interrupts to make data pull requests.
+     */
+    switch(__even_in_range(TA0IV, TAIV__TAIFG))
+    {
+        case TAIV__NONE:   break;           // No interrupt
+        case TAIV__TACCR1: break;           // CCR1 not used
+        case TAIV__TACCR2: break;           // CCR2 not used
+        case TAIV__TACCR3: break;           // reserved
+        case TAIV__TACCR4: break;           // reserved
+        case TAIV__TACCR5: break;           // reserved
+        case TAIV__TACCR6: break;           // reserved
+        case TAIV__TAIFG:                   // overflow
+            timerIdx += 1;
+
+            if (timerIdx == TIMER_LIMIT) {
+                __bic_SR_register_on_exit(LPM3_bits | GIE);
+            }
+
+            break;
+        default: break;
+    }
 }
