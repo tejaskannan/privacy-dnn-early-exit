@@ -3,7 +3,7 @@ CC=$(CCBIN) -Wall -Wextra -std=c99 -pedantic -g -Wno-unused-variable -fsanitize=
 
 default: earlyexit
 
-earlyexit: utils/fixed_point.h utils/array.h utils/lfsr.h policy.h decision_tree.h parameters.h utils/fixed_point.c utils/array.c utils/lfsr.c policy.c decision_tree.c main.c
+earlyexit: utils/fixed_point.h utils/array.h utils/lfsr.h policy.h decision_tree.h parameters.h data.h utils/fixed_point.c utils/array.c utils/lfsr.c policy.c decision_tree.c main.c
 	$(CC) -o earlyexit utils/fixed_point.c utils/array.c utils/lfsr.c policy.c decision_tree.c main.c
 
 fixedpoint: utils/fixed_point.h tests/fixed_point_tests.h utils/fixed_point.c tests/fixed_point_tests.c

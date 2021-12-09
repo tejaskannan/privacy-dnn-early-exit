@@ -29,7 +29,7 @@ class AdaBoostClassifier(BaseClassifier):
                 self._clfs.append(LogisticRegression(C=0.1, penalty='l2', max_iter=2500))
             else:
                 raise ValueError('Unknown Classifier with name: {}'.format(clf_name))
-        
+
         self._rand = np.random.RandomState(seed=52389)
         self._is_fit = False
         self._boost_weights = np.zeros(shape=(num_estimators, ))
@@ -83,30 +83,30 @@ class AdaBoostClassifier(BaseClassifier):
         self._num_labels = num_labels
         self._is_fit = True
 
-    def predict_sample(self, inputs: np.ndarray, level: int) -> np.ndarray:
-        """
-        Gets the predicted probabilities for the given input using the
-        specified model level.
-        """
-        assert level in (0, 1), 'The model level must be either 0 or 1'
+    #def predict_sample(self, inputs: np.ndarray, level: int) -> np.ndarray:
+    #    """
+    #    Gets the predicted probabilities for the given input using the
+    #    specified model level.
+    #    """
+    #    assert level in (0, 1), 'The model level must be either 0 or 1'
 
-        num_classifiers = len(self._clfs) if level == 1 else self.exit_size
-        probs = np.zeros(shape=(1, self._num_labels))
-        expanded_inputs = np.expand_dims(inputs, axis=0)  # [1, D]
+    #    num_classifiers = len(self._clfs) if level == 1 else self.exit_size
+    #    probs = np.zeros(shape=(1, self._num_labels))
+    #    expanded_inputs = np.expand_dims(inputs, axis=0)  # [1, D]
 
-        for idx in range(num_classifiers):
-            preds = self._clfs[idx].predict(expanded_inputs)  # [1]
-            one_hot = to_one_hot(preds, num_labels=self._num_labels)  # [1, K]
-            boost_weight = self._boost_weights[idx]
+    #    for idx in range(num_classifiers):
+    #        preds = self._clfs[idx].predict(expanded_inputs)  # [1]
+    #        one_hot = to_one_hot(preds, num_labels=self._num_labels)  # [1, K]
+    #        boost_weight = self._boost_weights[idx]
 
-            weighted_preds = boost_weight * one_hot
-            probs += weighted_preds
+    #        weighted_preds = boost_weight * one_hot
+    #        probs += weighted_preds
 
-        #return softmax(probs, axis=-1)
+    #    #return softmax(probs, axis=-1)
 
-        # Normalize the probabiltiies. We avoid non-linearties here for better numerical stability on the MSP430
-        probs = probs / np.sum(probs, axis=-1, keepdims=True)
-        return probs.reshape(-1)
+    #    # Normalize the probabiltiies. We avoid non-linearties here for better numerical stability on the MSP430
+    #    probs = probs / np.sum(probs, axis=-1, keepdims=True)
+    #    return probs.reshape(-1)
 
     def validate(self, op: OpName) -> np.ndarray:
         #assert op in (OpName.PROBS, OpName.PREDICTIONS), 'Operation must be either probs or predictions. Got: {}'.format(op)
@@ -147,16 +147,32 @@ class AdaBoostClassifier(BaseClassifier):
             second_level_probs += weighted_preds
 
         # Normalize the weights to create a 'probability' distribution
-        #first_level_probs = first_level_probs / np.sum(first_level_probs, axis=-1, keepdims=True)  # [N, K]
-        #first_level_probs = np.expand_dims(first_level_probs, axis=1)  # [N, 1, K]
-
-        #second_level_probs = second_level_probs / np.sum(second_level_probs, axis=-1, keepdims=True)  # [N, K]
-        #second_level_probs = np.expand_dims(second_level_probs, axis=1)  # [N, 1, K]
-
         first_level_probs = np.expand_dims(softmax(first_level_probs, axis=-1), axis=1)  # [N, 1, K]
         second_level_probs = np.expand_dims(softmax(second_level_probs, axis=-1), axis=1)  # [N, 1, K]
 
         return np.concatenate([first_level_probs, second_level_probs], axis=1)  # [N, 2, K]
+
+    def predict_proba_for_rate(self, inputs: np.ndarray, rate: float) -> np.ndarray:
+        assert len(inputs.shape) == 2, 'Must provide 2d inputs'
+        assert self._is_fit, 'Must call fit() first'
+        assert (rate >= 0.0) and (rate <= 1.0), 'Rate must be in [0, 1]'
+
+        num_samples = inputs.shape[0]
+        weights = np.zeros(shape=(num_samples, self._num_labels))  # [N, K]
+        ensemble_size = int(self.exit_size + (self.num_estimators - self.exit_size) * rate)
+
+        for idx in range(ensemble_size):
+            clf = self._clfs[idx]
+            preds = clf.predict(inputs)  # [N]
+            one_hot = to_one_hot(preds, num_labels=self._num_labels)  # [N, K]
+            boost_weight = self._boost_weights[idx]
+
+            weighted_preds = boost_weight * one_hot
+            weights += weighted_preds
+
+        # Normalize the weights to create a 'probability' distribution
+        probs = softmax(weights, axis=-1)
+        return probs
 
     def save(self, path: str):
         serialized = {

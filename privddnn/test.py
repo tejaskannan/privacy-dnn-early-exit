@@ -103,8 +103,6 @@ if __name__ == '__main__':
 
     # Get the validation labels (we use this to fit any policies)
     val_labels = model.dataset.get_val_labels()  # [B]
-
-    #pred_rates = np.vstack(pred_rates_list)  # [L, K]
     stop_counts = compute_stop_counts(probs=val_probs)
 
     rates = list(sorted(np.arange(0.0, 1.01, 0.05)))

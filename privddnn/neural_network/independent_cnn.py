@@ -39,9 +39,9 @@ class IndependentCNN(NeuralNetwork):
 
     def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf2.Tensor, num_labels: int, model_mode: ModelMode) -> tf2.Tensor:
         # Create the convolutions
-        conv1_block, _, _ = fitnet_block(inputs=inputs, num_filters=16, pool_size=4, pool_stride=2, name='block1')
-        conv2_block, _, _ = fitnet_block(inputs=conv1_block, num_filters=16, pool_size=4, pool_stride=2, name='block2')
-        conv3_block, _, _ = fitnet_block(inputs=conv2_block, num_filters=12, pool_size=2, pool_stride=1, name='block3')
+        conv1_block, _, _ = fitnet_block(inputs=inputs, num_filters=16, pool_size=4, pool_stride=2, name='block1', trainable=True)
+        conv2_block, _, _ = fitnet_block(inputs=conv1_block, num_filters=16, pool_size=4, pool_stride=2, name='block2', trainable=True)
+        conv3_block, _, _ = fitnet_block(inputs=conv2_block, num_filters=12, pool_size=2, pool_stride=1, name='block3', trainable=True)
 
         # Flatten the output
         conv3_block_shape = conv3_block.get_shape()
@@ -52,6 +52,7 @@ class IndependentCNN(NeuralNetwork):
                            use_dropout=False,
                            dropout_keep_rate=dropout_keep_rate,
                            activation='linear',
+                           trainable=True,
                            name='output')  # [B, K]
 
         return logits

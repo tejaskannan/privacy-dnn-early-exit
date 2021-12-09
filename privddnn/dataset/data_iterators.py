@@ -35,7 +35,7 @@ class DataIterator:
     @property
     def num_samples(self) -> int:
         return len(self._data_fold)
- 
+
     @property
     def num_trials(self) -> int:
         return self._num_trials
@@ -111,7 +111,7 @@ class NearestNeighborIterator(DataIterator):
         # Load the annoy index. This block builds the index if not already present.
         dir_base = os.path.dirname(__file__)
         index_path = os.path.join(dir_base, '..', 'data', dataset.dataset_name, '{}.ann'.format(fold))
-        
+
         if not os.path.exists(index_path):
             create_index(inputs=self._data_fold, path=index_path)
 

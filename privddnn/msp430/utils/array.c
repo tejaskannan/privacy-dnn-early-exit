@@ -8,11 +8,11 @@ uint8_t array32_argmax(int32_t *array, uint8_t n) {
 
     uint8_t i;
     for (i = 0; i < n; i++) {
-	arrayValue = array[i];
-	if (arrayValue > maxValue) {
+	    arrayValue = array[i];
+	    if (arrayValue > maxValue) {
             maxValue = arrayValue;
-	    maxIdx = i;
-	}
+	        maxIdx = i;
+	    }
     }
 
     return maxIdx;
@@ -26,8 +26,8 @@ int32_t array32_max(int32_t *array, uint8_t n) {
     uint8_t i;
     for (i = 0; i < n; i++) {
         arrayValue = array[i];
-	if (arrayValue > maxValue) {
-	    maxValue = arrayValue;
+	    if (arrayValue > maxValue) {
+	        maxValue = arrayValue;
         }
     }
 
@@ -41,7 +41,7 @@ int32_t array32_fixed_point_exp_sum(int32_t *array, int32_t max, uint8_t n, uint
 
     uint8_t i;
     for (i = 0; i < n; i++) {
-	element = fp32_sub(array[i], max);
+	    element = fp32_sub(array[i], max);
         sum = fp32_add(sum, fp32_exp(element, precision));
     }
 
@@ -57,9 +57,9 @@ void array32_fixed_point_softmax(int32_t *src, int32_t *dst, uint8_t n, uint8_t 
 
     uint8_t i;
     for (i = 0; i < (n - 1); i++) {
-	element = fp32_sub(src[i], max);
+	    element = fp32_sub(src[i], max);
         dst[i] = fp32_div(fp32_exp(element, precision), sum, precision);
-	cumSum = fp32_add(dst[i], cumSum);
+	    cumSum = fp32_add(dst[i], cumSum);
     }
 
     dst[n-1] = fp32_sub((1 << precision), cumSum);

@@ -5,21 +5,22 @@
 #include "decision_tree.h"
 #include "policy.h"
 #include "parameters.h"
+#include "data.h"
 #include "utils/lfsr.h"
 
 #define INPUT_BUFFER_SIZE 1024
 
 int main(void) {
 
-    const char *inputPath = "../data/pen_digits/pen_digits_10_inputs.txt";
-    FILE *inputFile = fopen(inputPath, "r"); 
-    char inputBuffer[INPUT_BUFFER_SIZE];
+    //const char *inputPath = "../data/pen_digits/pen_digits_10_inputs.txt";
+    //FILE *inputFile = fopen(inputPath, "r"); 
+    //char inputBuffer[INPUT_BUFFER_SIZE];
 
-    const char *labelPath = "../data/pen_digits/pen_digits_10_labels.txt";
-    FILE *labelFile = fopen(labelPath, "r");
-    char labelBuffer[NUM_LABELS];
+    //const char *labelPath = "../data/pen_digits/pen_digits_10_labels.txt";
+    //FILE *labelFile = fopen(labelPath, "r");
+    //char labelBuffer[NUM_LABELS];
 
-    int16_t inputFeatures[NUM_INPUT_FEATURES];
+    int16_t inputFeatures[NUM_FEATURES];
     uint8_t featureIdx = 0;
     uint8_t label = 0;
     uint32_t isCorrect = 0;
@@ -45,12 +46,12 @@ int main(void) {
 
     for (i = 0; i < WINDOW_SIZE; i++) {
         earlyResult[i].logits = earlyLogits + (i * NUM_LABELS);
-	earlyResult[i].probs = earlyProbs + (i * NUM_LABELS);
-	earlyResult[i].pred = 0;
+	    earlyResult[i].probs = earlyProbs + (i * NUM_LABELS);
+	    earlyResult[i].pred = 0;
 
     	fullResult[i].logits = fullLogits + (i * NUM_LABELS);
-	fullResult[i].probs = fullProbs + (i * NUM_LABELS);
-	fullResult[i].pred = 0;
+	    fullResult[i].probs = fullProbs + (i * NUM_LABELS);
+	    fullResult[i].pred = 0;
     }
 #else
     int32_t earlyLogits[NUM_LABELS];
@@ -65,55 +66,52 @@ int main(void) {
     uint8_t pred;
     uint8_t shouldExit;
 
-    while (fgets(inputBuffer, INPUT_BUFFER_SIZE, inputFile) != NULL) {
+    for (int i = 0; i < NUM_INPUTS; i++) {
 
-	char *token = strtok(inputBuffer, " ");
-        for (featureIdx = 0; featureIdx < NUM_INPUT_FEATURES; featureIdx++) {
-	    inputFeatures[featureIdx] = atoi(token);
-	    token = strtok(NULL, " ");
-	}
+        for (int j = 0; j < NUM_FEATURES; j++) {
+            inputFeatures[j] = DATASET_INPUTS[i * NUM_FEATURES + j];
+        }
 
-	// Fetch the label
-	fgets(labelBuffer, NUM_LABELS, labelFile);
-	label = atoi(labelBuffer);
+
+        label = DATASET_LABELS[i];
 
 #ifdef IS_BUFFERED_MAX_PROB
-	adaboost_inference_early(earlyResult + windowIdx, inputFeatures, &ENSEMBLE, PRECISION);
+	    adaboost_inference_early(earlyResult + windowIdx, inputFeatures, &ENSEMBLE, PRECISION);
 
-	// Copy inputFeatures into windowInputFeatures[windowIdx]
-	for (i = 0; i < NUM_INPUT_FEATURES; i++) {
+	    // Copy inputFeatures into windowInputFeatures[windowIdx]
+	    for (i = 0; i < NUM_INPUT_FEATURES; i++) {
             windowInputFeatures[windowIdx * NUM_INPUT_FEATURES + i] = inputFeatures[i];
-	}
-
-	// Save the label for proper accuracy logging (not needed at runtime in practice)
-	windowLabels[windowIdx] = label;
-
-	// Increment the window idx for the next sample	
-	windowIdx += 1;
-
-	// On the last element in the window, perform the buffered exiting
-	if (windowIdx == WINDOW_SIZE) {
-            buffered_max_prob_should_exit(exitResults, earlyResult, lfsrState, ELEVATE_COUNT, ELEVATE_REMAINDER, WINDOW_SIZE);
-
-	    for (i = 0; i < WINDOW_SIZE; i++) {
-                if (!exitResults[i]) {
-    		    adaboost_inference_full(fullResult + i, windowInputFeatures + i * NUM_INPUT_FEATURES, &ENSEMBLE, earlyResult + i);
-                    pred = fullResult[i].pred;
-		} else {
-                    numExit += 1;
-		    pred = earlyResult[i].pred;
-		}
-
-		isCorrect += (pred == windowLabels[i]);
 	    }
 
-            lfsrState = lfsr_step(lfsrState);
-	    windowIdx = 0;
-	}
+	    // Save the label for proper accuracy logging (not needed at runtime in practice)
+	    windowLabels[windowIdx] = label;
 
-	totalCount += 1;
+	    // Increment the window idx for the next sample	
+	    windowIdx += 1;
+
+	    // On the last element in the window, perform the buffered exiting
+	    if (windowIdx == WINDOW_SIZE) {
+            buffered_max_prob_should_exit(exitResults, earlyResult, lfsrState, ELEVATE_COUNT, ELEVATE_REMAINDER, WINDOW_SIZE);
+
+	        for (i = 0; i < WINDOW_SIZE; i++) {
+                if (!exitResults[i]) {
+    		        adaboost_inference_full(fullResult + i, windowInputFeatures + i * NUM_INPUT_FEATURES, &ENSEMBLE, earlyResult + i);
+                    pred = fullResult[i].pred;
+		        } else {
+                    numExit += 1;
+		            pred = earlyResult[i].pred;
+		        }
+
+		        isCorrect += (pred == windowLabels[i]);
+	        }
+
+            lfsrState = lfsr_step(lfsrState);
+	        windowIdx = 0;
+	    }
+
+	    totalCount += 1;
 #else
-	adaboost_inference_early(&earlyResult, inputFeatures, &ENSEMBLE, PRECISION);
+	    adaboost_inference_early(&earlyResult, inputFeatures, &ENSEMBLE, PRECISION);
 
         #ifdef IS_MAX_PROB
         shouldExit = max_prob_should_exit(&earlyResult, THRESHOLD);
@@ -122,16 +120,16 @@ int main(void) {
         lfsrState = lfsr_step(lfsrState);
         #endif
 
-	if (!shouldExit) {
+	    if (!shouldExit) {
             adaboost_inference_full(&fullResult, inputFeatures, &ENSEMBLE, &earlyResult);
             pred = fullResult.pred;
-	} else {
-	    numExit += 1;
+	    } else {
+	        numExit += 1;
             pred = earlyResult.pred;
-	}
+	    }
 
-	isCorrect += (pred == label);
-	totalCount += 1;
+	    isCorrect += (pred == label);
+	    totalCount += 1;
 #endif
     }
 

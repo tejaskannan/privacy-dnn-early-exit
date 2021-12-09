@@ -8,14 +8,14 @@ uint8_t decision_tree_inference(int16_t *inputs, struct decision_tree *tree) {
     volatile int16_t threshold;
 
     while ((tree->leftChildren[treeIdx] >= 0) && (tree->rightChildren[treeIdx] >= 0)) {
-	threshold = tree->thresholds[treeIdx];
-	featureIdx = tree->features[treeIdx];
+	    threshold = tree->thresholds[treeIdx];
+	    featureIdx = tree->features[treeIdx];
 
-	if (inputs[featureIdx] <= threshold) {
-	    treeIdx = tree->leftChildren[treeIdx];
-	} else {
-	    treeIdx = tree->rightChildren[treeIdx];
-	}
+	    if (inputs[featureIdx] <= threshold) {
+	        treeIdx = tree->leftChildren[treeIdx];
+	    } else {
+	        treeIdx = tree->rightChildren[treeIdx];
+	    }
     }
 
     return tree->predictions[treeIdx];
@@ -32,10 +32,10 @@ void adaboost_inference_early(struct inference_result *result, int16_t *inputs, 
     }
 
     for (i = 0; i < ensemble->exitPoint; i++) {
-	// Execute the decision tree
+	    // Execute the decision tree
         pred = decision_tree_inference(inputs, ensemble->trees[i]);
 
-	// Add the prediction to the running weights, scaled by the AdaBoost factor
+	    // Add the prediction to the running weights, scaled by the AdaBoost factor
         result->logits[pred] = fp32_add(ensemble->boostWeights[i], result->logits[pred]);
     }
 
@@ -58,10 +58,10 @@ void adaboost_inference_full(struct inference_result *result, int16_t *inputs, s
     }
 
     for (i = ensemble->exitPoint; i < ensemble->numTrees; i++) {
-	// Execute the decision tree
+	    // Execute the decision tree
         pred = decision_tree_inference(inputs, ensemble->trees[i]);
 
-	// Add the prediction to the running weights, scaled by the AdaBoost factor
+	    // Add the prediction to the running weights, scaled by the AdaBoost factor
         result->logits[pred] = fp32_add(ensemble->boostWeights[i], result->logits[pred]);
     }
 
