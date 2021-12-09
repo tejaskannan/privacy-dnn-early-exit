@@ -51,6 +51,30 @@ class DataIterator:
         raise NotImplementedError()
 
 
+class OriginalOrderIterator(DataIterator):
+
+    def __init__(self, dataset: Dataset, clf: Optional[BaseClassifier], num_trials: int, fold: str):
+        super().__init__(dataset=dataset, num_trials=num_trials, fold=fold, clf=clf)
+        self._sample_idx = np.arange(len(self._data_fold))
+        self._idx = 0
+
+    @property
+    def name(self) -> str:
+        return 'original'
+
+    def __next__(self) -> Tuple[np.ndarray, Optional[np.ndarray], int]:
+        if (self._idx >= self.num_samples * self.num_trials):
+            raise StopIteration
+
+        data_idx = self._idx % self.num_samples
+        sample_probs = self._probs[data_idx] if (self._probs is not None) else None
+        inputs = self._data_fold[data_idx]
+        label = self._labels[data_idx]
+
+        self._idx += 1
+        return inputs, sample_probs, label
+
+
 class RandomizedIterator(DataIterator):
 
     def __init__(self, dataset: Dataset, clf: Optional[BaseClassifier], num_trials: int, fold: str):
@@ -136,6 +160,8 @@ def make_data_iterator(name: str, dataset: Dataset, clf: Optional[BaseClassifier
 
     if name in ('random', 'randomized'):
         return RandomizedIterator(dataset=dataset, clf=clf, num_trials=num_trials, fold=fold)
+    elif name in ('original', 'original-order', 'original_order'):
+        return OriginalOrderIterator(dataset=dataset, clf=clf, num_trials=num_trials, fold=fold)
     elif name in ('nearest', 'nearest_neighbor', 'nearest-neighbor'):
         assert kwargs.get('window_size') is not None, 'Must provide a window size.'
         return NearestNeighborIterator(dataset=dataset, clf=clf, num_trials=num_trials, fold=fold, window_size=int(kwargs['window_size']))
