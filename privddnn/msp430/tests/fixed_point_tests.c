@@ -46,6 +46,9 @@ void test_exp_32(void) {
     assert(fp32_exp(-512, 10) == 608);
     assert(fp32_exp(-768, 9) == 112);
     assert(fp32_exp(-1024, 9) == 68);
-    assert(fp32_exp(-2048, 9) == 0);
+    assert(fp32_exp(-3072, 10) == 48);
+    assert(fp32_exp(-4000, 10) == 17);
+    assert(fp32_exp(-2048, 9) == 8);
+    assert(fp32_exp(-6000, 10) == 0);
 }
 

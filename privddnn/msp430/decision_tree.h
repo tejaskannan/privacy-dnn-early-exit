@@ -23,7 +23,15 @@ struct adaboost_ensemble {
 };
 
 
+struct inference_result {
+    int32_t *logits;
+    int32_t *probs;
+    uint8_t pred;
+};
+
+
 uint8_t decision_tree_inference(int16_t *inputs, struct decision_tree *tree);
-uint8_t adaboost_inference(int16_t *inputs, struct adaboost_ensemble *ensemble, int16_t exitThreshold, uint8_t precision);
+void adaboost_inference_early(struct inference_result *result, int16_t *inputs, struct adaboost_ensemble *ensemble, uint8_t precision);
+void adaboost_inference_full(struct inference_result *result, int16_t *inputs, struct adaboost_ensemble *ensemble, struct inference_result *exitResult);
 
 #endif
