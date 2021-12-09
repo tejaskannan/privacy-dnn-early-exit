@@ -17,7 +17,7 @@ if __name__ == '__main__':
     parser.add_argument('--data-order', type=str, required=True, choices=['nearest', 'randomized'], help='Name of the dataset order to serialize.')
     parser.add_argument('--num-inputs', type=int, required=True, help='The maximum number of inputs to include.')
     parser.add_argument('--window', type=int, help='The window size to use for the `nearest` order.')
-    parser.add_argument('--is-msp', type=bool, action='store_true', help='Whether to prepare the dataset for the MSP430 device.')
+    parser.add_argument('--is-msp', action='store_true', help='Whether to prepare the dataset for the MSP430 device.')
     args = parser.parse_args()
 
     assert (args.precision >= 0) and (args.precision <= 15), 'The precision must be in [0, 16).'

@@ -8,18 +8,8 @@
 #include "data.h"
 #include "utils/lfsr.h"
 
-#define INPUT_BUFFER_SIZE 1024
 
 int main(void) {
-
-    //const char *inputPath = "../data/pen_digits/pen_digits_10_inputs.txt";
-    //FILE *inputFile = fopen(inputPath, "r"); 
-    //char inputBuffer[INPUT_BUFFER_SIZE];
-
-    //const char *labelPath = "../data/pen_digits/pen_digits_10_labels.txt";
-    //FILE *labelFile = fopen(labelPath, "r");
-    //char labelBuffer[NUM_LABELS];
-
     int16_t inputFeatures[NUM_FEATURES];
     uint8_t featureIdx = 0;
     uint8_t label = 0;
@@ -65,15 +55,15 @@ int main(void) {
 
     uint8_t pred;
     uint8_t shouldExit;
+    uint16_t k;
 
-    for (int i = 0; i < NUM_INPUTS; i++) {
+    for (int k = 0; k < NUM_INPUTS; k++) {
 
         for (int j = 0; j < NUM_FEATURES; j++) {
-            inputFeatures[j] = DATASET_INPUTS[i * NUM_FEATURES + j];
+            inputFeatures[j] = DATASET_INPUTS[k * NUM_FEATURES + j];
         }
 
-
-        label = DATASET_LABELS[i];
+        label = DATASET_LABELS[k];
 
 #ifdef IS_BUFFERED_MAX_PROB
 	    adaboost_inference_early(earlyResult + windowIdx, inputFeatures, &ENSEMBLE, PRECISION);
@@ -95,14 +85,14 @@ int main(void) {
 
 	        for (i = 0; i < WINDOW_SIZE; i++) {
                 if (!exitResults[i]) {
-    		        adaboost_inference_full(fullResult + i, windowInputFeatures + i * NUM_INPUT_FEATURES, &ENSEMBLE, earlyResult + i);
+    	            adaboost_inference_full(fullResult + i, windowInputFeatures + i * NUM_INPUT_FEATURES, &ENSEMBLE, earlyResult + i);
                     pred = fullResult[i].pred;
-		        } else {
+	            } else {
                     numExit += 1;
-		            pred = earlyResult[i].pred;
-		        }
+	                pred = earlyResult[i].pred;
+	            }
 
-		        isCorrect += (pred == windowLabels[i]);
+	            isCorrect += (pred == windowLabels[i]);
 	        }
 
             lfsrState = lfsr_step(lfsrState);
@@ -123,7 +113,7 @@ int main(void) {
 	    if (!shouldExit) {
             adaboost_inference_full(&fullResult, inputFeatures, &ENSEMBLE, &earlyResult);
             pred = fullResult.pred;
-	    } else {
+        } else {
 	        numExit += 1;
             pred = earlyResult.pred;
 	    }
