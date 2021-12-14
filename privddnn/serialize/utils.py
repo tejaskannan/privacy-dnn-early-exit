@@ -31,3 +31,17 @@ def serialize_float_array(var_name: str, array: List[float], precision: int, wid
     assert dtype in ('int16_t', 'int8_t'), 'Invalid data type: {}'.format(dtype)
     array_str = '{{ {} }}'.format(','.join(map(lambda x: str(float_to_fixed_point(x, precision, width)), array)))
     return 'static {} {}[{}] = {};'.format(dtype, var_name, len(array), array_str)
+
+
+def expand_vector(vec: np.ndarray) -> np.array:
+    """
+    Expands the given vector to use 2 columns in preparation for the MSP430.
+    The accelerator on the MSP430 requires an even number of dimensions for each matrix.
+    """
+    result = np.empty(2 * len(vec))
+
+    for i in range(len(vec)):
+        result[2 * i] = vec[i]
+        result[2 * i + 1] = 0
+
+    return result

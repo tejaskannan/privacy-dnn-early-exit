@@ -16,9 +16,16 @@ int16_t fp16_div(int16_t x, int16_t y, uint8_t precision) {
 }
 
 
+int16_t fp16_max(int16_t x, int16_t y) {
+    int16_t comp = (x >= y);
+    return comp * x + (1 - comp) * y;
+}
+
+
 int32_t fp32_add(int32_t x, int32_t y) {
     return x + y;
 }
+
 
 int32_t fp32_sub(int32_t x, int32_t y) {
     return x - y;

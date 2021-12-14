@@ -16,6 +16,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--train-model-path', type=str, required=True)
     parser.add_argument('--eval-log', type=str)
+    parser.add_argument('--dataset-order', type=str, required=True)
     parser.add_argument('--train-policy', type=str, choices=['max_prob', 'entropy'])
     args = parser.parse_args()
 
@@ -28,11 +29,7 @@ if __name__ == '__main__':
     eval_log = read_json_gz(eval_log_path)
 
     rates = [str(round(r / 20.0, 2)) for r in range(21)]
-    #policy_names = ['random', 'max_prob', 'label_max_prob', 'hybrid_max_prob', 'entropy', 'label_entropy', 'hybrid_entropy']
-    #policy_names = ['random', 'greedy_even', 'max_prob', 'label_max_prob', 'even_max_prob', 'even_label_max_prob']
-    policy_names = ['random', 'even_max_prob', 'greedy_even']
-
-    #num_samples = 2000
+    policy_names = ['random', 'max_prob']
 
     # Maps policy name -> { clf type -> [accuracy] }
     train_attack_results: Dict[str, DefaultDict[str, List[float]]] = dict()
@@ -43,7 +40,7 @@ if __name__ == '__main__':
     val_probs = model.validate(op=OpName.PROBS)  # [B, L, K]
     val_preds = np.argmax(val_probs, axis=-1)  # [B, L]
 
-    window_size = train_log['val']['random']['0.0'][0]['window_size']
+    window_size = train_log['val']['random']['0.0'][args.dataset_order]['window_size']
     num_labels = np.amax(val_preds) + 1
 
     most_freq_clf = MostFrequentClassifier(window=window_size, num_labels=num_labels)
@@ -60,11 +57,11 @@ if __name__ == '__main__':
             print('Starting {} on {}'.format(policy_name, rate), end='\r')
 
             # Get the results from training and validation
-            val_levels = train_log['val'][train_policy_name][rate][0]['output_levels']
-            val_preds = train_log['val'][train_policy_name][rate][0]['preds']
+            val_levels = train_log['val'][train_policy_name][rate][args.dataset_order]['output_levels']
+            val_preds = train_log['val'][train_policy_name][rate][args.dataset_order]['preds']
 
-            test_levels = eval_log['test'][policy_name][rate][0]['output_levels']
-            test_preds = eval_log['test'][policy_name][rate][0]['preds']
+            test_levels = eval_log['test'][policy_name][rate][args.dataset_order]['output_levels']
+            test_preds = eval_log['test'][policy_name][rate][args.dataset_order]['preds']
 
             # Build the attack datasets
             train_attack_inputs, train_attack_outputs = make_sequential_dataset(levels=val_levels,
@@ -124,8 +121,20 @@ if __name__ == '__main__':
 
         print()
 
+    # The attack log uses a dictionary of dictionaries. The top-level key is the
+    # train model type, and the value is the attack results for this configuration
+    train_policy_name = args.train_policy if args.train_policy is not None else 'same'
+    train_log_name = os.path.basename(train_log_path)
+    attack_key = '{}_{}'.format(train_log_name.replace('_test-log.json.gz', ''), train_policy_name)
+
+    if attack_key not in eval_log:
+        eval_log[attack_key] = dict()
+
+    if args.dataset_order not in eval_log[attack_key]:
+        eval_log[attack_key][args.dataset_order] = dict()
+
     # Save the results
-    eval_log['attack_test'] = test_attack_results
-    eval_log['attack_train'] = train_attack_results
-    eval_log['attack_train_log'] = train_log_path
+    eval_log[attack_key][args.dataset_order]['attack_test'] = test_attack_results
+    eval_log[attack_key][args.dataset_order]['attack_train'] = train_attack_results
+    eval_log[attack_key][args.dataset_order]['attack_train_log'] = train_log_path
     save_json_gz(eval_log, eval_log_path)

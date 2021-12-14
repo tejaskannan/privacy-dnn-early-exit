@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "utils/array.h"
 #include "utils/fixed_point.h"
+#include "utils/inference_result.h"
 
 #ifndef DECISION_TREE_H_
 #define DECISION_TREE_H_
@@ -21,14 +22,6 @@ struct adaboost_ensemble {
     struct decision_tree **trees;
     int16_t *boostWeights;
 };
-
-
-struct inference_result {
-    int32_t *logits;
-    int32_t *probs;
-    uint8_t pred;
-};
-
 
 uint8_t decision_tree_inference(int16_t *inputs, struct decision_tree *tree);
 void adaboost_inference_early(struct inference_result *result, int16_t *inputs, struct adaboost_ensemble *ensemble, uint8_t precision);

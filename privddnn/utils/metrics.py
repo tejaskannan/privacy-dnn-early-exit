@@ -152,6 +152,13 @@ def compute_mutual_info(X: np.ndarray, Y: np.ndarray, should_normalize: bool) ->
     entropy_xy = compute_joint_entropy(joint_probs)
 
     mut_info = entropy_x + entropy_y - entropy_xy
+
+    # Employ bias correction
+    #num_bins = joint_probs.shape[0] * joint_probs.shape[1]
+    #num_samples = X.shape[0]
+    #correction_term = num_bins / (2 * np.log(2) * num_samples)
+    #mut_info -= correction_term
+
     return (mut_info) / max(entropy_x, entropy_y) if should_normalize else mut_info
 
 
