@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "matrix.h"
 #include "parameters.h"
+#include "utils/array.h"
 #include "utils/inference_result.h"
 
 #ifndef NEURAL_NETWORK_H_

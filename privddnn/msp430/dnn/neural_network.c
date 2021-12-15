@@ -9,7 +9,7 @@ struct inference_result *neural_network(struct inference_result *result, struct 
     vector_relu(hiddenResult, hiddenResult);
 
     // Apply the output layer
-    struct matrix logits = { LOGITS, NUM_LABELS, 1 };
+    struct matrix logits = { LOGITS, NUM_LABELS, VECTOR_COLS };
     matrix_vector_prod(&logits, &W1, hiddenResult, precision);
     vector_add(&logits, &logits, &B1);
 

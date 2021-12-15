@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <msp430.h>
 #include "utils/fixed_point.h"
+#include "DSPLib.h"
 
 #ifndef MATRIX_H_
 #define MATRIX_H_

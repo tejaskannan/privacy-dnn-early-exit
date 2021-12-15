@@ -1,9 +1,9 @@
 #include "matrix.h"
 
 DSPLIB_DATA(MULTIPLY_BUFFER, 4);
-static FixedPoint MULTIPLY_BUFFER[1800];
+static int16_t MULTIPLY_BUFFER[1800];
 
-FixedPoint *dma_load(FixedPoint *result, FixedPoint *data, uint16_t n) {
+int16_t *dma_load(int16_t *result, int16_t *data, const uint16_t n) {
     /**
      * Loads the first n elements of the data array into the result array using
      * DMA.
@@ -26,18 +26,19 @@ struct matrix *matrix_vector_prod(struct matrix *result, struct matrix *mat, str
         return result;
     }
 
-    uint16_t numRows = mat->numRows;
-    uint16_t numCols = mat->numCols;
+    const uint16_t numMatElems = ((uint16_t) mat->numRows) * ((uint16_t) mat->numCols);
+    const uint16_t numVecElems = ((uint16_t) vec->numRows) * ((uint16_t) vec->numCols);
+    const uint16_t numResultElems = ((uint16_t) result->numRows) * ((uint16_t) result->numCols);
 
     // First transfer the input matrices to the LEA RAM segment using DMA
-    uint16_t offset = 0;
-    FixedPoint *vecData = dma_load(MULTIPLY_BUFFER, vec->data, numRows);
-    offset += numRows * VECTOR_COLS;  // Ensure we have room for the vector columns
+    volatile uint16_t offset = 0;
+    int16_t *vecData = dma_load(MULTIPLY_BUFFER, vec->data, numVecElems);
+    offset += numVecElems;  // Ensure we have room for the vector columns
 
-    FixedPoint *matData = dma_load(MULTIPLY_BUFFER + offset, mat->data, numRows * numCols);
-    offset += numRows * numCols;
+    int16_t *matData = dma_load(MULTIPLY_BUFFER + offset, mat->data, numMatElems);
+    offset += numMatElems;
 
-    FixedPoint *resultData = MULTIPLY_BUFFER + offset;  // Temporary buffer (in LEA RAM) for the result
+    int16_t *resultData = MULTIPLY_BUFFER + offset;  // Temporary buffer (in LEA RAM) for the result
 
     // When using the MSP430, we use the LEA for Matrix multiplications. Based on profiling,
     // the LEA can take up to 5x fewer compute cycles than a standard implementation.
@@ -45,10 +46,10 @@ struct matrix *matrix_vector_prod(struct matrix *result, struct matrix *mat, str
     msp_matrix_mpy_q15_params mulParams;
 
     // Initialze LEA metadata
-    mulParams.srcARows = numRows;
-    mulParams.srcACols = numCols;
-    mulParams.srcBRows = numCols;
-    mulParams.srcBCols = VECTOR_COLS;
+    mulParams.srcARows = mat->numRows;
+    mulParams.srcACols = mat->numCols;
+    mulParams.srcBRows = vec->numRows;
+    mulParams.srcBCols = vec->numCols;
 
     // Perform Matrix multiplication using the LEA
     status = msp_matrix_mpy_q15(&mulParams, matData, vecData, resultData);
@@ -56,8 +57,8 @@ struct matrix *matrix_vector_prod(struct matrix *result, struct matrix *mat, str
 
     // Convert back to the original fixed-point precision. The LEA assumes 15 fractional bits.
     msp_matrix_shift_q15_params shiftParams;
-    shiftParams.rows = numCols;
-    shiftParams.cols = VECTOR_COLS;
+    shiftParams.rows = result->numRows;
+    shiftParams.cols = result->numCols;
     shiftParams.shift = 15 - precision;
 
     // Perform element-wise shift using the LEA
@@ -67,7 +68,7 @@ struct matrix *matrix_vector_prod(struct matrix *result, struct matrix *mat, str
     }
 
     // Load result back into the given result vector
-    dma_load(result->data, resultData, numCols * VECTOR_COLS);
+    dma_load(result->data, resultData, numResultElems);
 
     return result;
 }
