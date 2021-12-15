@@ -118,11 +118,11 @@ def serialize_branchynet_dnn(model_path: str, precision: int, is_msp: bool):
                                     precision=precision,
                                     dtype='int16_t')
     if is_msp:
-        lines.append('#pragma PERSISTENT(W0_DATA)\n')
+        lines.append('#pragma PERSISTENT(W0_DATA)')
 
     lines.append(W0_data)
 
-    W0_var = 'static struct matrix W0 = {{ W0_DATA, {}, {} }};'.format(W0_shape[0], W0_shape[1])
+    W0_var = 'static struct matrix W0 = {{ W0_DATA, {}, {} }};\n'.format(W0_shape[0], W0_shape[1])
     lines.append(W0_var)
 
     b0_shape = b0.shape
@@ -135,11 +135,11 @@ def serialize_branchynet_dnn(model_path: str, precision: int, is_msp: bool):
                                     precision=precision,
                                     dtype='int16_t')
     if is_msp:
-        lines.append('#pragma PERSISTENT(B0_DATA)\n')
+        lines.append('#pragma PERSISTENT(B0_DATA)')
 
     lines.append(b0_data)
 
-    b0_var = 'static struct matrix B0 = {{ B0_DATA, {}, {} }};'.format(b0_shape[0], vec_cols)
+    b0_var = 'static struct matrix B0 = {{ B0_DATA, {}, {} }};\n'.format(b0_shape[0], vec_cols)
     lines.append(b0_var)
 
     W1_shape = W1.shape
@@ -149,11 +149,11 @@ def serialize_branchynet_dnn(model_path: str, precision: int, is_msp: bool):
                                     precision=precision,
                                     dtype='int16_t')
     if is_msp:
-        lines.append('#pragma PERSISTENT(W1_DATA)\n')
+        lines.append('#pragma PERSISTENT(W1_DATA)')
 
     lines.append(W1_data)
 
-    W1_var = 'static struct matrix W1 = {{ W1_DATA, {}, {} }};'.format(W1_shape[0], W1_shape[1])
+    W1_var = 'static struct matrix W1 = {{ W1_DATA, {}, {} }};\n'.format(W1_shape[0], W1_shape[1])
     lines.append(W1_var)
 
     b1_shape = b1.shape
@@ -166,11 +166,11 @@ def serialize_branchynet_dnn(model_path: str, precision: int, is_msp: bool):
                                     precision=precision,
                                     dtype='int16_t')
     if is_msp:
-        lines.append('#pragma PERSISTENT(B1_DATA)\n')
+        lines.append('#pragma PERSISTENT(B1_DATA)')
 
     lines.append(b1_data)
 
-    b1_var = 'static struct matrix B1 = {{ B1_DATA, {}, {} }}'.format(b1_shape[0], vec_cols)
+    b1_var = 'static struct matrix B1 = {{ B1_DATA, {}, {} }};\n'.format(b1_shape[0], vec_cols)
     lines.append(b1_var)
 
     return '\n'.join(lines)
