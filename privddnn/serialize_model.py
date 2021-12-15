@@ -203,9 +203,11 @@ if __name__ == '__main__':
     if isinstance(clf, AdaBoostClassifier):
         serialized_model = serialize_ensemble(clf, precision=args.precision, is_msp=args.is_msp)
         model_type = 'IS_ADABOOST'
+        header = 'decision_tree'
     elif isinstance(clf, BranchyNetDNN):
         serialized_model = serialize_branchynet_dnn(args.model_path, precision=args.precision, is_msp=args.is_msp)
         model_type = 'IS_DNN'
+        header = 'matrix'
     else:
         raise ValueError('Serialization does not support the classifier {}'.format(clf.name))
 
@@ -213,7 +215,7 @@ if __name__ == '__main__':
 
     with open('{}/parameters.h'.format(save_dir), 'w') as fout:
         fout.write('#include <stdint.h>\n')
-        fout.write('#include "decision_tree.h"\n')
+        fout.write('#include "{}.h"\n'.format(header))
 
         fout.write('#ifndef PARAMETERS_H_\n')
         fout.write('#define PARAMETERS_H_\n')
