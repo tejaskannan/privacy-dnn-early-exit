@@ -34,6 +34,7 @@ class ExitStrategy(Enum):
     EVEN_MAX_PROB = auto()
     EVEN_LABEL_MAX_PROB = auto()
     BUFFERED_MAX_PROB = auto()
+    DELAYED_MAX_PROB = auto()
 
 
 class SelectionType(Enum):
@@ -157,6 +158,229 @@ class GreedyEvenExit(EarlyExiter):
             return 0, SelectionType.POLICY
         else:
             return greedy_level, SelectionType.POLICY
+
+
+class DelayedExiter(EarlyExiter):
+
+    def __init__(self, rates: List[float], window_size: int, delay_prob: float):
+        super().__init__(rates=rates)
+        assert delay_prob > 0.0 and delay_prob < 1.0, 'The delay probability must be in (0, 1).'
+
+        self._thresholds: List[List[float]] = []
+        self._threshold_rates = np.arange(0.0, 1.01, 0.05)
+        self._window_size = window_size
+        self._delay_prob = delay_prob
+        self._rand = np.random.RandomState(seed=3958)
+
+        self._exit_counter: Counter = Counter()
+        self._elev_counter: Counter = Counter()
+        self._pred_counts = np.empty((1, 1))
+
+    @property
+    def num_threshold_rates(self) -> int:
+        return len(self._thresholds)
+
+    @property
+    def window_size(self) -> int:
+        return self._window_size
+
+    @property
+    def delay_prob(self) -> float:
+        return self._delay_prob
+
+    def get_thresholds_for_rate(self, rate: float) -> List[float]:
+        # Get the nearest rates on either side of the target
+        nearest_rate_idx = np.argmin(np.abs(self._threshold_rates - rate))
+
+        # Get the nearest indices on each side
+        if self._threshold_rates[nearest_rate_idx] < rate:
+            lower_idx = nearest_rate_idx
+            upper_idx = (nearest_rate_idx + 1) if nearest_rate_idx < (self.num_threshold_rates - 1) else nearest_rate_idx
+        else:
+            lower_idx = (nearest_rate_idx - 1) if nearest_rate_idx > 0 else 0
+            upper_idx = nearest_rate_idx
+
+        # Randomly select which thresholds to use
+        r = self._rand.uniform()
+        if r < 0.5:
+            return self._thresholds[lower_idx]
+
+        return self._thresholds[upper_idx]
+
+    def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
+        super().fit(val_probs=val_probs, val_labels=val_labels)
+
+        assert val_probs.shape[0] == val_labels.shape[0], 'misaligned probabilites and labels'
+        assert self.num_outputs == 2, 'threshold exiting only works with 2 outputs'
+        assert val_probs.shape[1] == self.num_outputs, 'expected {} outputs. got {}'.format(self.num_outputs, val_probs.shape[1])
+
+        # Compute the maximum probability for each predicted distribution
+        metrics = self.compute_metric(probs=val_probs)  # [B, L]
+
+        # Compute the thresholds based on the quantile for each potential rate
+        for threshold_rate in self._threshold_rates:
+            if np.isclose(threshold_rate, 1.0):
+                t = 0.0
+            elif np.isclose(threshold_rate, 0.0):
+                t = 1.0
+            else:
+                t = np.quantile(metrics[:, 0], q=1.0 - threshold_rate)
+
+            thresholds = [t, 0.0]
+            self._thresholds.append(thresholds)
+
+    def reset(self, num_labels: int, pred_rates: np.ndarray):
+        self._exit_counter = Counter()
+        self._elev_counter = Counter()
+        self._pred_counts = np.eye(num_labels)
+
+    def select_output(self, probs: np.ndarray, remaining_exit: int, remaining_window: int) -> Tuple[int, SelectionType]:
+        first_pred = np.argmax(probs[0])
+        
+        exit_rate = float(remaining_exit) / float(remaining_window)
+
+        # Compute the expected exit count for this prediction
+        total_count = self._exit_counter[first_pred] + self._elev_counter[first_pred] + 1
+        expected_exit = self.rates[0] * total_count
+        exit_cost = (self._exit_counter[first_pred] + 1) - expected_exit
+
+        # Compute the expected elevation count based on the confusion matrix
+        pred_rates = self._pred_counts[first_pred] / np.sum(self._pred_counts[first_pred])
+        expected_elev = sum((pred_rates[pred] * self.rates[1] * (self._exit_counter[pred] + self._elev_counter[pred]) for pred in range(len(pred_rates))))
+        observed_elev = sum((pred_rates[pred] * self._elev_counter[pred] for pred in range(len(pred_rates))))
+        elev_cost = observed_elev - expected_elev
+
+        # Perform data-dependent selection
+        thresholds = self.get_thresholds_for_rate(rate=exit_rate)
+        metrics = self.compute_metric(probs)
+        policy_level = int(metrics[0] < thresholds[0])
+
+        if np.isclose(exit_rate, 0.0):
+            return 1, SelectionType.GREEDY
+        elif np.isclose(exit_rate, 1.0):
+            return 0, SelectionType.GREEDY
+        elif (exit_cost >= self.window_size) and (elev_cost >= self.window_size):
+            return 0 if exit_cost < elev_cost else 1, SelectionType.GREEDY
+        elif (exit_cost >= self.window_size):
+            return 1, SelectionType.GREEDY
+        elif (elev_cost >= self.window_size):
+            return 0, SelectionType.GREEDY
+        else:
+            return policy_level, SelectionType.POLICY
+
+    def update(self, first_pred: int, pred: int, level: int):
+        if level == 0:
+            self._exit_counter[pred] += 1
+        else:
+            self._elev_counter[pred] += 1
+            self._pred_counts[first_pred, pred] += 1
+
+    def test(self, data_iterator: DataIterator,
+                   num_labels: int,
+                   pred_rates: np.ndarray,
+                   max_num_samples: Optional[int]) -> EarlyExitResult:
+        predictions: List[int] = []
+        output_levels: List[int] = []
+        labels: List[int] = []
+
+        self.reset(num_labels=num_labels, pred_rates=pred_rates)
+
+        num_changed = 0
+        num_samples = 0
+        selection_counts: DefaultDict[SelectionType, int] = defaultdict(int)
+
+        prev_preds: np.ndarray = np.empty(1)
+        prev_level: int = -1
+        prev_label: int = -1
+
+        window_count = 0
+        window_exit_count = 0
+        observed_exit_count = 0
+
+        for _, sample_probs, label in data_iterator:
+            if (max_num_samples is not None) and (num_samples >= max_num_samples):
+                break
+
+            if window_count == 0:
+                observed_exit_count = 0
+                exit_count = self.rates[0] * self.window_size
+                window_exit_count = int(exit_count) + int(self._rand.uniform() < (exit_count - int(exit_count)))
+
+            level, selection_type = self.select_output(probs=sample_probs,
+                                                       remaining_exit=(window_exit_count - observed_exit_count),
+                                                       remaining_window=(self.window_size - window_count))
+            preds = np.argmax(sample_probs, axis=-1)  # [L]
+
+            observed_exit_count += int(level == 0)
+            window_count += 1
+
+            if num_samples == 0:
+                prev_preds = preds
+                prev_level = level
+                prev_label = label
+
+                num_samples += 1
+                selection_counts[selection_type] += 1
+                continue
+
+            # Perform delayed exiting
+            r = self._rand.uniform()
+            
+            if r < self.delay_prob:
+                current_first_pred = prev_preds[0]
+                current_pred = prev_preds[prev_level]
+                current_level = prev_level
+                current_label = prev_label
+
+                prev_preds = preds
+                prev_level = level
+                prev_label = label
+            else:
+                current_first_pred = preds[0]
+                current_pred = preds[level]
+                current_level = level
+                current_label = label
+
+            if window_count == self.window_size:
+                window_count = 0
+
+            self.update(first_pred=current_first_pred,
+                        pred=current_pred,
+                        level=current_level)
+
+            selection_counts[selection_type] += 1
+            #num_changed += int(did_change)
+
+            predictions.append(current_pred)
+            output_levels.append(current_level)
+            labels.append(current_label)
+            num_samples += 1
+
+        # Include the final sample
+        predictions.append(prev_preds[prev_level])
+        output_levels.append(prev_level)
+        labels.append(prev_label)
+
+        # Compute aggregate stats
+        output_counts = np.bincount(output_levels, minlength=self.num_outputs)
+        observed_rates = output_counts / num_samples
+
+        #print('Levels: {}'.format(output_levels))
+        #print('Predictions: {}'.format(predictions))
+        print('Observed Elev Rate: {}'.format(np.average(output_levels)))
+
+        return EarlyExitResult(predictions=np.vstack(predictions).reshape(-1),
+                               output_levels=np.vstack(output_levels).reshape(-1),
+                               labels=np.vstack(labels).reshape(-1),
+                               observed_rates=observed_rates,
+                               selection_counts=selection_counts,
+                               num_changed=num_changed)
+
+
+class DelayedMaxProb(DelayedExiter):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_max_prob_metric(probs=probs)
 
 
 class ThresholdExiter(EarlyExiter):
@@ -999,5 +1223,7 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
         return EvenLabelMaxProbExit(rates=rates, epsilon=0.001, horizon=10)
     elif strategy == ExitStrategy.BUFFERED_MAX_PROB:
         return BufferedMaxProb(rates=rates, window_size=10, epsilon=0.02, pred_window=50)
+    elif strategy == ExitStrategy.DELAYED_MAX_PROB:
+        return DelayedMaxProb(rates=rates, window_size=10, delay_prob=0.5)
     else:
         raise ValueError('No policy {}'.format(strategy))
