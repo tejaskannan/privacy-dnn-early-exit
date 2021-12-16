@@ -13,8 +13,9 @@ from privddnn.dataset import Dataset
 from privddnn.dataset.data_iterator import DataIterator, make_data_iterator
 from privddnn.device.ble_manager import BLEManager
 from privddnn.device.encryption import AES_BLOCK_SIZE
-from privddnn.device.decode import decode_exit_message, decode_elevate_message, MessageType, get_message_type
+from privddnn.device.decode import decode_exit_message, decode_elevate_message, MessageType, get_message_type, decode_buffered_message
 from privddnn.device.dnn import DenseNeuralNetwork
+from privddnn.exiting.early_exit import ExitStrategy
 from privddnn.restore import restore_classifier
 from privddnn.utils.file_utils import read_pickle_gz, save_json_gz, make_dir
 
@@ -41,6 +42,8 @@ def execute(model_path: str,
             data_iterator: DataIterator,
             precision: int,
             output_file: str,
+            policy_type: ExitStrategy,
+            window_size: Optional[int],
             max_samples: Optional[int]):
     """
     Starts the device client. This function either sends data and expects the device to respond with predictions
@@ -110,67 +113,133 @@ def execute(model_path: str,
             # Delay to align with sampling period
             time.sleep(PERIOD)
 
-            # Send the fetch character and wait for the response
-            did_connect = device_manager.start(wait_time=0.1)
+            if policy_type == ExitStrategy.BUFFERED_MAX_PROB:
+                label_list.append(label)
 
-            if not did_connect:
-                print('[WARNING] Could not connect.')
-                continue
+                if ((total_samples + 1) % window_size) != 0:
+                    continue
 
-            response = device_manager.query(value=QUERY_BYTE)
-            device_manager.stop()
+                # Send the fetch character and wait for the response
+                did_connect = device_manager.start(wait_time=0.1)
 
-            message_byte_count = len(response)
+                if not did_connect:
+                    print('[WARNING] Could not connect.')
+                    continue
+ 
+                response = device_manager.query(value=QUERY_BYTE)
+                device_manager.stop()
 
-            if message_byte_count == 0:
-                print('[WARNING] Recieved message with 0 bytes.')
-                continue
+                message_byte_count = len(response)
 
-            # Decrypt the response
-            try:
-                data = decrypt_aes128(response, AES128_KEY)
-            except ValueError as ex:
-                print('[WARNING] Could not decrypt response due to {}.'.format(ex))
-                continue
+                if message_byte_count == 0:
+                    print('[WARNING] Recieved message with 0 bytes.')
+                    continue
 
-            # Extract the length
-            length = int.from_bytes(response[0:LENGTH_SIZE], 'big')
+                # Decrypt the response
+                try:
+                    data = decrypt_aes128(response, AES128_KEY)
+                except ValueError as ex:
+                    print('[WARNING] Could not decrypt response due to {}.'.format(ex))
+                    continue
 
-            # Clip the result to the true length and remove any padding characters
-            data = data[0:length]
+                # Extract the length
+                length = int.from_bytes(response[0:LENGTH_SIZE], 'big')
 
-            # Decode the result and get the prediction based on the exit type.
-            message_type = get_message_type(data)
+                # Clip the result to the true length and remove any padding characters
+                data = data[0:length]
 
-            if message_type == MessageType.EXIT:
-                pred = decode_exit_message(data)
-            elif message_type == MessageType.ELEVATE:
-                elevate_result = decode_elevate_message(data)
+                message_type = get_message_type(data)
+                assert message_type == MessageType.BUFFERED, 'Message must be of the `buffered` type.'
+                buffered_result = decode_buffered_message(message_type)
 
-                elev_inputs = np.array(elevate_result.inputs + elevate_result.hidden).reshape(-1, 1)
-                logits = dnn_model(elev_inputs)
-                pred = np.argmax(logits[:, 0])
+                num_bytes_list.append(message_byte_count)
+
+                for window_idx in range(window_size):
+                    if window_idx in buffered_result.elevate_indices:
+                        elev_inputs = np.array(buffered_result.inputs + buffered_result.hidden).reshape(-1, 1)
+                        logits = dnn_model(elev_inputs)
+                        pred = np.argmax(logits[:, 0])
+                    else:
+                        pred = buffered_result.preds[window_idx]
+
+                    predictions_list.append(pred)
+
+                    label = label_list[-window_size + window_idx]
+                    is_correct += (pred == label)
+                    total_samples += 1
+
+                # Save the results so far
+                results_dict = {
+                    'accuracy': (num_correct / total_samples),
+                    'preds': predictions_list,
+                    'labels': labels_list,
+                    'num_bytes': num_bytes
+                }
+                save_json_gz(results_dict, output_file)
+
+                print('Completed {} Sequences. Accuracy so far: {:.6f}'.format(total_samples + 1, num_correct / total_samples), end='\r')
             else:
-                raise ValueError('Unsupported message type {}'.format(message_type))
+                # Send the fetch character and wait for the response
+                did_connect = device_manager.start(wait_time=0.1)
 
-            # Log the results so far
-            predictions_list.append(pred)
-            label_list.append(label)
-            num_bytes.append(message_byte_count)
+                if not did_connect:
+                    print('[WARNING] Could not connect.')
+                    continue
 
-            num_correct += int(pred == label)
-            total_samples += 1
+                response = device_manager.query(value=QUERY_BYTE)
+                device_manager.stop()
 
-            # Save the results so far
-            results_dict = {
-                'accuracy': (num_correct / total_samples),
-                'preds': predictions_list,
-                'labels': labels_list,
-                'num_bytes': num_bytes
-            }
-            save_json_gz(results_dict, output_file)
+                message_byte_count = len(response)
 
-            print('Completed {} Sequences. Accuracy so far: {:.6f}'.format(idx + 1, num_correct / total_samples), end='\r')
+                if message_byte_count == 0:
+                    print('[WARNING] Recieved message with 0 bytes.')
+                    continue
+
+                # Decrypt the response
+                try:
+                    data = decrypt_aes128(response, AES128_KEY)
+                except ValueError as ex:
+                    print('[WARNING] Could not decrypt response due to {}.'.format(ex))
+                    continue
+
+                # Extract the length
+                length = int.from_bytes(response[0:LENGTH_SIZE], 'big')
+
+                # Clip the result to the true length and remove any padding characters
+                data = data[0:length]
+
+                # Decode the result and get the prediction based on the exit type.
+                message_type = get_message_type(data)
+
+                if message_type == MessageType.EXIT:
+                    pred = decode_exit_message(data)
+                elif message_type == MessageType.ELEVATE:
+                    elevate_result = decode_elevate_message(data)
+
+                    elev_inputs = np.array(elevate_result.inputs + elevate_result.hidden).reshape(-1, 1)
+                    logits = dnn_model(elev_inputs)
+                    pred = np.argmax(logits[:, 0])
+                else:
+                    raise ValueError('Unsupported message type {}'.format(message_type))
+
+                # Log the results so far
+                predictions_list.append(pred)
+                label_list.append(label)
+                num_bytes.append(message_byte_count)
+
+                num_correct += int(pred == label)
+                total_samples += 1
+
+                # Save the results so far
+                results_dict = {
+                    'accuracy': (num_correct / total_samples),
+                    'preds': predictions_list,
+                    'labels': labels_list,
+                    'num_bytes': num_bytes
+                }
+                save_json_gz(results_dict, output_file)
+
+                print('Completed {} Sequences. Accuracy so far: {:.6f}'.format(idx + 1, num_correct / total_samples), end='\r')
 
         print()
     finally:
@@ -192,10 +261,11 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--model-path', type=str, required=True, help='Path to the serialized Branchynet DNN model weights.')
     parser.add_argument('--dataset-order', type=str, required=True, help='The name of the dataset ordering.')
-    parser.add_argument('--policy', type=str, required=True. help='Name of the exit policy (for logging purposes).')
+    parser.add_argument('--policy', type=str, required=True. help='Name of the exit policy.')
     parser.add_argument('--exit-rate', type=float, required=True, help='The target early exit rate (for logging purposes).')
     parser.add_argument('--output-folder', type=str, required=True, help='The folder in which to save results.')
-    parser.add_argument('--window-size', type=int, help='The window size for nearest-neighbor dataset orderings.')
+    parser.add_argument('--dataset-window-size', type=int, help='The window size for nearest-neighbor dataset orderings.')
+    parser.add_argument('--policy-window-size', type=int, help='The window size for buffered exit policies.')
     parser.add_argument('--max-samples', type=int, help='An optional maximum number of samples.')
     args = parser.parse_args()
 
@@ -219,13 +289,17 @@ if __name__ == '__main__':
     data_iterator = make_data_iterator(name=args.dataset_order,
                                        dataset=model,
                                        clf=None,
-                                       window_size=args.window_size,
+                                       window_size=args.dataset_window_size,
                                        num_trials=1,
                                        fold='test')
+
+    exit_strategy = ExitStrategy[args.policy.upper()]
 
     # Run the server
     execute(model_path=args.model_path,
             data_iterator=data_iterator,
             precision=10,
             max_num_samples=args.max_samples,
+            policy_type=exit_strategy,
+            window_size=args.policy_window_size,
             output_file=output_file)

@@ -1,12 +1,16 @@
+import math
 from collections import namedtuple
 from enum import Enum, auto
+from typing import Tuple, List
 
 
 EXIT_BYTE = 0x12
 ELEVATE_BYTE = 0x34
 BUFFERED_BYTE = 0x56
+BITS_PER_BYTE = 8
 
 ElevateResult = namedtuple('ElevateResult', ['inputs', 'hidden'])
+BufferedResult = namedtuple('BufferedResult', ['inputs', 'hidden', 'elevate_indices', 'preds'])
 
 
 class MessageType:
@@ -42,17 +46,87 @@ def decode_elevate_message(message: bytes, precision: int) -> ElevateResult:
     num_hidden_bytes = message[2]
 
     offset = 3
-    inputs: List[float] = []
-    for i in range(0, num_input_bytes, 2):
-        idx = offset + i
-        int_value = int.from_bytes(message[idx:idx+2], byteorder='big', signed=True)
-        inputs.append(fixed_point_to_float(int_value, precision=precision))
+    inputs, offset = decode_vector(message=message,
+                                   offset=offset,
+                                   num_bytes=num_input_bytes,
+                                   precision=precision)
 
-    offset += num_input_bytes
-    hidden: List[float] = []
-    for i in range(0, num_hidden_bytes, 2):
-        idx = offset + i
-        int_value = int.from_bytes(message[idx:idx+2], byteorder='big', signed=True)
-        hidden.append(fixed_point_to_float(int_value, precision=precision))
+    hidden, offset = decode_vector(message=message,
+                                   offset=offset,
+                                   num_bytes=num_hidden_bytes,
+                                   precision=precision)
 
     return ElevateResult(inputs=inputs, hidden=hidden)
+
+
+def decode_buffered_message(message: bytes, precision: int) -> BufferedResult:
+    # Get the number of bytes in the input and hidden states, as well as the window size
+    num_input_bytes = message[1]
+    num_hidden_bytes = message[2]
+    window_size = message[3]
+
+    # Decode the exit bitmask to get the indices of the samples which should be elevated
+    offset = 4
+    elevate_indices, offset = decode_exit_bitmask(message, offset, window_size)
+    num_elevated = len(elevate_indices)
+
+    # Decode the predictions
+    preds, offset = decode_predictions(message, offset, window_size)
+
+    # Decode the inputs and hidden states
+    inputs: List[List[float]] = []
+    hidden: List[List[float]] = []
+
+    for i in range(window_size):
+        input_vector, offset = decode_vector(message=message,
+                                             offset=offset,
+                                             num_bytes=num_input_bytes,
+                                             precision=precision)
+
+        hidden_vector, offset = decode_vector(message=message,
+                                              offset=offset,
+                                              num_bytes=num_hidden_bytes,
+                                              precision=precision)
+
+        inputs.append(input_vector)
+        hidden.append(hidden_vector)
+
+    return BufferedResult(inputs=inputs, hidden=hidden, elevate_indices=elevate_indices, preds=preds)
+
+
+def decode_vector(message: bytes, offset: int, num_bytes: int, precision: int) -> Tuple[List[float], int]:
+    result: List[float] = []
+
+    for i in range(offset, offset + num_bytes, 2):
+        int_value = int.from_bytes(message[i:i+2], byteorder='big', signed=True)
+        result.append(fixed_point_to_float(int_value, precision=precision))
+
+    return result, offset + num_bytes
+
+
+def decode_exit_bitmask(message: bytes, offset: int, window_size: int) -> Tuple[List[int], int]:
+    """
+    Decodes the exit bitmask and returns the indices of the samples
+    that got elevated in the window.
+    """
+    num_bytes = int(math.ceil(window_size / BITS_PER_BYTE))
+    result: List[int] = []
+    idx = 0
+
+    for i in range(offset, offset + num_bytes):
+        for j in range(BITS_PER_BYTE):
+            elevate_bit = (message[i] >> j) & 1
+
+            if elevate_bit == 1:
+                result.append(idx)
+
+            idx += 1
+
+    return result, offset + num_bytes
+
+
+def decode_predictions(message: bytes, offset: int, window_size: int) -> Tuple[List[int], int]:
+    """
+    Decodes the predictions from each inference in the window.
+    """
+    return [message[i] for i in range(offset, offset + window_size)], offset + window_size

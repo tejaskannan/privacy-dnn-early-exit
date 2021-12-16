@@ -30,25 +30,25 @@ uint8_t *buffered_max_prob_should_exit(uint8_t *results, struct inference_result
     for (i = 0; i < windowSize; i++) {
         results[i] = 1;  // By default, exit early
 
-	pred = earlyResults[i].pred;
-	PROBS_BUFFER[i] = earlyResults[i].probs[pred];
-	INDEX_BUFFER[i] = i;
+	    pred = earlyResults[i].pred;
+	    PROBS_BUFFER[i] = earlyResults[i].probs[pred];
+	    INDEX_BUFFER[i] = i;
 
         for (j = i; j > 0; j--) {
             k = j - 1;
 
             if (PROBS_BUFFER[k] <= PROBS_BUFFER[j]) {
-		break;
+		        break;
+	        }
+
+	        tempProb = PROBS_BUFFER[k];
+	        PROBS_BUFFER[k] = PROBS_BUFFER[j];
+	        PROBS_BUFFER[j] = tempProb;
+
+ 	        tempIdx = INDEX_BUFFER[k];
+	        INDEX_BUFFER[k] = INDEX_BUFFER[j];
+	        INDEX_BUFFER[j] = tempIdx;
 	    }
-
-	    tempProb = PROBS_BUFFER[k];
-	    PROBS_BUFFER[k] = PROBS_BUFFER[j];
-	    PROBS_BUFFER[j] = tempProb;
-
- 	    tempIdx = INDEX_BUFFER[k];
-	    INDEX_BUFFER[k] = INDEX_BUFFER[j];
-	    INDEX_BUFFER[j] = tempIdx;
-	}
     }
 
     // Set the indices in which to use the full model

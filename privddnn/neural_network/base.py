@@ -537,7 +537,7 @@ class NeuralNetwork(BaseClassifier):
             model.sess.run(assign_ops)
 
             for name in model_weights.keys():
-                if name not in var_dict:
+                if (name not in var_dict) and ('Adam' not in name) and (not name.startswith('beta1_power')) and (not name.startswith('beta2_power')):
                     print('WARNING: Could not find variable {} in computational graph.'.format(name))
 
         # Re-name the operations to avoid naming issues
