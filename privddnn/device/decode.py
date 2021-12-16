@@ -77,7 +77,7 @@ def decode_buffered_message(message: bytes, precision: int) -> BufferedResult:
     inputs: List[List[float]] = []
     hidden: List[List[float]] = []
 
-    for i in range(window_size):
+    for i in range(num_elevated):
         input_vector, offset = decode_vector(message=message,
                                              offset=offset,
                                              num_bytes=num_input_bytes,

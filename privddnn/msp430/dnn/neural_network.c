@@ -1,6 +1,6 @@
 #include "neural_network.h"
 
-static int16_t LOGITS[NUM_LABELS];
+static int16_t LOGITS[NUM_LABELS * VECTOR_COLS];
 
 struct inference_result *neural_network(struct inference_result *result, struct matrix *hiddenResult, struct matrix *inputs, uint8_t precision) {
     // Apply the hidden layer
@@ -17,7 +17,7 @@ struct inference_result *neural_network(struct inference_result *result, struct 
 
     // Compute the output probabilities. We project the logits up to 32 bit quantities for better
     // numerical stability during the softmax computation.
-    uint8_t i;
+    uint16_t i;
     for (i = 0; i < NUM_LABELS; i++) {
         result->logits[i] = (int32_t) logits.data[VECTOR_INDEX(i)];
     }

@@ -3,8 +3,10 @@
 #ifndef PARAMETERS_H_
 #define PARAMETERS_H_
 #define EXIT_RATE 19660
-#define THRESHOLD 1014
-#define IS_MAX_PROB
+#define WINDOW_SIZE 2
+#define ELEVATE_COUNT 1
+#define ELEVATE_REMAINDER 0
+#define IS_BUFFERED_MAX_PROB
 #define IS_DNN
 #define PRECISION 10
 #define NUM_LABELS 10
