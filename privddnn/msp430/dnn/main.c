@@ -2,15 +2,15 @@
 #include <stdint.h>
 
 #include "init.h"
-#include "decision_tree.h"
+#include "neural_network.h"
 #include "parameters.h"
 #include "data.h"
 #include "policy.h"
 #include "utils/aes256.h"
 #include "utils/encryption.h"
 #include "utils/lfsr.h"
-#include "utils/inference_result.h"
 #include "utils/message.h"
+#include "utils/inference_result.h"
 #include "utils/bt_functions.h"
 
 #define TIMER_LIMIT 5
@@ -22,23 +22,28 @@
 #define START_RESPONSE 0xAB
 #define RESET_RESPONSE 0xCD
 
-// Encryption Parameters
+#define messageBuffer_SIZE 512
 #define AES_BLOCK_SIZE 16
-static const uint8_t AES_KEY[16] = { 52,159,220,0,180,77,26,170,202,163,162,103,15,212,66,68 };
-static uint8_t aesIV[16] = { 0x66, 0xa1, 0xfc, 0xdc, 0x34, 0x79, 0x66, 0xee, 0xe4, 0x26, 0xc1, 0x5a, 0x17, 0x9e, 0x78, 0x31 };
+#define MESSAGE_OFFSET 32
+#define LENGTH_SIZE 2
+
+// Encryption Parameters
+static const uint8_t AES_KEY[AES_BLOCK_SIZE] = { 52,159,220,0,180,77,26,170,202,163,162,103,15,212,66,68 };
+static uint8_t aesIV[AES_BLOCK_SIZE] = { 0x66, 0xa1, 0xfc, 0xdc, 0x34, 0x79, 0x66, 0xee, 0xe4, 0x26, 0xc1, 0x5a, 0x17, 0x9e, 0x78, 0x31 };
 
 volatile uint16_t timerIdx = 0;
 volatile uint16_t sampleIdx = 0;
 volatile uint8_t pred = 0;
 volatile uint8_t shouldExit = 0;
-int16_t inputFeatures[NUM_FEATURES * VECTOR_COLS];
-int16_t hiddenData[W0.numRows * VECTOR_COLS];
+
+int16_t inputFeatures[NUM_FEATURES * VECTOR_COLS] = { 0 };
+int16_t hiddenData[24 * VECTOR_COLS] = { 0 };
 
 enum OpMode { IDLE = 0, START = 1, SAMPLE = 2, SEND = 3, RESET = 4 };
-volatile OpMode opMode = NOT_SARTED;
+volatile enum OpMode opMode = IDLE;
 
-#pragma PERSISTENT(MESSAGE_BUFFER)
-int8_t MESSAGE_BUFFER[512];
+#pragma PERSISTENT(messageBuffer)
+uint8_t messageBuffer[512] = { 0 };
 
 #ifndef IS_MAX_PROB
 uint16_t lfsrState = 2489;
@@ -98,7 +103,7 @@ int main(void)
     #endif
 
     struct matrix inputs = { inputFeatures, NUM_FEATURES, VECTOR_COLS };
-    struct matrix hiddenResult = { hiddenData, W0.numRows, VECTOR_COLS };
+    struct matrix hidden = { hiddenData, W0.numRows, VECTOR_COLS };
     volatile uint16_t messageSize;
 
     // Put into Low Power Mode
@@ -120,7 +125,7 @@ int main(void)
             }
 
             // Run the neural network inference
-            neural_network(&inferenceResult, &hiddenResult, &inputs, PRECISION);
+            neural_network(&inferenceResult, &hidden, &inputs, PRECISION);
 
             // Run the exit policy
             #ifdef IS_MAX_PROB
@@ -131,33 +136,40 @@ int main(void)
             #endif
 
             if (shouldExit) {
-                messageSize = create_exit_message(MESSAGE_BUFFER + AES_BLOCK_SIZE + 2, &inferenceResult);
+                messageSize = create_exit_message(messageBuffer + MESSAGE_OFFSET + LENGTH_SIZE, &inferenceResult);
             } else {
-                messageSize = create_elevate_message(MESSAGE_BUFFER + AES_BLOCK_SIZE + 2, &inferenceResult, &inputs);
+                messageSize = create_elevate_message(messageBuffer + MESSAGE_OFFSET + LENGTH_SIZE, &hidden, &inputs, messageBuffer_SIZE - MESSAGE_OFFSET - LENGTH_SIZE);
             }
 
             // Include the original message length
-            MESSAGE_BUFFER[AES_BLOCK_SIZE] = (messageSize >> 8) & 0xFF;
-            MESSAGE_BUFFER[AES_BLOCK_SIZE + 1] = messageSize & 0xFF;
+            messageBuffer[MESSAGE_OFFSET] = (messageSize >> 8) & 0xFF;
+            messageBuffer[MESSAGE_OFFSET + 1] = messageSize & 0xFF;
 
             // Encrypt the result
             messageSize = round_to_aes_block(messageSize);
-            encrypt_aes_128(MESSAGE_BUFFER + AES_BLOCK_SIZE, aesIV, MESSAGE_BUFFER, messageSize);
+            encrypt_aes128(messageBuffer + MESSAGE_OFFSET, aesIV, messageBuffer + AES_BLOCK_SIZE, messageSize);
+
+            // Write the IV into the first 16 bytes of the message
+            for (i = 0; i < AES_BLOCK_SIZE; i++) {
+                messageBuffer[i] = aesIV[i];
+            }
+
+            // Account for the initialization vector
+            messageSize += AES_BLOCK_SIZE;
 
             // Update the IV
             lfsr_array(aesIV, AES_BLOCK_SIZE);
-
-            // Update the sample index
-            sampleIdx += 1;
             
             // Update the phase to idle. The server will pull the result.
             opMode = IDLE;
         } else if (opMode == SEND) {
             // Send the result to the server machine
-            send_message(MESSAGE_BUFFER, messageSize);
+            send_message(messageBuffer, messageSize);
 
-            // Update the phase to return to sampling or
+            // Update the mode to return to sampling or
             // end the experiment
+            sampleIdx += 1;
+
             if (sampleIdx == NUM_INPUTS) {
                 sampleIdx = 0;
                 opMode = IDLE;
@@ -202,11 +214,11 @@ __interrupt void Timer0_A1_ISR (void) {
         case TAIV__TAIFG:                   // overflow
             timerIdx += 1;
 
-            if (timerIdx == TIMER_LIMIT) {
+            if (timerIdx >= TIMER_LIMIT) {
                 timerIdx = 0;
 
-                if (mode != NOT_STARTED) {
-                    __bic_SR_register_on_exit(LPM3_bits | GIE);
+                if (opMode == SAMPLE) {
+                    __bic_SR_register_on_exit(LPM3_bits |GIE);
                 }
             }
 

@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include "decision_tree.h"
+#include "utils/inference_result.h"
 
 #ifndef POLICY_H_
 #define POLICY_H_

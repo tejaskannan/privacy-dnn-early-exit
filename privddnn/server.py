@@ -3,17 +3,20 @@ import time
 import os
 import sys
 from argparse import ArgumentParser
-from Cryptodome.Cipher import AES
 from collections import namedtuple, Counter
-from functools import reduce
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from typing import Optional, Iterable, List
 
+from privddnn.classifier import ModelMode
 from privddnn.dataset import Dataset
-from privddnn.dataset.data_iterator import DataIterator, make_data_iterator
+from privddnn.dataset.data_iterators import DataIterator, make_data_iterator
 from privddnn.device.ble_manager import BLEManager
+<<<<<<< HEAD
 from privddnn.device.encryption import AES_BLOCK_SIZE
 from privddnn.device.decode import decode_exit_message, decode_elevate_message, MessageType, get_message_type, decode_buffered_message
+=======
+from privddnn.device.encryption import AES_BLOCK_SIZE, decrypt_aes128
+from privddnn.device.decode import decode_exit_message, decode_elevate_message, MessageType, get_message_type
+>>>>>>> 2400df4d8872c91f4dbb34db5d43469631f119ab
 from privddnn.device.dnn import DenseNeuralNetwork
 from privddnn.exiting.early_exit import ExitStrategy
 from privddnn.restore import restore_classifier
@@ -23,7 +26,7 @@ from privddnn.utils.file_utils import read_pickle_gz, save_json_gz, make_dir
 MAC_ADDRESS = '00:35:FF:13:A3:1E'
 BLE_HANDLE = 18
 HCI_DEVICE = 'hci0'
-PERIOD = 1.2
+PERIOD = 5
 LENGTH_SIZE = 2
 
 # Special bytes to handle sensor operation
@@ -44,7 +47,7 @@ def execute(model_path: str,
             output_file: str,
             policy_type: ExitStrategy,
             window_size: Optional[int],
-            max_samples: Optional[int]):
+            max_num_samples: Optional[int]):
     """
     Starts the device client. This function either sends data and expects the device to respond with predictions
     or assumes that the device performs sensing on its own.
@@ -54,14 +57,14 @@ def execute(model_path: str,
         labels: The true data labels. Used only for accuracy computation.
         precision: The precision of each data measurement.
         output_file: The path to the output json gz file.
-        max_samples: Maximum number of sequences before terminating the experiment.
+        max_num_samples: Maximum number of sequences before terminating the experiment.
     """
     # Initialize the device manager
     device_manager = BLEManager(mac_addr=MAC_ADDRESS, handle=BLE_HANDLE, hci_device=HCI_DEVICE)
 
     # Lists to store experiment results
-    num_bytes: List[int] = []
-    label_list: List[int] = []
+    num_bytes_list: List[int] = []
+    labels_list: List[int] = []
     predictions_list: List[int] = []
 
     num_correct = 0
@@ -105,9 +108,8 @@ def execute(model_path: str,
 
         print('Sent Start signal.')
 
-        # TODO: Change this to be a data iterator and respect a dataset ordering
         for idx, (_, _, label) in enumerate(data_iterator):
-            if (max_samples is not None) and (idx >= max_samples):
+            if (max_num_samples is not None) and (idx >= max_num_samples):
                 break
 
             # Delay to align with sampling period
@@ -190,7 +192,6 @@ def execute(model_path: str,
                 device_manager.stop()
 
                 message_byte_count = len(response)
-
                 if message_byte_count == 0:
                     print('[WARNING] Recieved message with 0 bytes.')
                     continue
@@ -252,7 +253,7 @@ def execute(model_path: str,
         'accuracy': (num_correct / total_samples),
         'preds': predictions_list,
         'labels': labels_list,
-        'num_bytes': num_bytes
+        'num_bytes': num_bytes_list
     }
     save_json_gz(results_dict, output_file)
 
@@ -261,13 +262,17 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--model-path', type=str, required=True, help='Path to the serialized Branchynet DNN model weights.')
     parser.add_argument('--dataset-order', type=str, required=True, help='The name of the dataset ordering.')
-    parser.add_argument('--policy', type=str, required=True. help='Name of the exit policy.')
+    parser.add_argument('--exit-policy', type=str, required=True, help='Name of the exit policy.')
     parser.add_argument('--exit-rate', type=float, required=True, help='The target early exit rate (for logging purposes).')
+    parser.add_argument('--precision', type=int, required=True, help='The fixed point precision of measurement values. Must match the MSP430 implementation.')
     parser.add_argument('--output-folder', type=str, required=True, help='The folder in which to save results.')
     parser.add_argument('--dataset-window-size', type=int, help='The window size for nearest-neighbor dataset orderings.')
     parser.add_argument('--policy-window-size', type=int, help='The window size for buffered exit policies.')
     parser.add_argument('--max-samples', type=int, help='An optional maximum number of samples.')
     args = parser.parse_args()
+
+    assert (args.precision > 0) and (args.precision < 16), 'The precision must be in the range (0, 16)'
+    assert (args.exit_rate >= 0.0) and (args.exit_rate <= 1.0), 'The exit rate must be in [0, 1]'
 
     # Extract the model name
     file_name = os.path.basename(args.model_path)
@@ -283,15 +288,15 @@ if __name__ == '__main__':
             sys.exit(0)
 
     # Restore the model
-    model = restore_classifier(args.model_path)
+    model = restore_classifier(args.model_path, model_mode=ModelMode.TEST)
 
     # Make the dataset iterator
     data_iterator = make_data_iterator(name=args.dataset_order,
-                                       dataset=model,
+                                       dataset=model.dataset,
                                        clf=None,
                                        window_size=args.dataset_window_size,
                                        num_trials=1,
-                                       fold='test')
+                                       fold='val')
 
     exit_strategy = ExitStrategy[args.policy.upper()]
 
