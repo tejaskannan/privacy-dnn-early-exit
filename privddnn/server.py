@@ -10,13 +10,8 @@ from privddnn.classifier import ModelMode
 from privddnn.dataset import Dataset
 from privddnn.dataset.data_iterators import DataIterator, make_data_iterator
 from privddnn.device.ble_manager import BLEManager
-<<<<<<< HEAD
-from privddnn.device.encryption import AES_BLOCK_SIZE
-from privddnn.device.decode import decode_exit_message, decode_elevate_message, MessageType, get_message_type, decode_buffered_message
-=======
 from privddnn.device.encryption import AES_BLOCK_SIZE, decrypt_aes128
-from privddnn.device.decode import decode_exit_message, decode_elevate_message, MessageType, get_message_type
->>>>>>> 2400df4d8872c91f4dbb34db5d43469631f119ab
+from privddnn.device.decode import decode_exit_message, decode_elevate_message, MessageType, get_message_type, decode_buffered_message
 from privddnn.device.dnn import DenseNeuralNetwork
 from privddnn.exiting.early_exit import ExitStrategy
 from privddnn.restore import restore_classifier
@@ -26,7 +21,7 @@ from privddnn.utils.file_utils import read_pickle_gz, save_json_gz, make_dir
 MAC_ADDRESS = '00:35:FF:13:A3:1E'
 BLE_HANDLE = 18
 HCI_DEVICE = 'hci0'
-PERIOD = 5
+PERIOD = 2
 LENGTH_SIZE = 2
 
 # Special bytes to handle sensor operation
@@ -116,9 +111,10 @@ def execute(model_path: str,
             time.sleep(PERIOD)
 
             if policy_type == ExitStrategy.BUFFERED_MAX_PROB:
-                label_list.append(label)
+                labels_list.append(int(label))
+                total_samples += 1
 
-                if ((total_samples + 1) % window_size) != 0:
+                if (total_samples % window_size) != 0:
                     continue
 
                 # Send the fetch character and wait for the response
@@ -145,41 +141,46 @@ def execute(model_path: str,
                     continue
 
                 # Extract the length
-                length = int.from_bytes(response[0:LENGTH_SIZE], 'big')
+                length = int.from_bytes(data[0:LENGTH_SIZE], 'big')
 
                 # Clip the result to the true length and remove any padding characters
-                data = data[0:length]
+                data = data[LENGTH_SIZE:length + LENGTH_SIZE]
 
                 message_type = get_message_type(data)
                 assert message_type == MessageType.BUFFERED, 'Message must be of the `buffered` type.'
-                buffered_result = decode_buffered_message(message_type)
 
-                num_bytes_list.append(message_byte_count)
+                buffered_result = decode_buffered_message(data, precision=precision)
+
+                print(data)
+                print(buffered_result.inputs[0])
+                print(buffered_result.hidden[0])
+
+                num_bytes_list.append(int(message_byte_count))
 
                 for window_idx in range(window_size):
                     if window_idx in buffered_result.elevate_indices:
-                        elev_inputs = np.array(buffered_result.inputs + buffered_result.hidden).reshape(-1, 1)
+                        elev_idx = buffered_result.elevate_indices.index(window_idx)
+                        elev_inputs = np.array(buffered_result.inputs[elev_idx] + buffered_result.hidden[elev_idx]).reshape(-1, 1)
                         logits = dnn_model(elev_inputs)
                         pred = np.argmax(logits[:, 0])
                     else:
                         pred = buffered_result.preds[window_idx]
 
-                    predictions_list.append(pred)
+                    predictions_list.append(int(pred))
 
-                    label = label_list[-window_size + window_idx]
-                    is_correct += (pred == label)
-                    total_samples += 1
+                    label = labels_list[-window_size + window_idx]
+                    num_correct += (pred == label)
 
                 # Save the results so far
                 results_dict = {
                     'accuracy': (num_correct / total_samples),
                     'preds': predictions_list,
                     'labels': labels_list,
-                    'num_bytes': num_bytes
+                    'num_bytes': num_bytes_list
                 }
                 save_json_gz(results_dict, output_file)
 
-                print('Completed {} Sequences. Accuracy so far: {:.6f}'.format(total_samples + 1, num_correct / total_samples), end='\r')
+                print('Completed {} Sequences. Accuracy so far: {:.6f}'.format(total_samples, num_correct / total_samples), end='\r')
             else:
                 # Send the fetch character and wait for the response
                 did_connect = device_manager.start(wait_time=0.1)
@@ -204,10 +205,10 @@ def execute(model_path: str,
                     continue
 
                 # Extract the length
-                length = int.from_bytes(response[0:LENGTH_SIZE], 'big')
+                length = int.from_bytes(data[0:LENGTH_SIZE], 'big')
 
                 # Clip the result to the true length and remove any padding characters
-                data = data[0:length]
+                data = data[LENGTH_SIZE:length + LENGTH_SIZE]
 
                 # Decode the result and get the prediction based on the exit type.
                 message_type = get_message_type(data)
@@ -225,8 +226,8 @@ def execute(model_path: str,
 
                 # Log the results so far
                 predictions_list.append(pred)
-                label_list.append(label)
-                num_bytes.append(message_byte_count)
+                labels_list.append(label)
+                num_bytes_list.append(message_byte_count)
 
                 num_correct += int(pred == label)
                 total_samples += 1
@@ -236,7 +237,7 @@ def execute(model_path: str,
                     'accuracy': (num_correct / total_samples),
                     'preds': predictions_list,
                     'labels': labels_list,
-                    'num_bytes': num_bytes
+                    'num_bytes': num_bytes_list
                 }
                 save_json_gz(results_dict, output_file)
 
@@ -298,7 +299,7 @@ if __name__ == '__main__':
                                        num_trials=1,
                                        fold='val')
 
-    exit_strategy = ExitStrategy[args.policy.upper()]
+    exit_strategy = ExitStrategy[args.exit_policy.upper()]
 
     # Run the server
     execute(model_path=args.model_path,

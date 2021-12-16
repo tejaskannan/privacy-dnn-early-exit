@@ -14,6 +14,7 @@
 #include "utils/bt_functions.h"
 
 #define TIMER_LIMIT 5
+#define HIDDEN_SIZE 24
 
 #define START_BYTE 0xAA
 #define RESET_BYTE 0xBB
@@ -22,7 +23,7 @@
 #define START_RESPONSE 0xAB
 #define RESET_RESPONSE 0xCD
 
-#define messageBuffer_SIZE 512
+#define MESSAGE_BUFFER_SIZE 512
 #define AES_BLOCK_SIZE 16
 #define MESSAGE_OFFSET 32
 #define LENGTH_SIZE 2
@@ -34,10 +35,6 @@ static uint8_t aesIV[AES_BLOCK_SIZE] = { 0x66, 0xa1, 0xfc, 0xdc, 0x34, 0x79, 0x6
 volatile uint16_t timerIdx = 0;
 volatile uint16_t sampleIdx = 0;
 volatile uint8_t pred = 0;
-volatile uint8_t shouldExit = 0;
-
-int16_t inputFeatures[NUM_FEATURES * VECTOR_COLS] = { 0 };
-int16_t hiddenData[24 * VECTOR_COLS] = { 0 };
 
 enum OpMode { IDLE = 0, START = 1, SAMPLE = 2, SEND = 3, RESET = 4 };
 volatile enum OpMode opMode = IDLE;
@@ -50,21 +47,33 @@ uint16_t lfsrState = 2489;
 #endif
 
 #if defined(IS_MAX_PROB) || defined(IS_RANDOM)
+int16_t inputFeatures[NUM_FEATURES * VECTOR_COLS] = { 0 };
+int16_t hiddenData[HIDDEN_SIZE * VECTOR_COLS] = { 0 };
+
 int32_t logits[NUM_LABELS];
 int32_t probs[NUM_LABELS];
 struct inference_result inferenceResult = { logits, probs, 0 };
-#elif defined(IS_BUFFERED_MAX_PROB)
-#pragma PERSISTENT(windowInputFeatures)
-int16_t windowInputFeatures[NUM_INPUT_FEATURES * WINDOW_SIZE * VECTOR_COLS] = { 0 };
-uint16_t windowIdx = 0;
+volatile uint8_t shouldExit = 0;
 
-uint8_t exitResults[WINDOW_SIZE];
-#pragma PERSISTENT(earlyLogits);
+#elif defined(IS_BUFFERED_MAX_PROB)
+#pragma PERSISTENT(inputFeatures)
+int16_t inputFeatures[NUM_INPUT_FEATURES * WINDOW_SIZE * VECTOR_COLS] = { 0 };
+
+#pragma PERSISTENT(hiddenFeatures)
+int16_t hiddenFeatures[HIDDEN_SIZE * WINDOW_SIZE * VECTOR_COLS] = { 0 };
+
+#pragma PERSISTENT(logits);
 int32_t logits[NUM_LABELS * WINDOW_SIZE] = { 0 };
-#pragma PERSISTENT(earlyProbs);
+
+#pragma PERSISTENT(probs);
 int32_t probs[NUM_LABELS * WINDOW_SIZE] = { 0 };
 
+struct matrix inputs[WINDOW_SIZE];
+struct matrix hidden[WINDOW_SIZE];
 struct inference_result inferenceResults[WINDOW_SIZE];
+uint8_t shouldExit[WINDOW_SIZE];
+
+volatile uint16_t windowIdx = 0;
 #endif
 
 
@@ -97,13 +106,23 @@ int main(void)
 
     #ifdef IS_BUFFERED_MAX_PROB
     for (i = 0; i < WINDOW_SIZE; i++) {
-        inferenceResult[i].logits = logits + (i * NUM_LABELS);
-        inferenceResult[i].probs = probs + (i * NUM_LABELS);
+        inputs[i].data = inputFeatures + (i * NUM_FEATURES * VECTOR_COLS);
+        inputs[i].numRows = NUM_FEATURES;
+        inputs[i].numCols = VECTOR_COLS;
+
+        hidden[i].data = hiddenFeatures + (i * HIDDEN_SIZE * VECTOR_COLS);
+        hidden[i].numRows = HIDDEN_SIZE;
+        hidden[i].numCols = VECTOR_COLS;
+
+        inferenceResults[i].logits = logits + (i * NUM_LABELS);
+        inferenceResults[i].probs = probs + (i * NUM_LABELS);
+        inferenceResults[i].pred = 0;
     }
+    #else
+    struct matrix inputs = { inputFeatures, NUM_FEATURES, VECTOR_COLS };
+    struct matrix hidden = { hiddenData, HIDDEN_SIZE, VECTOR_COLS };
     #endif
 
-    struct matrix inputs = { inputFeatures, NUM_FEATURES, VECTOR_COLS };
-    struct matrix hidden = { hiddenData, W0.numRows, VECTOR_COLS };
     volatile uint16_t messageSize;
 
     // Put into Low Power Mode
@@ -116,9 +135,61 @@ int main(void)
             opMode = SAMPLE;
             sampleIdx = 0;
 
+            #ifdef IS_BUFFERED_MAX_PROB
+            windowIdx = 0;
+            #endif
+
             // Send the start response
             send_byte(START_RESPONSE);
         } else if (opMode == SAMPLE) {
+#ifdef IS_BUFFERED_MAX_PROB
+            // Load the current input sample
+            for (i = 0; i < NUM_FEATURES; i++) {
+                (inputs + windowIdx)->data[VECTOR_INDEX(i)] = DATASET_INPUTS[sampleIdx * NUM_FEATURES + i];
+            }
+
+            // Run the neural network inference on this sample
+            neural_network(inferenceResults + windowIdx, hidden + windowIdx, inputs + windowIdx, PRECISION);
+
+            windowIdx += 1;
+            sampleIdx += 1;
+
+            if ((windowIdx == WINDOW_SIZE) || (sampleIdx == NUM_INPUTS)) {
+                // Determine the exiting decisions
+                buffered_max_prob_should_exit(shouldExit, inferenceResults, lfsrState, ELEVATE_COUNT, ELEVATE_REMAINDER, windowIdx);
+
+                // Encode the buffered message
+                messageSize = create_buffered_message(messageBuffer + MESSAGE_OFFSET + LENGTH_SIZE, inferenceResults, inputs, hidden, shouldExit, windowIdx, MESSAGE_BUFFER_SIZE - MESSAGE_OFFSET - LENGTH_SIZE);
+
+                // Include the original message length
+                messageBuffer[MESSAGE_OFFSET] = (messageSize >> 8) & 0xFF;
+                messageBuffer[MESSAGE_OFFSET + 1] = messageSize & 0xFF;
+
+                // Encrypt the result
+                messageSize = round_to_aes_block(messageSize);
+                encrypt_aes128(messageBuffer + MESSAGE_OFFSET, aesIV, messageBuffer + AES_BLOCK_SIZE, messageSize);
+
+                // Write the IV into the first 16 bytes of the message
+                for (i = 0; i < AES_BLOCK_SIZE; i++) {
+                    messageBuffer[i] = aesIV[i];
+                }
+
+                // Account for the initialization vector
+                messageSize += AES_BLOCK_SIZE;
+
+                // Update the IV
+                lfsr_array(aesIV, AES_BLOCK_SIZE);
+
+                // Update the policy's random state
+                lfsrState = lfsr_step(lfsrState);
+
+                // Reset the window and wait until the sending phase
+                windowIdx = 0;
+                opMode = IDLE;
+            } else {
+                opMode = SAMPLE;  // Collect the next sample (do not send the results until the end of the window)
+            }
+#else
             // Load the current input sample
             for (i = 0; i < NUM_FEATURES; i++) {
                 inputFeatures[VECTOR_INDEX(i)] = DATASET_INPUTS[sampleIdx * NUM_FEATURES + i];
@@ -138,9 +209,8 @@ int main(void)
             if (shouldExit) {
                 messageSize = create_exit_message(messageBuffer + MESSAGE_OFFSET + LENGTH_SIZE, &inferenceResult);
             } else {
-                messageSize = create_elevate_message(messageBuffer + MESSAGE_OFFSET + LENGTH_SIZE, &hidden, &inputs, messageBuffer_SIZE - MESSAGE_OFFSET - LENGTH_SIZE);
+                messageSize = create_elevate_message(messageBuffer + MESSAGE_OFFSET + LENGTH_SIZE, &hidden, &inputs, MESSAGE_BUFFER_SIZE - MESSAGE_OFFSET - LENGTH_SIZE);
             }
-
             // Include the original message length
             messageBuffer[MESSAGE_OFFSET] = (messageSize >> 8) & 0xFF;
             messageBuffer[MESSAGE_OFFSET + 1] = messageSize & 0xFF;
@@ -161,14 +231,12 @@ int main(void)
             lfsr_array(aesIV, AES_BLOCK_SIZE);
             
             // Update the phase to idle. The server will pull the result.
+            sampleIdx += 1;
             opMode = IDLE;
+#endif
         } else if (opMode == SEND) {
             // Send the result to the server machine
             send_message(messageBuffer, messageSize);
-
-            // Update the mode to return to sampling or
-            // end the experiment
-            sampleIdx += 1;
 
             if (sampleIdx == NUM_INPUTS) {
                 sampleIdx = 0;
@@ -181,6 +249,10 @@ int main(void)
             sampleIdx = 0;
             timerIdx = 0;
             opMode = IDLE;
+
+            #ifdef IS_BUFFERED_MAX_PROB
+            windowIdx = 0;
+            #endif
 
             // Send the response message
             send_byte(RESET_RESPONSE);
