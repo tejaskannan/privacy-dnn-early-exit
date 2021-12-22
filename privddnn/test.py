@@ -8,11 +8,54 @@ from typing import List, Tuple, DefaultDict, Dict, Optional
 from privddnn.dataset import Dataset
 from privddnn.dataset.data_iterators import make_data_iterator
 from privddnn.classifier import BaseClassifier, ModelMode, OpName
+from privddnn.ensemble.adaboost import AdaBoostClassifier
 from privddnn.exiting.early_exit import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
 from privddnn.restore import restore_classifier
 from privddnn.utils.metrics import compute_accuracy, compute_mutual_info, compute_target_exit_rates, compute_stop_counts
 from privddnn.utils.plotting import to_label
 from privddnn.utils.file_utils import save_json_gz, read_json_gz
+
+
+def execute_fixed_strategy(clf: BaseClassifier,
+                           dataset: Dataset,
+                           exit_rate: float,
+                           data_iterator_name: str,
+                           window_size: Optional[int],
+                           num_trials: int,
+                           fold: str,
+                           max_num_samples: Optional[int]) -> Dict[str, List[float]]:
+    assert isinstance(clf, AdaBoostClassifier), 'The fixed strategy only works with AdaBoost.'
+
+    # Collect the dataset
+    data_iterator = make_data_iterator(name=data_iterator_name,
+                                       dataset=dataset,
+                                       clf=None,
+                                       window_size=window_size,
+                                       num_trials=num_trials,
+                                       fold=fold)
+
+    inputs_list: List[np.ndarray] = []
+    labels_list: List[int] = []
+
+    for input_features, _, label in data_iterator:
+        inputs_list.append(np.expand_dims(input_features, axis=0))
+        labels_list.append(int(label))
+
+    inputs = np.vstack(inputs_list)
+
+    # Execute the classifier for this rate
+    probs = clf.predict_proba_for_rate(inputs=inputs, rate=exit_rate)
+    preds = np.argmax(probs, axis=-1)
+
+    return {
+        data_iterator.name: {
+            'preds': preds.astype(int).tolist(),
+            'labels': labels_list,
+            'output_levels': [0 for _ in labels_list],
+            'window_size': window_size,
+            'num_trials': num_trials
+        }
+    }
 
 
 def execute_for_rate(dataset: Dataset,
@@ -109,7 +152,7 @@ if __name__ == '__main__':
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
-    strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB, ExitStrategy.BUFFERED_MAX_PROB]
+    strategies = [ExitStrategy.FIXED]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]
@@ -129,21 +172,34 @@ if __name__ == '__main__':
         if strategy_name not in results['test']:
             results['test'][strategy_name] = dict()
 
-        print('Testing {}'.format(strategy_name.capitalize()))
-
         for rate in reversed(rates):
-            rate_result = execute_for_rate(dataset=model.dataset,
-                                           clf=model,
-                                           val_probs=val_probs,
-                                           val_labels=val_labels,
-                                           pred_rates=stop_counts,
-                                           rate=rate,
-                                           model_path=args.model_path,
-                                           strategy=strategy,
-                                           data_iterator_name=args.dataset_order,
-                                           window_size=args.window_size,
-                                           num_trials=args.trials,
-                                           max_num_samples=args.max_num_samples)
+            print('Testing {} on {:.2f}'.format(strategy_name.capitalize(), float(round(rate, 2))), end='\r')
+
+            if strategy == ExitStrategy.FIXED:
+                rate_result: Dict[str, Dict[str, Dict[str, List[float]]]] = dict()
+
+                for fold in ['val', 'test']:
+                    rate_result[fold] = execute_fixed_strategy(clf=model,
+                                                               dataset=model.dataset,
+                                                               exit_rate=rate,
+                                                               data_iterator_name=args.dataset_order,
+                                                               window_size=args.window_size,
+                                                               num_trials=args.trials,
+                                                               fold=fold,
+                                                               max_num_samples=args.max_num_samples)
+            else:
+                rate_result = execute_for_rate(dataset=model.dataset,
+                                               clf=model,
+                                               val_probs=val_probs,
+                                               val_labels=val_labels,
+                                               pred_rates=stop_counts,
+                                               rate=rate,
+                                               model_path=args.model_path,
+                                               strategy=strategy,
+                                               data_iterator_name=args.dataset_order,
+                                               window_size=args.window_size,
+                                               num_trials=args.trials,
+                                               max_num_samples=args.max_num_samples)
 
             # Log the results
             rate_key = str(round(rate, 2))
@@ -156,6 +212,8 @@ if __name__ == '__main__':
 
             results['val'][strategy_name][rate_key].update(rate_result['val'])
             results['test'][strategy_name][rate_key].update(rate_result['test'])
+
+        print()
 
     # Save the results into the test log
     file_name = os.path.basename(args.model_path).split('.')[0]

@@ -13,6 +13,7 @@ COLORS = {
     'label_max_prob': '#51b6c4',
     'hybrid_max_prob': '#225ea8',
     'random': 'black',
+    'fixed': '#8856a7',
     'entropy': '#9ebcda',
     'label_entropy': '#8c96c6',
     'hybrid_entropy': '#810f7c',

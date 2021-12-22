@@ -24,6 +24,7 @@ EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels',
 
 class ExitStrategy(Enum):
     RANDOM = auto()
+    FIXED = auto()
     ENTROPY = auto()
     MAX_PROB = auto()
     LABEL_ENTROPY = auto()
@@ -76,10 +77,6 @@ class EarlyExiter:
                    num_labels: int,
                    pred_rates: np.ndarray,
                    max_num_samples: Optional[int]) -> EarlyExitResult:
-        #num_samples, num_outputs, num_labels = test_probs.shape
-        #assert num_outputs == self.num_outputs, 'Expected {} outputs. Got {}'.format(self.num_outputs, num_outputs)
-        #assert pred_rates.shape == (num_outputs, num_labels), 'Exit rates should be a ({}, {}) array. Got {}'.format(num_outputs, num_labels, pred_rates.shape)
-
         predictions: List[int] = []
         output_levels: List[int] = []
         labels: List[int] = []
@@ -236,7 +233,7 @@ class DelayedExiter(EarlyExiter):
 
     def select_output(self, probs: np.ndarray, remaining_exit: int, remaining_window: int) -> Tuple[int, SelectionType]:
         first_pred = np.argmax(probs[0])
-        
+
         exit_rate = float(remaining_exit) / float(remaining_window)
 
         # Compute the expected exit count for this prediction
@@ -325,7 +322,7 @@ class DelayedExiter(EarlyExiter):
 
             # Perform delayed exiting
             r = self._rand.uniform()
-            
+
             if r < self.delay_prob:
                 current_first_pred = prev_preds[0]
                 current_pred = prev_preds[prev_level]

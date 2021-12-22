@@ -5,7 +5,8 @@ from typing import List, Tuple, Optional, Dict, Any
 
 from privddnn.classifier import BaseClassifier, OpName
 from privddnn.dataset import Dataset
-from privddnn.dataset.build_nearest_neighbor_index import create_index
+from privddnn.dataset.build_nearest_neighbor_index import NUM_COMPONENTS
+from privddnn.utils.file_utils import read_pickle_gz
 
 
 class DataIterator:
@@ -112,10 +113,12 @@ class NearestNeighborIterator(DataIterator):
         dir_base = os.path.dirname(__file__)
         index_path = os.path.join(dir_base, '..', 'data', dataset.dataset_name, '{}.ann'.format(fold))
 
-        if not os.path.exists(index_path):
-            create_index(inputs=self._data_fold, path=index_path)
+        assert os.path.exists(index_path), 'Must create the nearest neighbor index at {} using the create index script.'.format(index_path)
 
-        self._knn_index = AnnoyIndex(dataset.num_features, 'euclidean')
+        num_features = np.prod(self._data_fold.shape[1:])
+        n_components = min(num_features, NUM_COMPONENTS)
+
+        self._knn_index = AnnoyIndex(n_components, 'euclidean')
         self._knn_index.load(index_path)
 
         # Initialize the current window parameters
