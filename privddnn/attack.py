@@ -29,7 +29,7 @@ if __name__ == '__main__':
     eval_log = read_json_gz(eval_log_path)
 
     rates = [str(round(r / 20.0, 2)) for r in range(21)]
-    policy_names = ['random', 'max_prob']
+    policy_names = ['random', 'max_prob', 'rolling_max_prob']
 
     # Maps policy name -> { clf type -> [accuracy] }
     train_attack_results: Dict[str, DefaultDict[str, List[float]]] = dict()
@@ -43,6 +43,8 @@ if __name__ == '__main__':
     window_size = train_log['val']['random']['0.0'][args.dataset_order]['window_size']
     num_labels = np.amax(val_preds) + 1
 
+    #window_size = int(window_size / 2)
+
     most_freq_clf = MostFrequentClassifier(window=window_size, num_labels=num_labels)
     most_freq_clf.fit(inputs=val_preds, labels=val_preds)
 
@@ -53,8 +55,6 @@ if __name__ == '__main__':
 
         for rate in rates:
             train_policy_name = policy_name if args.train_policy is None else args.train_policy
-
-            print('Starting {} on {}'.format(policy_name, rate), end='\r')
 
             # Get the results from training and validation
             val_levels = train_log['val'][train_policy_name][rate][args.dataset_order]['output_levels']
@@ -71,6 +71,8 @@ if __name__ == '__main__':
             test_attack_inputs, test_attack_outputs = make_sequential_dataset(levels=test_levels,
                                                                               preds=test_preds,
                                                                               window_size=window_size)
+
+            print('Starting {} on {:.2f}. # Train: {}, # Test: {}'.format(policy_name, round(float(rate), 2), len(train_attack_inputs), len(test_attack_inputs)), end='\r')
 
             # Evaluate the most-frequent classifier
             train_acc = most_freq_clf.score(train_attack_inputs, train_attack_outputs)

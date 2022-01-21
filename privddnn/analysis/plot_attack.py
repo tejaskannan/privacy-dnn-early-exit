@@ -14,19 +14,26 @@ if __name__ == '__main__':
     parser.add_argument('--test-log', type=str, required=True)
     parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2'])
     parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION, NAIVE_BAYES, MOST_FREQ, NGRAM])
+    parser.add_argument('--dataset-order', type=str, required=True)
+    parser.add_argument('--train-model-path', type=str, required=True)
+    parser.add_argument('--train-policy', type=str)
     parser.add_argument('--output-file', type=str)
     args = parser.parse_args()
 
     # Read the attack accuracy
     test_log = read_json_gz(args.test_log)
-    attack_accuracy = test_log['attack_test']
+
+    train_name = os.path.basename(args.train_model_path)
+    policy_name = args.train_policy if args.train_policy is not None else 'same'
+    attack_key = '{}_{}'.format(train_name.replace('.pkl.gz', ''), policy_name)
+    attack_accuracy = test_log[attack_key]
 
     with plt.style.context(PLOT_STYLE):
         fig, ax = plt.subplots()
 
         rates = [round(r / 20.0, 2) for r in range(21)]
 
-        for policy_name, attack_results in attack_accuracy.items():
+        for policy_name, attack_results in attack_accuracy[args.dataset_order]['attack_test'].items():
             metric_results = [r[args.metric] for r in attack_results[args.attack_model]]
 
             print('{} & {:.5f} & {:.5f}'.format(policy_name, sum(metric_results) / len(metric_results), max(metric_results)))

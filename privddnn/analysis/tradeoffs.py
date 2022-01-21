@@ -7,7 +7,7 @@ from typing import List
 from privddnn.dataset.dataset import Dataset
 from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.metrics import compute_accuracy, compute_mutual_info, compute_geometric_mean
-from privddnn.utils.ngrams import create_ngrams
+from privddnn.utils.ngrams import create_ngrams, create_ngram_counts
 from privddnn.utils.plotting import to_label, COLORS, MARKER, MARKER_SIZE, LINE_WIDTH
 from privddnn.utils.plotting import AXIS_FONT, TITLE_FONT, LABEL_FONT, LEGEND_FONT
 
@@ -21,7 +21,7 @@ if __name__ == '__main__':
 
     test_log = read_json_gz(args.test_log)['test']
     policies = list(test_log.keys())
-    n = 3
+    n = 7
 
     #tokens = args.test_log.split(os.sep)
     #dataset = Dataset(tokens[-3])
@@ -50,7 +50,7 @@ if __name__ == '__main__':
                 acc = compute_accuracy(predictions=preds, labels=labels)
                 mi = compute_mutual_info(X=output_levels, Y=preds, should_normalize=False)
 
-                ngram_levels, ngram_preds = create_ngrams(levels=output_levels, preds=preds, n=n)
+                ngram_levels, ngram_preds = create_ngram_counts(levels=output_levels, preds=preds, n=n)
                 ngram_mi = compute_mutual_info(X=ngram_levels, Y=ngram_preds, should_normalize=False)
 
                 accuracy.append(acc)
