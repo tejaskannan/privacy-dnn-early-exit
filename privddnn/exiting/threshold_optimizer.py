@@ -37,7 +37,7 @@ class ThresholdFunction:
             return 1
         elif (x >= -0.4) and (x <= 0.4):
             return 2 - 4 * abs(x)
-        
+
         return 0
 
 
@@ -190,7 +190,7 @@ class ThresholdObjective:
                    weights: np.ndarray) -> np.ndarray:
         # Compute the (approx) derivative of the absolute value term for both staying and elevating
         d_stay = 2.0 * (stay_rates > (1.0 - self.target)).astype(float) - 1.0
-        d_elevate = 2.0 * (elevate_rates > self.target).astype(float) - 1.0 
+        d_elevate = 2.0 * (elevate_rates > self.target).astype(float) - 1.0
 
         # Create arrays in which to accumulate gradients
         threshold_gradient = np.zeros_like(thresholds)
@@ -313,7 +313,7 @@ def fit_thresholds_grad(probs: np.ndarray,
         #print('True: {}'.format(dthresholds))
         #print('Approx: {}'.format(approx_grad))
         #print('==========')
-        
+
         # Track the 'best' loss result
         if loss < best_loss:
             best_loss = loss

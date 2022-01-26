@@ -62,26 +62,13 @@ class Dataset:
         elif dataset_name == 'cifar_100':
             tf_dataset = tf2.keras.datasets.cifar100
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
-        elif dataset_name == 'noisy_mnist':
-            X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'noisy_mnist', 'train.h5'))
-            X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'noisy_mnist', 'test.h5'))
         elif dataset_name == 'pen_digits':
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'train.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'test.h5'))
-        elif dataset_name == 'uci_har':
-            X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'uci_har', 'train.h5'))
-            X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'uci_har', 'val.h5'))
-            X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'uci_har', 'test.h5'))
-            has_val_split = True
-        elif dataset_name == 'land_cover':
-            X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'land_cover', 'train.h5'))
-            X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'land_cover', 'val.h5'))
-            X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'land_cover', 'test.h5'))
-            has_val_split = True
-        elif dataset_name == 'letter_recognition':
-            X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'letter_recognition', 'train.h5'))
-            X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'letter_recognition', 'val.h5'))
-            X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'letter_recognition', 'test.h5'))
+        elif (dataset_name in ('uci_har', 'land_cover', 'mnist1d')) or (dataset_name.endswith('noisy')):
+            X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'train.h5'))
+            X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'val.h5'))
+            X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'test.h5'))
             has_val_split = True
         else:
             raise ValueError('Unknown dataset with name: {}'.format(dataset_name))

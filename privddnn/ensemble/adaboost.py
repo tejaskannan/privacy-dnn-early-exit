@@ -9,7 +9,6 @@ from privddnn.utils.file_utils import save_pickle_gz, read_pickle_gz
 from privddnn.utils.metrics import softmax, to_one_hot
 
 
-
 class AdaBoostClassifier(BaseClassifier):
 
     def __init__(self, num_estimators: int, exit_size: int, clf_name: str, dataset_name: str, **kwargs: Dict[str, Any]):
@@ -159,7 +158,7 @@ class AdaBoostClassifier(BaseClassifier):
 
         num_samples = inputs.shape[0]
         weights = np.zeros(shape=(num_samples, self._num_labels))  # [N, K]
-        ensemble_size = int(self.exit_size + (self.num_estimators - self.exit_size) * rate)
+        ensemble_size = int(self.exit_size + (self.num_estimators - self.exit_size) * (1.0 - rate))
 
         for idx in range(ensemble_size):
             clf = self._clfs[idx]

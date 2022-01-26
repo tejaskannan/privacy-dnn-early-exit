@@ -5,7 +5,7 @@ from typing import Type
 from privddnn.classifier import OpName, ModelMode
 from .base import NeuralNetwork
 from .branchynet_cnn import BranchyNetCNN, BranchyNetCNNSmall
-from .branchynet_dnn import BranchyNetDNN
+from .branchynet_dnn import BranchyNetDNN, BranchyNetDNNSmall
 from .anytime_cnn import AnytimeCNN
 from .independent_cnn import IndependentCNN
 
@@ -23,6 +23,8 @@ def get_model_class(name: str) -> Type[NeuralNetwork]:
         return IndependentCNN
     elif name == 'branchynet-dnn':
         return BranchyNetDNN
+    elif name == 'branchynet-dnn-small':
+        return BranchyNetDNNSmall
     else:
         raise ValueError('Unknown neural network with name: {}'.format(name))
 

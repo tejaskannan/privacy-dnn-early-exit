@@ -24,6 +24,7 @@ EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels',
 
 class ExitStrategy(Enum):
     RANDOM = auto()
+    FIXED = auto()
     ENTROPY = auto()
     MAX_PROB = auto()
     LABEL_ENTROPY = auto()
@@ -35,6 +36,8 @@ class ExitStrategy(Enum):
     EVEN_LABEL_MAX_PROB = auto()
     BUFFERED_MAX_PROB = auto()
     DELAYED_MAX_PROB = auto()
+    ADAPTIVE_RANDOM_MAX_PROB = auto()
+    ROLLING_MAX_PROB = auto()
 
 
 class SelectionType(Enum):
@@ -76,10 +79,6 @@ class EarlyExiter:
                    num_labels: int,
                    pred_rates: np.ndarray,
                    max_num_samples: Optional[int]) -> EarlyExitResult:
-        #num_samples, num_outputs, num_labels = test_probs.shape
-        #assert num_outputs == self.num_outputs, 'Expected {} outputs. Got {}'.format(self.num_outputs, num_outputs)
-        #assert pred_rates.shape == (num_outputs, num_labels), 'Exit rates should be a ({}, {}) array. Got {}'.format(num_outputs, num_labels, pred_rates.shape)
-
         predictions: List[int] = []
         output_levels: List[int] = []
         labels: List[int] = []
@@ -107,6 +106,8 @@ class EarlyExiter:
             output_levels.append(level)
             labels.append(label)
             num_samples += 1
+
+            #print('Level: {}, Label: {}'.format(level, label))
 
         output_counts = np.bincount(output_levels, minlength=self.num_outputs)
         observed_rates = output_counts / num_samples
@@ -236,7 +237,7 @@ class DelayedExiter(EarlyExiter):
 
     def select_output(self, probs: np.ndarray, remaining_exit: int, remaining_window: int) -> Tuple[int, SelectionType]:
         first_pred = np.argmax(probs[0])
-        
+
         exit_rate = float(remaining_exit) / float(remaining_window)
 
         # Compute the expected exit count for this prediction
@@ -325,7 +326,7 @@ class DelayedExiter(EarlyExiter):
 
             # Perform delayed exiting
             r = self._rand.uniform()
-            
+
             if r < self.delay_prob:
                 current_first_pred = prev_preds[0]
                 current_pred = prev_preds[prev_level]
@@ -367,7 +368,7 @@ class DelayedExiter(EarlyExiter):
 
         #print('Levels: {}'.format(output_levels))
         #print('Predictions: {}'.format(predictions))
-        print('Observed Elev Rate: {}'.format(np.average(output_levels)))
+        #print('Observed Elev Rate: {}'.format(np.average(output_levels)))
 
         return EarlyExitResult(predictions=np.vstack(predictions).reshape(-1),
                                output_levels=np.vstack(output_levels).reshape(-1),
@@ -441,6 +442,176 @@ class EntropyExit(ThresholdExiter):
 
 
 class MaxProbExit(ThresholdExiter):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_max_prob_metric(probs=probs)
+
+
+class RollingExit(ThresholdExiter):
+
+    def __init__(self, rates: List[float]):
+        super().__init__(rates=rates)
+        self._level_queue = deque()
+        self._window_min = 5
+        self._window_max = 10
+
+        self._rand_min = 0.0
+        self._rand_max = 1.0
+
+        self._window_size = 0
+        self._num_to_elevate = 0
+        self._sim_streak = 0
+        self._prev_pred = -1
+
+    @property
+    def window_min(self) -> int:
+        return self._window_min
+
+    @property
+    def window_max(self) -> int:
+        return self._window_max
+
+    @property
+    def rand_min(self) -> float:
+        return self._rand_min
+
+    @property
+    def rand_max(self) -> float:
+        return self._rand_max
+
+    def reset(self, num_labels: int, pred_rates: np.ndarray):
+        self._level_queue = deque()
+        #self._sim_streak = 0
+        self._prev_pred = -1
+        self._window_size = np.random.randint(low=self.window_min + 1, high=self.window_max + 1)
+
+        int_part = int(self.rates[1] * self._window_size)
+        frac_part = (self.rates[1] * self._window_size) - int_part
+        self._num_to_elevate = int_part + int(np.random.uniform() < frac_part)
+
+    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
+        # TODO: Remove conditional logic to avoid timing attacks
+        if len(self._level_queue) == self._window_size:
+            self.reset(num_labels=0, pred_rates=None)
+            #print('==========')
+
+        metrics = self.compute_metric(probs)
+        first_metric = metrics[0]
+        pred = np.argmax(probs[0], axis=-1)
+        data_level = int(first_metric < self.thresholds[0])
+
+        num_remaining = self._window_size - len(self._level_queue)
+        level_sum = sum(self._level_queue) if len(self._level_queue) > 0 else 0
+        remaining_to_elevate = self._num_to_elevate - level_sum
+        rand_elev_rate = remaining_to_elevate / num_remaining
+        rand_level = int(np.random.uniform() < rand_elev_rate)
+
+        r = np.random.uniform()
+
+        if pred == self._prev_pred:
+            self._sim_streak += 1
+        else:
+            self._sim_streak = int(self._sim_streak / 2)
+
+        #expected_diff = abs((self.rates[1] * len(self._level_queue)) - level_sum)
+        rand_rate = (self.rand_max - self.rand_min) * (1.0 - np.power(2.0, -1 * self._sim_streak)) + self.rand_min
+
+        if remaining_to_elevate == 0:
+            level = 0
+            selection = SelectionType.GREEDY
+        elif num_remaining == remaining_to_elevate:
+            level = 1
+            selection = SelectionType.GREEDY
+        elif r < rand_rate:
+            level = rand_level
+            selection = SelectionType.RANDOM
+        else:
+            level = data_level
+            selection = SelectionType.POLICY
+
+        self._prev_pred = pred
+        #print('Level: {}, Selection Type: {}, Rand Elev Rate: {:.5f}, Rand Rate: {}'.format(level, selection, rand_elev_rate, rand_rate))
+
+        self._level_queue.append(level)
+        return level, selection
+
+
+class RollingMaxProb(RollingExit):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_max_prob_metric(probs=probs)
+
+
+class AdaptiveRandomExit(ThresholdExiter):
+
+    def __init__(self, epsilon: float, rates: List[float]):
+        super().__init__(rates=rates)
+        assert epsilon >= 0.0 and epsilon <= 1.0, 'Epsilon must be in [0, 1]'
+        assert len(rates) == 2, 'Adaptive Random Exiting only works with 2-level models.'
+
+        self._epsilon = epsilon
+        self._prev_metric = 0.0
+        self._prev_level = -1
+        self._sim_streak = 0
+        self._prev_pred = -1
+
+        self._window_size = 5
+        self._level_queue = deque()
+
+    @property
+    def epsilon(self) -> float:
+        return self._epsilon
+
+    @property
+    def window_size(self) -> int:
+        return self._window_size
+
+    def reset(self, num_labels: int, pred_rates: np.ndarray):
+        self._prev_metric = 0.0
+        self._prev_level = -1
+        self._prev_pred = -1
+        self._sim_streak = 0
+        self._level_queue = deque()
+
+    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
+        metrics = self.compute_metric(probs)
+        comp = np.greater(metrics, self.thresholds).astype(int)  # [2]
+        level = np.argmax(comp)
+
+        first_metric = metrics[0]
+        pred = np.argmax(probs[0])
+
+        #similarity_function = (self._prev_metric - self.thresholds[0])
+        #lower_bound = similarity_function * (1.0 - self.epsilon)
+        #upper_bound = similarity_function * (1.0 + self.epsilon)
+
+        #metric_diff = (first_metric - self.thresholds[0])
+
+        if (self._prev_pred == pred) or (abs(first_metric - self._prev_metric) < self.epsilon):
+            self._sim_streak += 1
+        else:
+            self._sim_streak = int(self._sim_streak / 2)
+
+        rand_prob = 1.0 - np.power(2.0, -1 * self._sim_streak)
+        rand_level = int(np.random.uniform() < self.rates[1])
+        should_use_random = (np.random.uniform() < rand_prob)
+
+        final_level = rand_level if should_use_random else level
+
+        #print('Prev Metric: {:.4f}, Current Metric: {:.4f}, Rand Prob: {:.4f}, Threshold: {:.4f}, Final Level: {}, Pred: {}'.format(self._prev_metric, first_metric, rand_prob, self.thresholds[0], final_level, pred))
+        #print('Metric Diff: {}, Bounds: ({}, {}), Rand Prob: {}'.format(metric_diff, lower_bound, upper_bound, rand_prob))
+
+        self._prev_metric = first_metric
+        self._prev_pred = pred
+        self._prev_level = level
+
+        if should_use_random:
+            return rand_level, SelectionType.RANDOM
+        else:
+            return level, SelectionType.POLICY
+
+
+class AdaptiveRandomMaxProb(AdaptiveRandomExit):
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_max_prob_metric(probs=probs)
@@ -691,7 +862,8 @@ class EvenThresholdExiter(ThresholdExiter):
         self._elevate_counter: Counter = Counter()
 
         self._level_window = deque()
-        self._window_size = 25
+        self._window_size = (self._horizon / 2)
+        self._rand_rate = 0.5
 
     @property
     def epsilon(self) -> float:
@@ -708,7 +880,10 @@ class EvenThresholdExiter(ThresholdExiter):
             self._elevate_counter[pred] += 1
             self._prior[first_pred, pred] += 1
 
-        #should_print = np.any(np.isclose(self._prob_adjustments, 1.0))
+        if self._prev_level != -1:
+            self._temporal_counts[level, self._prev_level] += 1
+
+        self._prev_level = level
 
         # Update the recent window
         self._level_window.append(level)
@@ -730,16 +905,11 @@ class EvenThresholdExiter(ThresholdExiter):
         elevate_diff = expected_elevate - elevate_count
         width = self.horizon * 2.0
 
-        #if should_print and (pred == np.argmax(self._prob_adjustments[0])):
-        #    print('Pred {}, Stay Count: {}, Elevate Count: {}, Expected Stay: {}, Expected Elevate: {}'.format(pred, stay_count, elevate_count, expected_stay, expected_elevate))
-
         self._prob_adjustments[0, pred] = linear_step(x=stay_diff, width=width, clip=1.0)
         self._prob_adjustments[1, pred] = linear_step(x=elevate_diff, width=width, clip=1.0)
 
     def get_prediction(self, probs: np.ndarray, level: int) -> Tuple[int, bool]:
         level_probs = probs[level]  # [K]
-        #adjusted_probs = level_probs + mask_non_max(self._prob_adjustments[level])  # [K]
-
         pred = np.argmax(level_probs)
 
         # Make sure the prediction does not go out of the hard bound
@@ -753,8 +923,6 @@ class EvenThresholdExiter(ThresholdExiter):
         if (level == 0) and (abs(expected_stay - (stay_count + 1)) > self.horizon):
             sorted_preds = np.argsort(level_probs)[::-1]
 
-            #print('Stay. Pred: {}, Stay Counts: {}, Elevate Counts: {}'.format(pred, self._stay_counter, self._elevate_counter))
-
             for i in range(1, len(sorted_preds)):
                 stay_count = self._stay_counter[sorted_preds[i]] + 1
                 total_count = stay_count + self._elevate_counter[sorted_preds[i]]
@@ -764,8 +932,6 @@ class EvenThresholdExiter(ThresholdExiter):
                     return sorted_preds[i], True
         elif (level == 1) and (abs(expected_elevate - (elevate_count + 1)) > self.horizon):
             sorted_preds = np.argsort(level_probs)[::-1]
-
-            #print('Elevate. Pred: {}, Stay Counts: {}, Elevate Counts: {}'.format(pred, self._stay_counter, self._elevate_counter))
 
             for i in range(1, len(sorted_preds)):
                 elevate_count = self._elevate_counter[sorted_preds[i]] + 1
@@ -777,44 +943,52 @@ class EvenThresholdExiter(ThresholdExiter):
 
         return pred, False
 
-        #pred = np.argmax(adjusted_probs)
-        #original_pred = np.argmax(level_probs)
-        #return pred, (pred != original_pred)
-
     def reset(self, num_labels: int, pred_rates: np.ndarray):
         self._stay_counter = Counter()
         self._elevate_counter = Counter()
         self._prior = np.eye(num_labels)
         self._prob_adjustments = np.zeros(shape=(2, num_labels))
+        self._temporal_counts = np.zeros(shape=(len(self.rates), len(self.rates)))
         self._num_labels = num_labels
+        self._prev_level = -1
 
     def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
         first_pred = np.argmax(probs[0])
         total_count = self._stay_counter[first_pred] + self._elevate_counter[first_pred] + 1
         stay_rate = (self._stay_counter[first_pred] + 1) / total_count
-        local_cost = abs(stay_rate - self.rates[0])
-
-        # Elevation Rate in the last W steps
-        num_elevated = sum(self._level_window) if len(self._level_window) > 0 else 0
-        expected_elevated = self.rates[1] * len(self._level_window)
-        global_rate = num_elevated / len(self._level_window) if len(self._level_window) > 0 else self.rates[1]
-        global_cost = abs(global_rate - self.rates[1])
-
-        # Total cost is the average over local and global terms
-        #stay_cost = 0.9 * local_cost + 0.1 * global_cost
+        stay_cost = abs(stay_rate - self.rates[0])
 
         # Compute the level from both data-dependent exiting and even-ness exiting
         # to mitigate timing attacks against this conditional behavior
         policy_level, _ = super().select_output(probs=probs)
         even_level = int(stay_rate > self.rates[0])
 
-        rand_rate = min(max(self.rates[1] - (global_rate - self.rates[1]), 0.01), 0.99)
-        rand_level = int(np.random.uniform() < rand_rate)
-        r = np.random.uniform()
-
         all_elevate = np.all(np.isclose(self._prob_adjustments[0], -1.0))
         all_stay = np.all(np.isclose(self._prob_adjustments[0], 1.0))
         even_bound = min((self.horizon - 2.0) / (total_count), self.epsilon)
+
+        r = np.random.uniform()
+        use_rand = (r < self._rand_rate)
+
+        obs_elev_rate = np.sum(self._level_window) / self._window_size if len(self._level_window) == self._window_size else self.rates[1]
+        rand_level_rate = (1.0 / self._rand_rate) * (self.rates[1] - (1.0 - self._rand_rate) * obs_elev_rate)
+        rand_level_rate = max(min(rand_level_rate, 1.0), 0.0)
+        #rand_level_rate = self.rates[1]
+        rand_level = int(np.random.uniform() < rand_level_rate)
+
+        # Use the consecutive rates to remove temporal correlations
+        #temporal_level = 0
+        #use_temporal = False
+
+        #if (self._prev_level != -1) and np.all(np.sum(self._temporal_counts, axis=-1) >= self.horizon):
+        #    normalized_temporal = self._temporal_counts / np.sum(self._temporal_counts, axis=-1, keepdims=True)
+        #    temporal_rates = normalized_temporal[self._prev_level]
+        #    margins = np.array([r * (1.0 + self.epsilon) for r in self.rates])
+
+        #    rate_diff = margins - temporal_rates
+        #    temporal_level = np.argmax(rate_diff)
+        #    use_temporal = np.any(rate_diff < 0)
+
         #global_bound = np.sqrt(self._window_size * self.rates[0] * self.rates[1])
 
         if self.rates[0] < SMALL_NUMBER:
@@ -825,9 +999,9 @@ class EvenThresholdExiter(ThresholdExiter):
             return 1, SelectionType.GREEDY
         elif all_stay:
             return 0, SelectionType.GREEDY
-        elif (r < 0.5):
+        elif use_rand:
             return rand_level, SelectionType.RANDOM
-        elif (local_cost < even_bound):
+        elif (stay_cost < even_bound):
             return policy_level, SelectionType.POLICY
         else:
             return even_level, SelectionType.GREEDY
@@ -985,6 +1159,9 @@ class EvenLabelThresholdExiter(LabelThresholdExiter):
 
             self._prob_adjustments[0, pred] = linear_step(x=stay_diff, width=width, clip=1.0)
             self._prob_adjustments[1, pred] = linear_step(x=elevate_diff, width=width, clip=1.0)
+
+
+
 
     def get_prediction(self, probs: np.ndarray, level: int) -> int:
         level_probs = probs[level]  # [K]
@@ -1218,12 +1395,16 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
     elif strategy == ExitStrategy.GREEDY_EVEN:
         return GreedyEvenExit(rates=rates)
     elif strategy == ExitStrategy.EVEN_MAX_PROB:
-        return EvenMaxProbExit(rates=rates, epsilon=0.001, horizon=10)
+        return EvenMaxProbExit(rates=rates, epsilon=0.01, horizon=10)
     elif strategy == ExitStrategy.EVEN_LABEL_MAX_PROB:
-        return EvenLabelMaxProbExit(rates=rates, epsilon=0.001, horizon=10)
+        return EvenLabelMaxProbExit(rates=rates, epsilon=0.01, horizon=10)
     elif strategy == ExitStrategy.BUFFERED_MAX_PROB:
         return BufferedMaxProb(rates=rates, window_size=10, epsilon=0.02, pred_window=50)
     elif strategy == ExitStrategy.DELAYED_MAX_PROB:
         return DelayedMaxProb(rates=rates, window_size=10, delay_prob=0.5)
+    elif strategy == ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB:
+        return AdaptiveRandomMaxProb(rates=rates, epsilon=0.05)
+    elif strategy == ExitStrategy.ROLLING_MAX_PROB:
+        return RollingMaxProb(rates=rates)
     else:
         raise ValueError('No policy {}'.format(strategy))

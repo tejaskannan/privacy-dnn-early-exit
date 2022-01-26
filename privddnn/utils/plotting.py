@@ -13,6 +13,7 @@ COLORS = {
     'label_max_prob': '#51b6c4',
     'hybrid_max_prob': '#225ea8',
     'random': 'black',
+    'fixed': '#8856a7',
     'entropy': '#9ebcda',
     'label_entropy': '#8c96c6',
     'hybrid_entropy': '#810f7c',
@@ -20,7 +21,9 @@ COLORS = {
     'even_max_prob': '#2c7fb8',
     'even_label_max_prob': '#253494',
     'buffered_max_prob': '#2c7fb8',
-    'delayed_max_prob': '#2c7fb8'
+    'delayed_max_prob': '#2c7fb8',
+    'adaptive_random_max_prob': 'red',
+    'rolling_max_prob': 'gray'
 }
 
 def to_label(name: str) -> str:

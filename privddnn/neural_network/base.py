@@ -3,13 +3,15 @@ import tensorflow.compat.v1 as tf1
 import numpy as np
 import math
 import os.path
+import json
+import hashlib
 from collections import OrderedDict
 from datetime import datetime
 from typing import Dict, Union, Any, Tuple, List, Iterable
 
 from privddnn.utils.file_utils import make_dir, save_json_gz, save_pickle_gz, read_pickle_gz
 from privddnn.classifier import OpName, ModelMode, BaseClassifier
-from .constants import PhName, MetaName, NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE, DECAY_PATIENCE
+from .constants import PhName, MetaName, NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE, DECAY_PATIENCE, ACTIVATION
 from .constants import LEARNING_RATE_DECAY, GRADIENT_CLIP, EARLY_STOP_PATIENCE, TRAIN_FRAC, DROPOUT_KEEP_RATE, STOP_RATES
 
 
@@ -37,11 +39,24 @@ class NeuralNetwork(BaseClassifier):
         self._is_model_made = False
         self._is_init = False
 
-        # Set random seeds to ensure reproducible results
-        self._rand = np.random.RandomState(seed=23789)
+        # Set random seeds to ensure reproducible results. Changing datasets,
+        # models, or hyperparameters will change the random seed.
+        hypers_json = json.dumps(self._hypers)
+
+        np_seed_string = '{}_{}_{}_numpy'.format(dataset_name, self.name, hypers_json)
+        np_seed_hash = hashlib.md5()
+        np_seed_hash.update(np_seed_string.encode('utf-8'))
+        np_seed = int(np_seed_hash.hexdigest(), 16) % 2**31
+
+        tf_seed_string = '{}_{}_{}_tensorflow'.format(dataset_name, self.name, hypers_json)
+        tf_seed_hash = hashlib.md5()
+        tf_seed_hash.update(tf_seed_string.encode('utf-8'))
+        tf_seed = int(tf_seed_hash.hexdigest(), 16) % 2**31
+
+        self._rand = np.random.RandomState(seed=np_seed)
 
         with self._sess.graph.as_default():
-            tf2.random.set_seed(389313)
+            tf2.random.set_seed(tf_seed)
 
     @property
     def name(self) -> str:
@@ -58,7 +73,8 @@ class NeuralNetwork(BaseClassifier):
             EARLY_STOP_PATIENCE: 2,
             DECAY_PATIENCE: 2,
             DROPOUT_KEEP_RATE: 0.8,
-            STOP_RATES: [0.5, 0.5]
+            STOP_RATES: [0.5, 0.5],
+            ACTIVATION: 'relu'
         }
 
     @property

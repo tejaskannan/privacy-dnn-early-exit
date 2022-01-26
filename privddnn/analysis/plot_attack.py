@@ -34,7 +34,7 @@ if __name__ == '__main__':
 
         rates = [round(r / 20.0, 2) for r in range(21)]
 
-        for policy_name, attack_results in attack_accuracy.items():
+        for policy_name, attack_results in attack_accuracy[args.dataset_order]['attack_test'].items():
             metric_results = [r[args.metric] for r in attack_results[args.attack_model]]
 
             print('{} & {:.5f} & {:.5f}'.format(policy_name, sum(metric_results) / len(metric_results), max(metric_results)))
