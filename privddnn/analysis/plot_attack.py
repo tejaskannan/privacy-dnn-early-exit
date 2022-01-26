@@ -14,12 +14,20 @@ if __name__ == '__main__':
     parser.add_argument('--test-log', type=str, required=True)
     parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2'])
     parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION, NAIVE_BAYES, MOST_FREQ, NGRAM])
+    parser.add_argument('--dataset-order', type=str, required=True)
+    parser.add_argument('--attack-train-log', type=str)
+    parser.add_argument('--train-policy', type=str, default='same')
     parser.add_argument('--output-file', type=str)
     args = parser.parse_args()
 
     # Read the attack accuracy
     test_log = read_json_gz(args.test_log)
-    attack_accuracy = test_log['attack_test']
+
+    attack_train_log = args.test_log if args.attack_train_log is None else args.attack_train_log
+    attack_train_log_name = os.path.basename(attack_train_log)
+
+    attack_key = '{}_{}'.format(attack_train_log_name.replace('_test-log.json.gz', ''), args.train_policy)
+    attack_accuracy = test_log[attack_key][args.dataset_order]['attack_test']
 
     with plt.style.context(PLOT_STYLE):
         fig, ax = plt.subplots()

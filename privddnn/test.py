@@ -109,7 +109,8 @@ if __name__ == '__main__':
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
-    strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB, ExitStrategy.BUFFERED_MAX_PROB]
+    #strategies = [ExitStrategy.RANDOM, ExitStrategy.MAX_PROB, ExitStrategy.BUFFERED_MAX_PROB]
+    strategies = [ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]

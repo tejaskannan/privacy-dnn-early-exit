@@ -33,10 +33,10 @@ if __name__ == '__main__':
     parser.add_argument('--test-log', type=str, required=True)
     args = parser.parse_args()
 
-    policy_name = 'random'
-    rate = '0.5'
-    test_log = read_json_gz(args.test_log)['val'][policy_name][rate][0]
-    n = 7
+    policy_name = 'delayed_max_prob'
+    rate = '0.6'
+    test_log = read_json_gz(args.test_log)['val'][policy_name][rate]['nearest-10']
+    n = 3
 
     output_levels = np.array(test_log['output_levels'])
     preds = np.array(test_log['preds'])
