@@ -447,176 +447,6 @@ class MaxProbExit(ThresholdExiter):
         return compute_max_prob_metric(probs=probs)
 
 
-class RollingExit(ThresholdExiter):
-
-    def __init__(self, rates: List[float]):
-        super().__init__(rates=rates)
-        self._level_queue = deque()
-        self._window_min = 5
-        self._window_max = 10
-
-        self._rand_min = 0.0
-        self._rand_max = 1.0
-
-        self._window_size = 0
-        self._num_to_elevate = 0
-        self._sim_streak = 0
-        self._prev_pred = -1
-
-    @property
-    def window_min(self) -> int:
-        return self._window_min
-
-    @property
-    def window_max(self) -> int:
-        return self._window_max
-
-    @property
-    def rand_min(self) -> float:
-        return self._rand_min
-
-    @property
-    def rand_max(self) -> float:
-        return self._rand_max
-
-    def reset(self, num_labels: int, pred_rates: np.ndarray):
-        self._level_queue = deque()
-        #self._sim_streak = 0
-        self._prev_pred = -1
-        self._window_size = np.random.randint(low=self.window_min + 1, high=self.window_max + 1)
-
-        int_part = int(self.rates[1] * self._window_size)
-        frac_part = (self.rates[1] * self._window_size) - int_part
-        self._num_to_elevate = int_part + int(np.random.uniform() < frac_part)
-
-    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
-        # TODO: Remove conditional logic to avoid timing attacks
-        if len(self._level_queue) == self._window_size:
-            self.reset(num_labels=0, pred_rates=None)
-            #print('==========')
-
-        metrics = self.compute_metric(probs)
-        first_metric = metrics[0]
-        pred = np.argmax(probs[0], axis=-1)
-        data_level = int(first_metric < self.thresholds[0])
-
-        num_remaining = self._window_size - len(self._level_queue)
-        level_sum = sum(self._level_queue) if len(self._level_queue) > 0 else 0
-        remaining_to_elevate = self._num_to_elevate - level_sum
-        rand_elev_rate = remaining_to_elevate / num_remaining
-        rand_level = int(np.random.uniform() < rand_elev_rate)
-
-        r = np.random.uniform()
-
-        if pred == self._prev_pred:
-            self._sim_streak += 1
-        else:
-            self._sim_streak = int(self._sim_streak / 2)
-
-        #expected_diff = abs((self.rates[1] * len(self._level_queue)) - level_sum)
-        rand_rate = (self.rand_max - self.rand_min) * (1.0 - np.power(2.0, -1 * self._sim_streak)) + self.rand_min
-
-        if remaining_to_elevate == 0:
-            level = 0
-            selection = SelectionType.GREEDY
-        elif num_remaining == remaining_to_elevate:
-            level = 1
-            selection = SelectionType.GREEDY
-        elif r < rand_rate:
-            level = rand_level
-            selection = SelectionType.RANDOM
-        else:
-            level = data_level
-            selection = SelectionType.POLICY
-
-        self._prev_pred = pred
-        #print('Level: {}, Selection Type: {}, Rand Elev Rate: {:.5f}, Rand Rate: {}'.format(level, selection, rand_elev_rate, rand_rate))
-
-        self._level_queue.append(level)
-        return level, selection
-
-
-class RollingMaxProb(RollingExit):
-
-    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
-        return compute_max_prob_metric(probs=probs)
-
-
-class AdaptiveRandomExit(ThresholdExiter):
-
-    def __init__(self, epsilon: float, rates: List[float]):
-        super().__init__(rates=rates)
-        assert epsilon >= 0.0 and epsilon <= 1.0, 'Epsilon must be in [0, 1]'
-        assert len(rates) == 2, 'Adaptive Random Exiting only works with 2-level models.'
-
-        self._epsilon = epsilon
-        self._prev_metric = 0.0
-        self._prev_level = -1
-        self._sim_streak = 0
-        self._prev_pred = -1
-
-        self._window_size = 5
-        self._level_queue = deque()
-
-    @property
-    def epsilon(self) -> float:
-        return self._epsilon
-
-    @property
-    def window_size(self) -> int:
-        return self._window_size
-
-    def reset(self, num_labels: int, pred_rates: np.ndarray):
-        self._prev_metric = 0.0
-        self._prev_level = -1
-        self._prev_pred = -1
-        self._sim_streak = 0
-        self._level_queue = deque()
-
-    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
-        metrics = self.compute_metric(probs)
-        comp = np.greater(metrics, self.thresholds).astype(int)  # [2]
-        level = np.argmax(comp)
-
-        first_metric = metrics[0]
-        pred = np.argmax(probs[0])
-
-        #similarity_function = (self._prev_metric - self.thresholds[0])
-        #lower_bound = similarity_function * (1.0 - self.epsilon)
-        #upper_bound = similarity_function * (1.0 + self.epsilon)
-
-        #metric_diff = (first_metric - self.thresholds[0])
-
-        if (self._prev_pred == pred) or (abs(first_metric - self._prev_metric) < self.epsilon):
-            self._sim_streak += 1
-        else:
-            self._sim_streak = int(self._sim_streak / 2)
-
-        rand_prob = 1.0 - np.power(2.0, -1 * self._sim_streak)
-        rand_level = int(np.random.uniform() < self.rates[1])
-        should_use_random = (np.random.uniform() < rand_prob)
-
-        final_level = rand_level if should_use_random else level
-
-        #print('Prev Metric: {:.4f}, Current Metric: {:.4f}, Rand Prob: {:.4f}, Threshold: {:.4f}, Final Level: {}, Pred: {}'.format(self._prev_metric, first_metric, rand_prob, self.thresholds[0], final_level, pred))
-        #print('Metric Diff: {}, Bounds: ({}, {}), Rand Prob: {}'.format(metric_diff, lower_bound, upper_bound, rand_prob))
-
-        self._prev_metric = first_metric
-        self._prev_pred = pred
-        self._prev_level = level
-
-        if should_use_random:
-            return rand_level, SelectionType.RANDOM
-        else:
-            return level, SelectionType.POLICY
-
-
-class AdaptiveRandomMaxProb(AdaptiveRandomExit):
-
-    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
-        return compute_max_prob_metric(probs=probs)
-
-
 class BufferedExiter(ThresholdExiter):
 
     def __init__(self, epsilon: float, rates: List[float], window_size: int, pred_window: int):
@@ -1107,6 +937,242 @@ class LabelEntropyExit(LabelThresholdExiter):
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_entropy_metric(probs=probs)
+
+
+class RollingExit(LabelThresholdExiter):
+
+    def __init__(self, rates: List[float]):
+        super().__init__(rates=rates)
+        self._level_queue = deque()
+        self._policy_decisions: List[int] = []
+        self._window_min = 5
+        self._window_max = 10
+
+        self._rand_min = 0.0
+        self._rand_max = 1.0
+
+        self._window_size = 0
+        self._num_to_elevate = 0
+        self._sim_streak = 0
+        self._prev_pred = -1
+
+        self._threshold_rates = np.arange(0.0, 1.01, 0.05)
+
+    @property
+    def window_min(self) -> int:
+        return self._window_min
+
+    @property
+    def window_max(self) -> int:
+        return self._window_max
+
+    @property
+    def rand_min(self) -> float:
+        return self._rand_min
+
+    @property
+    def rand_max(self) -> float:
+        return self._rand_max
+
+    def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
+        num_samples, num_outputs, num_labels = val_probs.shape
+
+        assert self.num_outputs == 2, 'Only supports 2 outputs'
+        assert num_outputs == self.num_outputs, 'Expected {} outputs. Got {}'.format(self.num_outputs, num_outputs)
+
+        # Initialize the thresholds once we have the true label count
+        self._thresholds = np.zeros(shape=(num_labels, len(self._threshold_rates)))
+
+        # Get the maximum probabilities from the first output
+        metrics = self.compute_metric(probs=val_probs)  # [B, L]
+        first_preds = np.argmax(val_probs[:, 0, :], axis=-1)  # [B]
+
+        # Get the max prob for each prediction of the first output
+        pred_distributions: DefaultDict[int, List[float]] = defaultdict(list)
+        for sample_idx in range(num_samples):
+            pred = first_preds[sample_idx]
+            pred_distributions[pred].append(metrics[sample_idx, 0])
+
+        # Set the thresholds according to the percentile in each prediction
+        for rate_idx, rate in enumerate(self._threshold_rates):
+            for pred, distribution in pred_distributions.items():
+                if np.isclose(rate, 0.0):
+                    t = 1.0 + SMALL_NUMBER
+                elif np.isclose(rate, 1.0):
+                    t = 0.0
+                else:
+                    t = np.quantile(distribution, q=(1.0 - rate))
+
+            self._thresholds[pred, rate_idx] = t
+
+    def reset(self, num_labels: int, pred_rates: np.ndarray):
+        self._level_queue = deque()
+        self._policy_decisions = []
+        #self._sim_streak = 0
+        self._prev_pred = -1
+        self._window_size = np.random.randint(low=self.window_min + 1, high=self.window_max + 1)
+
+        int_part = int(self.rates[1] * self._window_size)
+        frac_part = (self.rates[1] * self._window_size) - int_part
+        self._num_to_elevate = int_part + int(np.random.uniform() < frac_part)
+
+    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
+        # TODO: Remove conditional logic to avoid timing attacks
+        if len(self._level_queue) == self._window_size:
+            self.reset(num_labels=0, pred_rates=None)
+            #print('==========')
+
+        # Get the level from random exiting
+        num_remaining = self._window_size - len(self._level_queue)
+        level_sum = sum(self._level_queue) if len(self._level_queue) > 0 else 0
+        remaining_to_elevate = self._num_to_elevate - level_sum
+        rand_elev_rate = remaining_to_elevate / num_remaining
+        rand_level = int(np.random.uniform() < rand_elev_rate)
+
+        # Get the threshold index based on the randomness elevation rate
+        target_exit_rate = rand_elev_rate
+        threshold_idx = np.argmin(np.abs(self._threshold_rates - target_exit_rate))
+
+        metrics = self.compute_metric(probs)
+        first_metric = metrics[0]
+        pred = np.argmax(probs[0], axis=-1)
+        data_level = int(first_metric < self._thresholds[pred, threshold_idx])
+        self._policy_decisions.append(data_level)
+
+        num_remaining = self._window_size - len(self._level_queue)
+        level_sum = sum(self._level_queue) if len(self._level_queue) > 0 else 0
+        remaining_to_elevate = self._num_to_elevate - level_sum
+        rand_elev_rate = remaining_to_elevate / num_remaining
+        rand_level = int(np.random.uniform() < rand_elev_rate)
+
+        r = np.random.uniform()
+
+        #if pred == self._prev_pred:
+        #    self._sim_streak += 1
+        #else:
+        #    self._sim_streak = int(self._sim_streak / 2)
+
+        policy_num_elevate = sum(self._policy_decisions)
+        expected_diff = abs((self.rates[1] * len(self._policy_decisions)) - policy_num_elevate)
+        rand_rate = (self.rand_max - self.rand_min) * (1.0 - np.power(2.0, -1 * expected_diff)) + self.rand_min
+
+        if remaining_to_elevate == 0:
+            level = 0
+            selection = SelectionType.GREEDY
+        elif num_remaining == remaining_to_elevate:
+            level = 1
+            selection = SelectionType.GREEDY
+        elif r < rand_rate:
+            level = rand_level
+            selection = SelectionType.RANDOM
+        else:
+            level = data_level
+            selection = SelectionType.POLICY
+
+        self._prev_pred = pred
+        #print('Level: {}, Selection Type: {}, Rand Elev Rate: {:.5f}, Rand Rate: {}'.format(level, selection, rand_elev_rate, rand_rate))
+
+        self._level_queue.append(level)
+        return level, selection
+
+
+class RollingMaxProb(RollingExit):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_max_prob_metric(probs=probs)
+
+
+class AdaptiveRandomExit(LabelThresholdExiter):
+
+    def __init__(self, epsilon: float, rates: List[float]):
+        super().__init__(rates=rates)
+        assert epsilon >= 0.0 and epsilon <= 1.0, 'Epsilon must be in [0, 1]'
+        assert len(rates) == 2, 'Adaptive Random Exiting only works with 2-level models.'
+
+        self._epsilon = epsilon
+
+        self._horizon_min = 5
+        self._horizon_max = 15
+
+        self._fwd_horizon = 0
+        self._bwd_horizon = 0
+
+        self._adaptive_elevation_rate = self.rates[1]
+        self._rand_rate = 0.5
+        self._rand_counter_limit = 5
+        self._rand_counter = 0
+        
+        self._level_queue = deque()
+
+    @property
+    def epsilon(self) -> float:
+        return self._epsilon
+
+    @property
+    def window_size(self) -> int:
+        return self._window_size
+
+    def reset(self, num_labels: int, pred_rates: np.ndarray):
+        self._fwd_horizon = 0
+        self._bwd_horizon = 0
+        self._rand_rate = 0.5
+        self._rand_counter = 0
+        self._adaptive_elevation_rate = self.rates[1]
+        self._level_queue = deque()
+
+    def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
+        metrics = self.compute_metric(probs)
+        first_metric = metrics[0]
+        first_pred = np.argmax(probs[0])
+        level = int(first_metric < self.get_threshold(label=first_pred, level=0))
+
+        first_metric = metrics[0]
+        pred = np.argmax(probs[0])
+
+        # Get the forward and backward horizion values via random sampling
+        self._fwd_horizon = np.random.randint(low=self._horizon_min, high=self._horizon_max + 1, dtype=int)
+        self._bwd_horizon = np.random.randint(low=self._horizon_min, high=self._horizon_max + 1, dtype=int)
+
+        # Set the randomness rate based on the difference between observed
+        # and expected elevation rates
+        bwd_decisions = list(self._level_queue)[0:self._bwd_horizon]
+        num_elevated = sum(bwd_decisions) if len(bwd_decisions) > 0 else 0
+        expected_elevated = self.rates[1] * len(bwd_decisions)
+        expected_diff = abs(expected_elevated - num_elevated)
+
+        rand_rate = 1.0 - np.power(2.0, -1 * expected_diff)
+
+        # Set the randomness elevation fraction based on the observed
+        # rates over the previous window
+        elevation_quota = self.rates[1] * (len(bwd_decisions) + self._fwd_horizon)
+        remaining_to_elevate = max(elevation_quota - num_elevated, 0)
+        adaptive_elevation_rate = remaining_to_elevate / self._fwd_horizon
+
+        self._rand_counter += 1
+
+        if self._rand_counter == self._rand_counter_limit:
+            self._rand_rate = rand_rate
+            self._adaptive_elevation_rate = adaptive_elevation_rate
+            self._rand_counter = 0
+
+        should_use_random = (np.random.uniform() < self._rand_rate)
+        rand_level = int(np.random.uniform() < self._adaptive_elevation_rate)
+
+        # Add the data-dependent decision to the level queue
+        self._level_queue.append(level)
+        while len(self._level_queue) > self._horizon_max:
+            self._level_queue.popleft()
+
+        if should_use_random:
+            return rand_level, SelectionType.RANDOM
+        else:
+            return level, SelectionType.POLICY
+
+
+class AdaptiveRandomMaxProb(AdaptiveRandomExit):
+
+    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
+        return compute_max_prob_metric(probs=probs)
 
 
 class EvenLabelThresholdExiter(LabelThresholdExiter):
