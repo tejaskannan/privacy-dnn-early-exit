@@ -923,8 +923,9 @@ class LabelThresholdExiter(EarlyExiter):
 
         # Get the metric on the first prediction
         metric = self.compute_metric(first_probs)
+        level = int(metric < t)
 
-        return int(metric < t), SelectionType.POLICY
+        return level, SelectionType.POLICY
 
 
 class LabelMaxProbExit(LabelThresholdExiter):
@@ -1039,22 +1040,12 @@ class RollingExit(LabelThresholdExiter):
         data_level = int(first_metric < self._thresholds[pred, threshold_idx])
         self._policy_decisions.append(data_level)
 
-        num_remaining = self._window_size - len(self._level_queue)
-        level_sum = sum(self._level_queue) if len(self._level_queue) > 0 else 0
-        remaining_to_elevate = self._num_to_elevate - level_sum
-        rand_elev_rate = remaining_to_elevate / num_remaining
-        rand_level = int(np.random.uniform() < rand_elev_rate)
-
         r = np.random.uniform()
-
-        #if pred == self._prev_pred:
-        #    self._sim_streak += 1
-        #else:
-        #    self._sim_streak = int(self._sim_streak / 2)
 
         policy_num_elevate = sum(self._policy_decisions)
         expected_diff = abs((self.rates[1] * len(self._policy_decisions)) - policy_num_elevate)
-        rand_rate = (self.rand_max - self.rand_min) * (1.0 - np.power(2.0, -1 * expected_diff)) + self.rand_min
+        #rand_rate = (self.rand_max - self.rand_min) * (1.0 - np.power(2.0, -1 * expected_diff)) + self.rand_min
+        rand_rate = 0.5
 
         if remaining_to_elevate == 0:
             level = 0
@@ -1138,9 +1129,10 @@ class AdaptiveRandomExit(LabelThresholdExiter):
         bwd_decisions = list(self._level_queue)[0:self._bwd_horizon]
         num_elevated = sum(bwd_decisions) if len(bwd_decisions) > 0 else 0
         expected_elevated = self.rates[1] * len(bwd_decisions)
-        expected_diff = abs(expected_elevated - num_elevated)
+        expected_diff = abs(expected_elevated - num_elevated) / 2.0
 
-        rand_rate = 1.0 - np.power(2.0, -1 * expected_diff)
+        #rand_rate = 1.0 - np.power(2.0, -1 * expected_diff)
+        rand_rate = 0.25
 
         # Set the randomness elevation fraction based on the observed
         # rates over the previous window
@@ -1225,9 +1217,6 @@ class EvenLabelThresholdExiter(LabelThresholdExiter):
 
             self._prob_adjustments[0, pred] = linear_step(x=stay_diff, width=width, clip=1.0)
             self._prob_adjustments[1, pred] = linear_step(x=elevate_diff, width=width, clip=1.0)
-
-
-
 
     def get_prediction(self, probs: np.ndarray, level: int) -> int:
         level_probs = probs[level]  # [K]
