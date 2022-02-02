@@ -12,6 +12,7 @@ from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metr
 from privddnn.utils.np_utils import mask_non_max
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.file_utils import read_json
+from privddnn.utils.exit_utils import get_adaptive_elevation_bounds, triangle_wave
 from privddnn.controllers.runtime_controller import RandomnessController
 from .even_optimizer import fit_thresholds, fit_threshold_randomization
 from .prob_optimizer import fit_prob_thresholds
@@ -949,8 +950,8 @@ class RollingExit(LabelThresholdExiter):
         self._window_min = 5
         self._window_max = 10
 
-        self._rand_min = 0.0
-        self._rand_max = 1.0
+        self._rand_min = 0.5
+        self._rand_max = 0.75
 
         self._window_size = 0
         self._num_to_elevate = 0
@@ -1081,84 +1082,85 @@ class AdaptiveRandomExit(LabelThresholdExiter):
         assert len(rates) == 2, 'Adaptive Random Exiting only works with 2-level models.'
 
         self._epsilon = epsilon
-
-        self._horizon_min = 5
-        self._horizon_max = 15
-
-        self._fwd_horizon = 0
-        self._bwd_horizon = 0
-
-        self._adaptive_elevation_rate = self.rates[1]
-        self._rand_rate = 0.5
-        self._rand_counter_limit = 5
-        self._rand_counter = 0
-        
+        self._window_min = 10
+        self._window_max = 20
         self._level_queue = deque()
 
     @property
     def epsilon(self) -> float:
         return self._epsilon
 
-    @property
-    def window_size(self) -> int:
-        return self._window_size
-
     def reset(self, num_labels: int, pred_rates: np.ndarray):
-        self._fwd_horizon = 0
-        self._bwd_horizon = 0
-        self._rand_rate = 0.5
-        self._rand_counter = 0
-        self._adaptive_elevation_rate = self.rates[1]
+        self._time_step = 0
+        self._window = np.random.randint(low=self._window_min, high=self._window_max + 1)
+
         self._level_queue = deque()
+        int_part = int(self.rates[1] * self._window)
+        frac_part = (self.rates[1] * self._window) - int_part
+        self._num_to_elevate = int_part + int(np.random.uniform() < frac_part)
 
     def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
         metrics = self.compute_metric(probs)
         first_metric = metrics[0]
         first_pred = np.argmax(probs[0])
-        level = int(first_metric < self.get_threshold(label=first_pred, level=0))
 
-        first_metric = metrics[0]
-        pred = np.argmax(probs[0])
+        threshold = self.get_threshold(label=first_pred, level=0)
 
-        # Get the forward and backward horizion values via random sampling
-        self._fwd_horizon = np.random.randint(low=self._horizon_min, high=self._horizon_max + 1, dtype=int)
-        self._bwd_horizon = np.random.randint(low=self._horizon_min, high=self._horizon_max + 1, dtype=int)
+        min_rate, max_rate = get_adaptive_elevation_bounds(self.rates[1], epsilon=self.epsilon)
+        metric_gap = abs(threshold - first_metric)
 
-        # Set the randomness rate based on the difference between observed
-        # and expected elevation rates
-        bwd_decisions = list(self._level_queue)[0:self._bwd_horizon]
-        num_elevated = sum(bwd_decisions) if len(bwd_decisions) > 0 else 0
-        expected_elevated = self.rates[1] * len(bwd_decisions)
-        expected_diff = abs(expected_elevated - num_elevated) / 2.0
+        upper_gap = max_rate - self.rates[1]
+        lower_gap = self.rates[1] - min_rate
 
-        #rand_rate = 1.0 - np.power(2.0, -1 * expected_diff)
-        rand_rate = 0.25
+        #shift = (self.epsilon / 2.0) * np.sin(((2 * np.pi) / self._window) * self._time_step)
+        #shift = triangle_wave(step=self._time_step,
+        #                      window=self._window,
+        #                      amplitude=(self.epsilon / 2.0))
 
-        # Set the randomness elevation fraction based on the observed
-        # rates over the previous window
-        elevation_quota = self.rates[1] * (len(bwd_decisions) + self._fwd_horizon)
-        remaining_to_elevate = max(elevation_quota - num_elevated, 0)
-        adaptive_elevation_rate = remaining_to_elevate / self._fwd_horizon
-
-        self._rand_counter += 1
-
-        if self._rand_counter == self._rand_counter_limit:
-            self._rand_rate = rand_rate
-            self._adaptive_elevation_rate = adaptive_elevation_rate
-            self._rand_counter = 0
-
-        should_use_random = (np.random.uniform() < self._rand_rate)
-        rand_level = int(np.random.uniform() < self._adaptive_elevation_rate)
-
-        # Add the data-dependent decision to the level queue
-        self._level_queue.append(level)
-        while len(self._level_queue) > self._horizon_max:
-            self._level_queue.popleft()
-
-        if should_use_random:
-            return rand_level, SelectionType.RANDOM
+        if np.isclose(self.rates[1], 1.0):
+            elev_prob = 1.0
+        elif np.isclose(self.rates[1], 0.0):
+            elev_prob = 0.0
+        elif first_metric < threshold:
+            elev_prob = max_rate
         else:
-            return level, SelectionType.POLICY
+            elev_prob = min_rate
+
+        # Get the remaining number of elements to elevate
+        num_remaining = self._window - len(self._level_queue)
+        level_sum = sum(self._level_queue) if len(self._level_queue) > 0 else 0
+        remaining_to_elevate = self._num_to_elevate - level_sum
+
+        level = int(np.random.uniform() < elev_prob)
+        
+        if remaining_to_elevate == 0:
+            level = 0
+        elif remaining_to_elevate == num_remaining:
+            level = 1
+
+        self._level_queue.append(level)
+        self._time_step += 1
+
+        if (self._time_step % self._window) == 0:
+            self._window = np.random.randint(low=self._window_min, high=self._window_max + 1)
+            self._level_queue = deque()
+
+            int_part = int(self.rates[1] * self._window)
+            frac_part = (self.rates[1] * self._window) - int_part
+            self._num_to_elevate = int_part + int(np.random.uniform() < frac_part)
+
+        #elif np.isclose(threshold, 1.0) or np.isclose(threshold, 0.0):
+        #    elev_prob = self.rates[1]
+        #elif first_metric < threshold:
+        #    normalized_gap = metric_gap / threshold
+        #    elev_prob = self.rates[1] * (1.0 - normalized_gap) + max_rate * normalized_gap
+        #else:
+        #    normalized_gap = metric_gap / (1.0 - threshold)
+        #    elev_prob = self.rates[1] * (1.0 - normalized_gap) + min_rate * normalized_gap
+
+        #level = int(np.random.uniform() < elev_prob)
+
+        return level, SelectionType.POLICY
 
 
 class AdaptiveRandomMaxProb(AdaptiveRandomExit):
@@ -1458,7 +1460,7 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
     elif strategy == ExitStrategy.DELAYED_MAX_PROB:
         return DelayedMaxProb(rates=rates, window_size=10, delay_prob=0.5)
     elif strategy == ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB:
-        return AdaptiveRandomMaxProb(rates=rates, epsilon=0.05)
+        return AdaptiveRandomMaxProb(rates=rates, epsilon=0.25)
     elif strategy == ExitStrategy.ROLLING_MAX_PROB:
         return RollingMaxProb(rates=rates)
     else:
