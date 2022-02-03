@@ -7,6 +7,7 @@ from .base import NeuralNetwork
 from .branchynet_cnn import BranchyNetCNN, BranchyNetCNNSmall
 from .branchynet_dnn import BranchyNetDNN, BranchyNetDNNSmall
 from .anytime_cnn import AnytimeCNN
+from .cnn1d import BranchyNet1dCNN
 from .independent_cnn import IndependentCNN
 
 
@@ -25,6 +26,8 @@ def get_model_class(name: str) -> Type[NeuralNetwork]:
         return BranchyNetDNN
     elif name == 'branchynet-dnn-small':
         return BranchyNetDNNSmall
+    elif name == 'branchynet-1dcnn':
+        return BranchyNet1dCNN
     else:
         raise ValueError('Unknown neural network with name: {}'.format(name))
 

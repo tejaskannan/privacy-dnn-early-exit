@@ -27,8 +27,8 @@ if __name__ == '__main__':
         counts[curr_level, prev_level] += 1
 
 
-    print(log_results['output_levels'][100:125])
-    print(log_results['preds'][100:125])
+   # print(log_results['output_levels'][100:125])
+   # print(log_results['preds'][100:125])
 
     normalized_counts = counts / np.sum(counts, axis=-1, keepdims=True)
     print('Rates: {}'.format(normalized_counts))

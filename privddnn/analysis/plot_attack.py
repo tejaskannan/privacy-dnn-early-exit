@@ -34,10 +34,10 @@ if __name__ == '__main__':
 
         rates = [round(r / 20.0, 2) for r in range(21)]
 
-        for policy_name, attack_results in attack_accuracy[args.dataset_order]['attack_test'].items():
+        for policy_name, attack_results in attack_accuracy.items():
             metric_results = [r[args.metric] for r in attack_results[args.attack_model]]
 
-            print('{} & {:.5f} & {:.5f}'.format(policy_name, sum(metric_results) / len(metric_results), max(metric_results)))
+            print('{} & {:.4f} & {:.4f}'.format(policy_name, sum(metric_results) / len(metric_results), max(metric_results)))
 
             # The given rates are the fraction stopping at the first output (which makes the axes confusing)
             xs = [1.0 - float(r) for r in rates]

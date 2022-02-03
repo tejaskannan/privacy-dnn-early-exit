@@ -1081,18 +1081,28 @@ class AdaptiveRandomExit(LabelThresholdExiter):
         assert epsilon >= 0.0 and epsilon <= 1.0, 'Epsilon must be in [0, 1]'
         assert len(rates) == 2, 'Adaptive Random Exiting only works with 2-level models.'
 
-        self._epsilon = epsilon
-        self._window_min = 10
+        self._epsilon = 0.5
+        self._window_min = 5
         self._window_max = 20
         self._level_queue = deque()
+        self._prev_pred = -1
 
     @property
     def epsilon(self) -> float:
         return self._epsilon
 
+    def increase_epsilon(self):
+        self._epsilon *= 2.0
+        self._epsilon = min(self._epsilon, 0.5)
+
+    def decrease_epsilon(self):
+        self._epsilon *= 0.9
+
     def reset(self, num_labels: int, pred_rates: np.ndarray):
         self._time_step = 0
         self._window = np.random.randint(low=self._window_min, high=self._window_max + 1)
+        self._epsilon = 0.5
+        self._prev_pred = -1
 
         self._level_queue = deque()
         int_part = int(self.rates[1] * self._window)
@@ -1105,6 +1115,17 @@ class AdaptiveRandomExit(LabelThresholdExiter):
         first_pred = np.argmax(probs[0])
 
         threshold = self.get_threshold(label=first_pred, level=0)
+
+        # Get the remaining number of elements to elevate
+        num_remaining = self._window - len(self._level_queue)
+        level_sum = sum(self._level_queue) if len(self._level_queue) > 0 else 0
+        remaining_to_elevate = self._num_to_elevate - level_sum
+        remaining_elev_rate = remaining_to_elevate / num_remaining if num_remaining > 0 else 0.0
+
+        if first_pred == self._prev_pred:
+            self.decrease_epsilon()
+        else:
+            self.increase_epsilon()
 
         min_rate, max_rate = get_adaptive_elevation_bounds(self.rates[1], epsilon=self.epsilon)
         metric_gap = abs(threshold - first_metric)
@@ -1125,11 +1146,6 @@ class AdaptiveRandomExit(LabelThresholdExiter):
             elev_prob = max_rate
         else:
             elev_prob = min_rate
-
-        # Get the remaining number of elements to elevate
-        num_remaining = self._window - len(self._level_queue)
-        level_sum = sum(self._level_queue) if len(self._level_queue) > 0 else 0
-        remaining_to_elevate = self._num_to_elevate - level_sum
 
         level = int(np.random.uniform() < elev_prob)
         
@@ -1159,6 +1175,8 @@ class AdaptiveRandomExit(LabelThresholdExiter):
         #    elev_prob = self.rates[1] * (1.0 - normalized_gap) + min_rate * normalized_gap
 
         #level = int(np.random.uniform() < elev_prob)
+
+        self._prev_pred = first_pred
 
         return level, SelectionType.POLICY
 

@@ -25,8 +25,10 @@ if __name__ == '__main__':
                 value = results[args.dataset_order][args.field]
             elif args.field == 'exit_rate':
                 value = np.sum([(level ^ 1) for level in results[args.dataset_order]['output_levels']])
+            elif args.field == 'elev_rate':
+                value = np.sum(results[args.dataset_order]['output_levels'])
             else:
-                value = results[args.dataset_order]['selection_counts'][args.field.upper()]
+                value = results[args.dataset_order]['selection_counts'].get(args.field.upper(), 0)
 
             field_values.append(value / num_samples)
             exit_rates.append(rate)
