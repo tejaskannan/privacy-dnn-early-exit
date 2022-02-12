@@ -24,6 +24,32 @@ def get_activation_fn(name: str) -> Optional[Callable[[tf2.Tensor], tf2.Tensor]]
         raise ValueError('No activation function with name: {}'.format(name))
 
 
+def batch_normalization(inputs: tf2.Tensor, name: str) -> tf2.Tensor:
+    num_channels = inputs.get_shape()[-1]
+
+    with tf1.variable_scope(name):
+        mean, variance = tf2.nn.moments(x=inputs, axes=[0, 1, 2], keepdims=True)
+
+        offset = tf1.get_variable(name='offset',
+                                  shape=(num_channels, ),
+                                  initializer=tf2.random_normal_initializer(),
+                                  dtype=inputs.dtype,
+                                  trainable=True)
+
+        scale = tf1.get_variable(name='scale',
+                                 shape=(num_channels, ),
+                                 initializer=tf2.random_normal_initializer(),
+                                 dtype=inputs.dtype,
+                                 trainable=True)
+
+        return tf2.nn.batch_normalization(x=inputs,
+                                          mean=mean,
+                                          variance=variance,
+                                          offset=offset,
+                                          scale=scale,
+                                          variance_epsilon=SMALL_NUMBER)
+
+
 @tf2.custom_gradient
 def differentiable_abs(x: tf2.Tensor) -> tf2.Tensor:
 

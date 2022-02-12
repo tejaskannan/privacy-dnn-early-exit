@@ -12,7 +12,8 @@ if __name__ == '__main__':
     parser.add_argument('--model-name', type=str, help='Name of the neural network model to train.', required=True)
     parser.add_argument('--dataset-name', type=str, help='Name of the dataset.', required=True)
     parser.add_argument('--hypers-path', type=str, help='Optional JSON file to override hyperparameters.')
-    parser.add_argument('--save-folder', type=str, default='saved_models', help='Folder in which to save the results')
+    parser.add_argument('--save-folder', type=str, default='saved_models', help='Folder in which to save the results.')
+    parser.add_argument('--should-print', action='store_true', help='Whether to print out training information.')
     args = parser.parse_args()
 
     # Extract hyper-parameters path
@@ -20,4 +21,4 @@ if __name__ == '__main__':
     hypers: OrderedDict = read_json(hypers_path) if len(hypers_path) > 0 and os.path.exists(hypers_path) else OrderedDict()
 
     dnn: NeuralNetwork = make_model(name=args.model_name, dataset_name=args.dataset_name, hypers=hypers)
-    dnn.train(save_folder=args.save_folder, model_mode=ModelMode.TRAIN)
+    dnn.train(save_folder=args.save_folder, model_mode=ModelMode.TRAIN, should_print=args.should_print)

@@ -1,10 +1,10 @@
-import tensorflow as tf2
-import tensorflow.compat.v1 as tf1
 import numpy as np
+from tensorflow.keras.layers import Input, Conv2D, Dense, Flatten, MaxPool2D, Dropout, Layer, BatchNormalization
+from typing import List
 
 from privddnn.classifier import ModelMode
+from .constants import DROPOUT_KEEP_RATE
 from .early_exit_dnn import EarlyExitNeuralNetwork
-from .layers import conv2d, dense, dropout, fitnet_block
 
 
 class BranchyNetCNN(EarlyExitNeuralNetwork):
@@ -17,97 +17,27 @@ class BranchyNetCNN(EarlyExitNeuralNetwork):
     def num_outputs(self) -> int:
         return 2
 
-    def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf2.Tensor, num_labels: int, model_mode: ModelMode) -> tf2.Tensor:
-        is_fine_tune = (model_mode == ModelMode.FINE_TUNE)
-        is_train = (model_mode == ModelMode.TRAIN)
+    def make_model(self, inputs: Input, num_labels: int, model_mode: ModelMode) -> List[Layer]:
+        dropout_keep_rate = 1.0 if model_mode == ModelMode.TEST else self.hypers[DROPOUT_KEEP_RATE]
 
-        if is_fine_tune:
-            inputs = self.perturb_inputs(inputs=inputs)
+        conv0 = Conv2D(filters=8, kernel_size=3, activation='relu')(inputs)
+        batchnorm0 = BatchNormalization()(conv0)
+        pooled0 = MaxPool2D(pool_size=(2, 2), strides=(1, 1))(batchnorm0)
 
-        # Create the convolution blocks
-        conv1_block, _, _ = fitnet_block(inputs=inputs, num_filters=16, pool_size=4, pool_stride=2, trainable=is_train, name='block1')
-        conv2_block, conv2_interm, _ = fitnet_block(inputs=conv1_block, num_filters=16, pool_size=4, pool_stride=2, trainable=is_train, name='block2')
-        conv3_block, _, _ = fitnet_block(inputs=conv2_block, num_filters=12, pool_size=2, pool_stride=1, trainable=is_train, name='block3')
+        conv1 = Conv2D(filters=64, kernel_size=3, strides=(2, 2), activation='relu')(pooled0)
+        batchnorm1 = BatchNormalization()(conv1)
 
-        # Create the first output layer. We use global average pooling here to reduce the number of parameters
-        flattened_one = tf2.reduce_mean(conv2_interm, axis=[1, 2])  # [B, C]
-        output_one = dense(inputs=flattened_one,
-                           output_units=num_labels,
-                           use_dropout=False,
-                           dropout_keep_rate=dropout_keep_rate,
-                           activation='linear',
-                           trainable=is_train,
-                           name='output1')  # [B, K]
+        conv2 = Conv2D(filters=32, kernel_size=3, strides=(2, 2), activation='relu')(batchnorm1)
+        batchnorm2 = BatchNormalization()(conv2)
 
-        # Create the second output layer by first flattening out the pixels
-        conv3_block_shape = conv3_block.get_shape()
-        flattened_two = tf2.reshape(conv3_block, (-1, np.prod(conv3_block_shape[1:])))
+        pooled2 = MaxPool2D(pool_size=(2, 2), strides=(1, 1))(batchnorm2)
 
-        output_two = dense(inputs=flattened_two,
-                           output_units=num_labels,
-                           use_dropout=False,
-                           dropout_keep_rate=dropout_keep_rate,
-                           activation='linear',
-                           trainable=is_train,
-                           name='output2')  # [B, K]
+        flattened0 = Flatten()(pooled0)
+        output0 = Dense(10, activation='softmax', name='output0')(flattened0)
 
-        # Stack the logits together
-        output_one = tf2.expand_dims(output_one, axis=1)  # [B, 1, K]
-        output_two = tf2.expand_dims(output_two, axis=1)  # [B, 1, K]
+        flattened2 = Flatten()(pooled2)
+        output1_hidden = Dense(128, activation='relu')(flattened2)
+        output1 = Dense(10, activation='softmax', name='output1')(output1_hidden)
 
-        logits = tf2.concat([output_one, output_two], axis=1)  # [B, 2, K]
-        return logits
+        return [output0, output1]
 
-
-class BranchyNetCNNSmall(EarlyExitNeuralNetwork):
-
-    @property
-    def name(self) -> str:
-        return 'branchynet-cnn-small'
-
-    @property
-    def num_outputs(self) -> int:
-        return 2
-
-    def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf2.Tensor, num_labels: int, model_mode: ModelMode) -> tf2.Tensor:
-        is_fine_tune = (model_mode == ModelMode.FINE_TUNE)
-
-        # Create the convolution blocks
-        conv1_block, _, _ = fitnet_block(inputs=inputs, num_filters=8, pool_size=4, pool_stride=2, name='block1', trainable=True)
-        #conv2_block, conv2_interm, _ = fitnet_block(inputs=conv1_block, num_filters=6, pool_size=4, pool_stride=2, name='block2')
-        conv2_block, _, _ = fitnet_block(inputs=conv1_block, num_filters=8, pool_size=2, pool_stride=1, name='block2', trainable=True)
-
-        # Create the first output layer. We use global average pooling here to reduce the number of parameters
-        flattened_one = tf2.reduce_mean(conv1_block, axis=[1, 2])  # [B, C]
-        output_one = dense(inputs=flattened_one,
-                           output_units=num_labels,
-                           use_dropout=False,
-                           dropout_keep_rate=dropout_keep_rate,
-                           activation='linear',
-                           trainable=True,
-                           name='output1')  # [B, K]
-
-        # Create the second output layer by first flattening out the pixels
-        conv2_block_shape = conv2_block.get_shape()
-        flattened_two = tf2.reshape(conv2_block, (-1, np.prod(conv2_block_shape[1:])))
-
-        output_two = dense(inputs=flattened_two,
-                           output_units=num_labels,
-                           use_dropout=False,
-                           dropout_keep_rate=dropout_keep_rate,
-                           activation='linear',
-                           trainable=True,
-                           name='output2')  # [B, K]
-
-        # Stack the logits together
-        output_one = tf2.expand_dims(output_one, axis=1)  # [B, 1, K]
-        output_two = tf2.expand_dims(output_two, axis=1)  # [B, 1, K]
-
-        logits = tf2.concat([output_one, output_two], axis=1)  # [B, 2, K]
-
-        if is_fine_tune:
-            logits = tf2.stop_gradient(logits)
-
-        #self.create_stop_layer(logits=logits)
-
-        return logits

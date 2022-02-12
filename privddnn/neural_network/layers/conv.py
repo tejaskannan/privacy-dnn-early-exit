@@ -91,6 +91,59 @@ def bottleneck_block(inputs: tf2.Tensor, filter_size: int, filter_stride: int, c
         return tf2.add(contracted, residual)
 
 
+def conv1d(inputs: tf2.Tensor,
+           num_filters: int,
+           filter_size: int,
+           stride: int,
+           activation: str,
+           name: str,
+           trainable: bool) -> tf2.Tensor:
+    """
+    Creates 1d convolutional neural network layer
+
+    Args:
+        inputs: A [B, T, D] tensor of input features
+        filter_size: The height and width of each filter
+        num_filters: The number of output filters (K)
+        stride: The stride to use when convolving
+        activation: The name of the activaton function
+        name: The name of this layer
+    """
+    input_shape = inputs.get_shape()
+    ndims = len(input_shape)
+
+    assert ndims == 3, 'Must provide an input with 3 dimensions. Got: {}'.format(ndims)
+
+    input_channels = input_shape[-1]
+    with tf1.variable_scope(name):
+        # Create the trainable variables
+        filters = tf1.get_variable(shape=[filter_size, input_channels, num_filters],
+                                   dtype=inputs.dtype,
+                                   initializer=tf1.glorot_uniform_initializer(),
+                                   trainable=trainable,
+                                   name='filters')
+
+        bias = tf1.get_variable(shape=[1, 1, num_filters],
+                                dtype=inputs.dtype,
+                                initializer=tf1.glorot_uniform_initializer(),
+                                trainable=trainable,
+                                name='bias')
+
+        # Apply the convolution filters
+        conv_transformed = tf2.nn.conv1d(input=inputs,
+                                         filters=filters,
+                                         stride=stride,
+                                         padding='SAME')
+
+        conv_transformed = tf2.add(conv_transformed, bias)
+
+        # Apply the activation function if needed
+        activation_fn = get_activation_fn(activation)
+        transformed = activation_fn(conv_transformed) if activation_fn is not None else conv_transformed
+
+        return transformed
+
+
 def conv2d(inputs: tf2.Tensor,
            num_filters: int,
            filter_size: int,

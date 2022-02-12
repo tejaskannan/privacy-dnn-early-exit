@@ -50,6 +50,6 @@ def dense(inputs: Union[tf2.Tensor, tf1.placeholder],
 
         # Apply drppout if needed
         if use_dropout:
-            return dropout(transformed, keep_rate=dropout_keep_rate)
+            return tf2.nn.dropout(transformed, rate=1.0 - dropout_keep_rate)
 
         return transformed

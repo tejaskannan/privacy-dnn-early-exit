@@ -1,13 +1,5 @@
 from enum import Enum, auto
 
-class PhName(Enum):
-    INPUTS = auto()
-    LABELS = auto()
-    DROPOUT_KEEP_RATE = auto()
-    LOSS_WEIGHT = auto()
-    STOP_RATES = auto()
-    LEARNING_RATE = auto()
-
 
 class MetaName(Enum):
     INPUT_SHAPE = auto()
