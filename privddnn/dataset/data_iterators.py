@@ -11,22 +11,20 @@ from privddnn.utils.file_utils import read_pickle_gz
 
 class DataIterator:
 
-    def __init__(self, dataset: Dataset, clf: Optional[BaseClassifier], num_trials: int, fold: str):
-        assert num_trials >= 1, 'Must provide a positive number of trials.'
+    def __init__(self, dataset: Dataset, pred_probs: Optional[np.ndarray], num_reps: int, fold: str):
+        assert num_reps >= 1, 'Must provide a positive number of reps.'
 
         self._dataset = dataset
         self._idx = 0
-        self._num_trials = num_trials
-        self._clf = clf
+        self._num_reps = num_reps
+        self._probs = pred_probs
 
         if fold == 'val':
             self._data_fold = dataset.get_val_inputs()
             self._labels = dataset.get_val_labels()
-            self._probs = clf.validate(op=OpName.PROBS) if (clf is not None) else None
         elif fold == 'test':
             self._data_fold = dataset.get_test_inputs()
             self._labels = dataset.get_test_labels()
-            self._probs = clf.test(op=OpName.PROBS) if (clf is not None) else None
         else:
             raise ValueError('Iterator does not support fold: {}'.format(fold))
 
@@ -38,8 +36,8 @@ class DataIterator:
         return len(self._data_fold)
 
     @property
-    def num_trials(self) -> int:
-        return self._num_trials
+    def num_reps(self) -> int:
+        return self._num_reps
 
     @property
     def name(self) -> str:
@@ -54,8 +52,8 @@ class DataIterator:
 
 class OriginalOrderIterator(DataIterator):
 
-    def __init__(self, dataset: Dataset, clf: Optional[BaseClassifier], num_trials: int, fold: str):
-        super().__init__(dataset=dataset, num_trials=num_trials, fold=fold, clf=clf)
+    def __init__(self, dataset: Dataset, pred_probs: Optional[np.ndarray], num_reps: int, fold: str):
+        super().__init__(dataset=dataset, num_reps=num_reps, fold=fold, pred_probs=pred_probs)
         self._sample_idx = np.arange(len(self._data_fold))
         self._idx = 0
 
@@ -64,7 +62,7 @@ class OriginalOrderIterator(DataIterator):
         return 'original'
 
     def __next__(self) -> Tuple[np.ndarray, Optional[np.ndarray], int]:
-        if (self._idx >= self.num_samples * self.num_trials):
+        if (self._idx >= self.num_samples * self.num_reps):
             raise StopIteration
 
         data_idx = self._idx % self.num_samples
@@ -78,8 +76,8 @@ class OriginalOrderIterator(DataIterator):
 
 class RandomizedIterator(DataIterator):
 
-    def __init__(self, dataset: Dataset, clf: Optional[BaseClassifier], num_trials: int, fold: str):
-        super().__init__(dataset=dataset, num_trials=num_trials, fold=fold, clf=clf)
+    def __init__(self, dataset: Dataset, pred_probs: Optional[np.ndarray], num_reps: int, fold: str):
+        super().__init__(dataset=dataset, num_reps=num_reps, fold=fold, pred_probs=pred_probs)
         self._sample_idx = np.arange(len(self._data_fold))
         self._rand.shuffle(self._sample_idx)
         self._idx = 0
@@ -89,7 +87,7 @@ class RandomizedIterator(DataIterator):
         return 'randomized'
 
     def __next__(self) -> Tuple[np.ndarray, Optional[np.ndarray], int]:
-        if (self._idx >= self.num_samples * self.num_trials):
+        if (self._idx >= self.num_samples * self.num_reps):
             raise StopIteration
 
         data_idx = self._sample_idx[self._idx % self.num_samples]
@@ -104,10 +102,10 @@ class RandomizedIterator(DataIterator):
 
 class NearestNeighborIterator(DataIterator):
 
-    def __init__(self, dataset: Dataset, clf: Optional[BaseClassifier], window_size: int, num_trials: int, fold: str):
+    def __init__(self, dataset: Dataset, pred_probs: Optional[np.ndarray], window_size: int, num_reps: int, fold: str):
         assert window_size >= 1, 'Must provide a positive window size.'
 
-        super().__init__(dataset=dataset, num_trials=num_trials, fold=fold, clf=clf)
+        super().__init__(dataset=dataset, num_reps=num_reps, fold=fold, pred_probs=pred_probs)
 
         # Load the annoy index. This block builds the index if not already present.
         dir_base = os.path.dirname(__file__)
@@ -135,7 +133,7 @@ class NearestNeighborIterator(DataIterator):
         return 'nearest-{}'.format(self.window_size)
 
     def __next__(self) -> Tuple[np.ndarray, Optional[np.ndarray], int]:
-        if self._idx >= (self.num_samples * self._num_trials):
+        if self._idx >= (self.num_samples * self._num_reps):
             raise StopIteration
 
         # Create a new nearest-neighbor window
@@ -158,15 +156,15 @@ class NearestNeighborIterator(DataIterator):
         return self._data_fold[data_idx], sample_probs, self._labels[data_idx]
 
 
-def make_data_iterator(name: str, dataset: Dataset, clf: Optional[BaseClassifier], num_trials: int, fold: str, **kwargs: Dict[str, Any]) -> DataIterator:
+def make_data_iterator(name: str, dataset: Dataset, pred_probs: Optional[np.ndarray], num_reps: int, fold: str, **kwargs: Dict[str, Any]) -> DataIterator:
     name = name.lower()
 
     if name in ('random', 'randomized'):
-        return RandomizedIterator(dataset=dataset, clf=clf, num_trials=num_trials, fold=fold)
+        return RandomizedIterator(dataset=dataset, pred_probs=pred_probs, num_reps=num_reps, fold=fold)
     elif name in ('original', 'original-order', 'original_order'):
-        return OriginalOrderIterator(dataset=dataset, clf=clf, num_trials=num_trials, fold=fold)
+        return OriginalOrderIterator(dataset=dataset, pred_probs=pred_probs, num_reps=num_reps, fold=fold)
     elif name in ('nearest', 'nearest_neighbor', 'nearest-neighbor'):
         assert kwargs.get('window_size') is not None, 'Must provide a window size.'
-        return NearestNeighborIterator(dataset=dataset, clf=clf, num_trials=num_trials, fold=fold, window_size=int(kwargs['window_size']))
+        return NearestNeighborIterator(dataset=dataset, pred_probs=pred_probs, num_reps=num_reps, fold=fold, window_size=int(kwargs['window_size']))
     else:
         raise ValueError('Unknown iterator for name: {}'.format(name))

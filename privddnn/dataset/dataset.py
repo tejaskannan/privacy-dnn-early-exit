@@ -1,5 +1,6 @@
 import tensorflow as tf2
 import numpy as np
+import tensorflow_datasets as tfds
 import hashlib
 import os.path
 from enum import Enum, auto
@@ -50,22 +51,30 @@ class Dataset:
         if dataset_name == 'mnist':
             tf_dataset = tf2.keras.datasets.mnist
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
+
+            X_train = np.expand_dims(X_train, axis=-1)  # [N, 28, 28, 1]
+            X_test = np.expand_dims(X_test, axis=-1)  # [M, 28, 28, 1]
         elif dataset_name == 'fashion_mnist':
             tf_dataset = tf2.keras.datasets.fashion_mnist
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
+
+            X_train = np.expand_dims(X_train, axis=-1)  # [N, 28, 28, 1]
+            X_test = np.expand_dims(X_test, axis=-1)  # [M, 28, 28, 1]
         elif dataset_name == 'kmnist':
             X_train, y_train = load_npz_dataset(path=os.path.join(dir_path, '..', 'data', 'kmnist'), fold='train')
             X_test, y_test = load_npz_dataset(path=os.path.join(dir_path, '..', 'data', 'kmnist'), fold='test')
-        elif dataset_name == 'cifar_10':
+        elif dataset_name in ('cifar_10', 'cifar10'):
+            dataset_name = 'cifar10'
             tf_dataset = tf2.keras.datasets.cifar10
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
-        elif dataset_name == 'cifar_100':
+        elif dataset_name in ('cifar_100', 'cifar100'):
+            dataset_name = 'cifar100'
             tf_dataset = tf2.keras.datasets.cifar100
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
         elif dataset_name == 'pen_digits':
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'train.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'test.h5'))
-        elif (dataset_name in ('uci_har', 'land_cover', 'mnist1d')) or (dataset_name.endswith('noisy')):
+        elif (dataset_name in ('uci_har', 'land_cover', 'mnist1d', 'spoken_digit', 'speech_commands')) or (dataset_name.endswith('noisy')):
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'train.h5'))
             X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'test.h5'))
@@ -174,16 +183,20 @@ class Dataset:
     def get_test_labels(self) -> np.ndarray:
         return self._test_labels
 
-    def fit_normalizer(self, is_global: bool):
+    def fit_normalizer(self):
         if self._is_normalizer_fit:
             return
 
-        if is_global:
-            self._mean = np.average(self._train_inputs)
-            self._std = np.std(self._train_inputs)
-        else:
-            self._mean = np.expand_dims(np.average(self._train_inputs, axis=0), axis=0)
-            self._std = np.expand_dims(np.std(self._train_inputs, axis=0), axis=0)
+        input_shape = self._train_inputs.shape
+        reshaped_inputs = self._train_inputs.reshape(-1, input_shape[-1])
+
+        mean = np.average(reshaped_inputs, axis=0)
+        std = np.std(reshaped_inputs, axis=0)
+
+        ndims = len(input_shape)
+        padding = (1, ) * (ndims - 1)
+        self._mean = np.reshape(mean, padding + (input_shape[-1], ))
+        self._std = np.reshape(std, padding + (input_shape[-1], ))
 
         self._is_normalizer_fit = True
 

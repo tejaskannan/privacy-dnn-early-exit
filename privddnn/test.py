@@ -21,7 +21,7 @@ def execute_fixed_strategy(clf: BaseClassifier,
                            exit_rate: float,
                            data_iterator_name: str,
                            window_size: Optional[int],
-                           num_trials: int,
+                           num_reps: int,
                            fold: str,
                            max_num_samples: Optional[int]) -> Dict[str, List[float]]:
     assert isinstance(clf, AdaBoostClassifier), 'The fixed strategy only works with AdaBoost.'
@@ -31,7 +31,7 @@ def execute_fixed_strategy(clf: BaseClassifier,
                                        dataset=dataset,
                                        clf=None,
                                        window_size=window_size,
-                                       num_trials=num_trials,
+                                       num_reps=num_reps,
                                        fold=fold)
 
     inputs_list: List[np.ndarray] = []
@@ -53,22 +53,22 @@ def execute_fixed_strategy(clf: BaseClassifier,
             'labels': labels_list,
             'output_levels': [0 for _ in labels_list],
             'window_size': window_size,
-            'num_trials': num_trials
+            'num_reps': num_reps
         }
     }
 
 
 def execute_for_rate(dataset: Dataset,
-                     clf: BaseClassifier,
                      val_probs: np.ndarray,
                      val_labels: np.ndarray,
+                     test_probs: np.ndarray,
                      data_iterator_name: str,
                      window_size: Optional[int],
                      pred_rates: np.ndarray,
                      rate: float,
                      model_path: str,
                      strategy: ExitStrategy,
-                     num_trials: int,
+                     num_reps: int,
                      max_num_samples: Optional[int]) -> Dict[str, Dict[str, List[float]]]:
     # Make the exit policy
     rates = [rate, 1.0 - rate]
@@ -78,9 +78,9 @@ def execute_for_rate(dataset: Dataset,
     # Run the policy on the validation and test sets
     val_iterator = make_data_iterator(name=data_iterator_name,
                                       dataset=dataset,
-                                      clf=clf,
+                                      pred_probs=val_probs,
                                       window_size=window_size,
-                                      num_trials=num_trials,
+                                      num_reps=num_reps,
                                       fold='val')
     val_result = policy.test(data_iterator=val_iterator,
                              num_labels=dataset.num_labels,
@@ -89,9 +89,9 @@ def execute_for_rate(dataset: Dataset,
 
     test_iterator = make_data_iterator(name=data_iterator_name,
                                        dataset=dataset,
-                                       clf=clf,
+                                       pred_probs=test_probs,
                                        window_size=window_size,
-                                       num_trials=num_trials,
+                                       num_reps=num_reps,
                                        fold='test')
     test_result = policy.test(data_iterator=test_iterator,
                               num_labels=dataset.num_labels,
@@ -107,7 +107,7 @@ def execute_for_rate(dataset: Dataset,
         'num_changed': val_result.num_changed,
         'selection_counts': { key.name: value for key, value in val_result.selection_counts.items() },
         'window_size': window_size,
-        'num_trials': num_trials
+        'num_reps': num_reps
     }
 
     test_dict = {
@@ -117,7 +117,7 @@ def execute_for_rate(dataset: Dataset,
         'num_changed': test_result.num_changed,
         'selection_counts': { key.name: value for key, value in test_result.selection_counts.items() },
         'window_size': window_size,
-        'num_trials': num_trials
+        'num_reps': num_reps
     }
 
     result['val'][val_iterator.name] = val_dict
@@ -129,30 +129,31 @@ def execute_for_rate(dataset: Dataset,
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--model-path', type=str, required=True, help='Path to the saved model weights')
-    parser.add_argument('--trials', type=int, required=True, help='The number of trials per policy.')
     parser.add_argument('--dataset-order', type=str, required=True, help='The type of data iterator to create.')
+    parser.add_argument('--reps', type=int, default=1, help='The number of repetitions of the dataset.')
     parser.add_argument('--window-size', type=int, help='The window size used to build the dataset.')
     parser.add_argument('--max-num-samples', type=int, help='Optional maximum number of samples (for testing)')
     args = parser.parse_args()
 
-    assert args.trials >= 1, 'Must provide a positive number of trials'
+    assert args.reps >= 1, 'Must provide a positive number of dataset repititions'
 
     # Restore the model
     model: BaseClassifier = restore_classifier(model_path=args.model_path, model_mode=ModelMode.TEST)
 
     # Get the predictions from the models
-    test_probs = model.test(op=OpName.PROBS)  # [C, L, K]
-    val_probs = model.validate(op=OpName.PROBS)  # [B, L, K]
+    val_probs = model.validate()  # [B, L, K]
+    test_probs = model.test()  # [C, L, K]
 
     # Get the validation labels (we use this to fit any policies)
     val_labels = model.dataset.get_val_labels()  # [B]
     stop_counts = compute_stop_counts(probs=val_probs)
 
-    rates = list(sorted(np.arange(0.0, 1.01, 0.05)))
+    rates = list(sorted(np.arange(0.0, 1.01, 0.1)))
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
-    strategies = [ExitStrategy.ROLLING_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    #strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]
@@ -184,21 +185,21 @@ if __name__ == '__main__':
                                                                exit_rate=rate,
                                                                data_iterator_name=args.dataset_order,
                                                                window_size=args.window_size,
-                                                               num_trials=args.trials,
+                                                               num_reps=args.reps,
                                                                fold=fold,
                                                                max_num_samples=args.max_num_samples)
             else:
                 rate_result = execute_for_rate(dataset=model.dataset,
-                                               clf=model,
                                                val_probs=val_probs,
                                                val_labels=val_labels,
+                                               test_probs=test_probs,
                                                pred_rates=stop_counts,
                                                rate=rate,
                                                model_path=args.model_path,
                                                strategy=strategy,
                                                data_iterator_name=args.dataset_order,
                                                window_size=args.window_size,
-                                               num_trials=args.trials,
+                                               num_reps=args.reps,
                                                max_num_samples=args.max_num_samples)
 
             # Log the results

@@ -219,15 +219,26 @@ class NeuralNetwork(BaseClassifier):
         """
         Runs the given operation on the test set.
         """
-        test_batch_generator = self.dataset.generate_test_batches(batch_size=self.hypers[BATCH_SIZE])
-        return self.execute_op(data_generator=test_batch_generator, op=op)
+        test_inputs=self.dataset.get_test_inputs()
+        return self.compute_probs(inputs=test_inputs)
 
     def validate(self) -> np.ndarray:
         """
-        Runs the given operation on the validation set.
+        Computes the output probabilities on the validation set.
         """
-        val_batch_generator = self.dataset.generate_val_batches(batch_size=self.hypers[BATCH_SIZE])
-        return self.execute_op(data_generator=val_batch_generator, op=op)
+        val_inputs = self.dataset.get_val_inputs()
+        return self.compute_probs(inputs=val_inputs)
+
+    def compute_probs(self, inputs: np.ndarray) -> np.ndarray:
+        """
+        Computes the predicted probabilites on the given dataset.
+        """
+        preds = self._model.predict(inputs, batch_size=self.hypers[BATCH_SIZE], verbose=0)
+
+        if len(preds) == 1:
+            return preds
+
+        return np.concatenate([np.expand_dims(arr, axis=1) for arr in preds], axis=1)
 
     @classmethod
     def restore(cls, path: str, model_mode: ModelMode):
