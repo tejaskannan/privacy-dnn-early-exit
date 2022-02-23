@@ -1,6 +1,5 @@
 import tensorflow as tf2
 import numpy as np
-import tensorflow_datasets as tfds
 import hashlib
 import os.path
 from enum import Enum, auto
@@ -74,6 +73,11 @@ class Dataset:
         elif dataset_name == 'pen_digits':
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'train.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'test.h5'))
+        elif dataset_name == 'traffic_signs':
+            X_train, y_train = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'train.h5'))
+            X_val, y_val = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'val.h5'))
+            X_test, y_test = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'test.h5'))
+            has_val_split = True
         elif (dataset_name in ('uci_har', 'land_cover', 'mnist1d', 'spoken_digit', 'speech_commands')) or (dataset_name.endswith('noisy')):
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'train.h5'))
             X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'val.h5'))

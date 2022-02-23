@@ -20,7 +20,7 @@ from .threshold_optimizer import fit_thresholds_grad, fit_randomization, fit_sha
 from .random_optimizer import fit_even_randomization
 
 
-EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'labels', 'observed_rates', 'num_changed', 'selection_counts'])
+EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'labels', 'observed_rates', 'num_changed', 'selection_counts', 'monitor_stats'])
 
 
 class ExitStrategy(Enum):
@@ -76,6 +76,12 @@ class EarlyExiter:
     def get_prediction(self, probs: np.ndarray, level: int) -> Tuple[int, bool]:
         return np.argmax(probs[level]), False
 
+    def init_monitor_dict(self) -> Dict[str, List[float]]:
+        return dict()
+
+    def record_monitor_step(self) -> Dict[str, float]:
+        return dict()
+
     def test(self, data_iterator: DataIterator,
                    num_labels: int,
                    pred_rates: np.ndarray,
@@ -85,6 +91,7 @@ class EarlyExiter:
         labels: List[int] = []
 
         self.reset(num_labels=num_labels, pred_rates=pred_rates)
+        monitor_dict = self.init_monitor_dict()
 
         num_changed = 0
         num_samples = 0
@@ -99,6 +106,10 @@ class EarlyExiter:
 
             first_pred = np.argmax(sample_probs[0], axis=-1)
             self.update(first_pred=first_pred, pred=pred, level=level)
+
+            monitor_step = self.record_monitor_step()
+            for key, value in monitor_step.items():
+                monitor_dict[key].append(value)
 
             selection_counts[selection_type] += 1
             num_changed += int(did_change)
@@ -118,6 +129,7 @@ class EarlyExiter:
                                labels=np.vstack(labels).reshape(-1),
                                observed_rates=observed_rates,
                                selection_counts=selection_counts,
+                               monitor_stats=monitor_dict,
                                num_changed=num_changed)
 
 
@@ -1108,6 +1120,16 @@ class AdaptiveRandomExit(LabelThresholdExiter):
         int_part = int(self.rates[1] * self._window)
         frac_part = (self.rates[1] * self._window) - int_part
         self._num_to_elevate = int_part + int(np.random.uniform() < frac_part)
+
+    def init_monitor_dict(self) -> Dict[str, List[float]]:
+        return {
+            'prob_bias': []
+        }
+
+    def record_monitor_step(self) -> Dict[str, float]:
+        return {
+            'prob_bias': self.epsilon
+        }
 
     def select_output(self, probs: np.ndarray) -> Tuple[int, SelectionType]:
         metrics = self.compute_metric(probs)

@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import DefaultDict, List, Tuple, Dict
 
 from privddnn.attack.attack_dataset import make_similar_dataset, make_noisy_dataset, make_sequential_dataset
-from privddnn.attack.attack_classifiers import MostFrequentClassifier, MajorityClassifier, LogisticRegressionClassifier, NaiveBayesClassifier, NgramClassifier
+from privddnn.attack.attack_classifiers import MostFrequentClassifier, MajorityClassifier, LogisticRegressionClassifier, NaiveBayesClassifier, NgramClassifier, RateClassifier
 from privddnn.classifier import BaseClassifier, ModelMode, OpName
 from privddnn.restore import restore_classifier
 from privddnn.utils.file_utils import read_json_gz, save_json_gz
@@ -21,7 +21,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Get the path to the training log (default to eval log if needed)
-    train_log_path = args.train_model_path.replace('.pkl.gz', '_test-log.json.gz')
+    train_log_path = args.train_model_path.replace('.h5', '_test-log.json.gz')
     eval_log_path = train_log_path if args.eval_log is None else args.eval_log
 
     # Read the logs for training and testing
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     eval_log = read_json_gz(eval_log_path)
 
     rates = [str(round(r / 20.0, 2)) for r in range(21)]
-    policy_names = ['random', 'max_prob', 'rolling_max_prob']
+    policy_names = ['random', 'max_prob', 'adaptive_random_max_prob']
 
     # Maps policy name -> { clf type -> [accuracy] }
     train_attack_results: Dict[str, DefaultDict[str, List[float]]] = dict()
@@ -37,12 +37,11 @@ if __name__ == '__main__':
 
     # Fit the most-frequent classifier based on the original model
     model: BaseClassifier = restore_classifier(model_path=args.train_model_path, model_mode=ModelMode.TEST)
-    val_probs = model.validate(op=OpName.PROBS)  # [B, L, K]
+    val_probs = model.validate()  # [B, L, K]
     val_preds = np.argmax(val_probs, axis=-1)  # [B, L]
 
     window_size = train_log['val']['random']['0.0'][args.dataset_order]['window_size']
     num_labels = np.amax(val_preds) + 1
-
     #window_size = int(window_size / 2)
 
     most_freq_clf = MostFrequentClassifier(window=window_size, num_labels=num_labels)
@@ -101,15 +100,25 @@ if __name__ == '__main__':
             train_attack_results[policy_name][ngram_clf.name].append(train_acc)
             test_attack_results[policy_name][ngram_clf.name].append(test_acc)
 
+            # Fit and evaluate the Rate classifier
+            rate_clf = RateClassifier()
+            rate_clf.fit(train_attack_inputs, train_attack_outputs)
+
+            train_acc = rate_clf.score(train_attack_inputs, train_attack_outputs)
+            test_acc = rate_clf.score(test_attack_inputs, test_attack_outputs)
+
+            train_attack_results[policy_name][rate_clf.name].append(train_acc)
+            test_attack_results[policy_name][rate_clf.name].append(test_acc)
+
             ## Fit and evaluate the logistic regression classifier
-            #lr_clf = LogisticRegressionClassifier()
-            #lr_clf.fit(train_attack_inputs, train_attack_outputs)
+            lr_clf = LogisticRegressionClassifier()
+            lr_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            #train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
-            #test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
+            train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
+            test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
 
-            #train_attack_results[policy_name][lr_clf.name].append(train_acc)
-            #test_attack_results[policy_name][lr_clf.name].append(test_acc)
+            train_attack_results[policy_name][lr_clf.name].append(train_acc)
+            test_attack_results[policy_name][lr_clf.name].append(test_acc)
 
             ## Fit and evaluate the naive bayes classifier
             #nb_clf = NaiveBayesClassifier()

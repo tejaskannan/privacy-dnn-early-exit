@@ -51,8 +51,9 @@ def make_noisy_dataset(levels: List[int],
 def make_sequential_dataset(levels: List[int], preds: List[int], window_size: int) -> Tuple[np.ndarray, np.ndarray]:
     input_list: List[np.ndarray] = []
     output_list: List[int] = []
+    step = int(window_size)
 
-    for idx in range(0, len(preds), window_size):
+    for idx in range(0, len(preds), step):
         sample_levels = levels[idx:idx+window_size]
 
         if len(sample_levels) < window_size:

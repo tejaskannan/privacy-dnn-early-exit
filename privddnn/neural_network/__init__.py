@@ -3,10 +3,12 @@ from collections import OrderedDict
 from typing import Type
 
 from privddnn.classifier import OpName, ModelMode
-from .alexnet import AlexNet
 from .base import NeuralNetwork
 from .vgg import VGG
 from .branchynet_cnn import BranchyNetCNN
+from .branchynet_dnn import BranchyNetDNN
+from .branchynet_rnn import BranchyNetRNN
+from .speech_cnn import SpeechCNN
 
 
 def get_model_class(name: str) -> Type[NeuralNetwork]:
@@ -14,10 +16,14 @@ def get_model_class(name: str) -> Type[NeuralNetwork]:
 
     if name == 'branchynet-cnn':
         return BranchyNetCNN
-    elif name == 'alexnet':
-        return AlexNet
+    elif name == 'branchynet-dnn':
+        return BranchyNetDNN
+    elif name == 'branchynet-rnn':
+        return BranchyNetRNN
     elif name == 'vgg':
         return VGG
+    elif name == 'speech-cnn':
+        return SpeechCNN
     else:
         raise ValueError('Unknown neural network with name: {}'.format(name))
 

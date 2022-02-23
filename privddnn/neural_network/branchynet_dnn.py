@@ -1,137 +1,46 @@
-import tensorflow as tf2
-import tensorflow.compat.v1 as tf1
 import numpy as np
+import tensorflow as tf
+from tensorflow.keras.layers import Input, Dense, Dropout, Layer
+from tensorflow.keras.layers import BatchNormalization, Concatenate
+from typing import List
 
-from .base import NeuralNetwork
-from .layers import conv2d, dense
-from .constants import MetaName, ACTIVATION
 from privddnn.classifier import ModelMode
+from .constants import DROPOUT_KEEP_RATE
+from .early_exit_dnn import EarlyExitNeuralNetwork
 
 
-class BranchyNetDNN(NeuralNetwork):
+class BranchyNetDNN(EarlyExitNeuralNetwork):
 
     @property
     def name(self) -> str:
         return 'branchynet-dnn'
 
-    def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf2.Tensor, num_labels: int, model_mode: ModelMode) -> tf2.Tensor:
-        # Flatten the inputs
-        num_features = np.prod(self.metadata[MetaName.INPUT_SHAPE])
-        inputs = tf2.reshape(inputs, (-1, num_features))
-
-        # Create the hidden layers
-        hidden1 = dense(inputs=inputs,
-                        output_units=24,
-                        use_dropout=False,
-                        dropout_keep_rate=dropout_keep_rate,
-                        activation=self.hypers[ACTIVATION],
-                        trainable=True,
-                        name='hidden1')
-
-        hidden2_inputs = tf2.concat([inputs, hidden1], axis=-1)
-        hidden2 = dense(inputs=hidden2_inputs,
-                        output_units=128,
-                        use_dropout=True,
-                        dropout_keep_rate=dropout_keep_rate,
-                        activation=self.hypers[ACTIVATION],
-                        trainable=True,
-                        name='hidden2')
-
-        hidden3 = dense(inputs=hidden2,
-                        output_units=64,
-                        use_dropout=True,
-                        dropout_keep_rate=dropout_keep_rate,
-                        activation=self.hypers[ACTIVATION],
-                        trainable=True,
-                        name='hidden3')
-
-        # Create the output layers
-        output_one = dense(inputs=hidden1,
-                           output_units=num_labels,
-                           use_dropout=False,
-                           dropout_keep_rate=dropout_keep_rate,
-                           activation='linear',
-                           trainable=True,
-                           name='output1')  # [B, K]
-
-        output_two = dense(inputs=hidden3,
-                           output_units=num_labels,
-                           use_dropout=False,
-                           dropout_keep_rate=dropout_keep_rate,
-                           activation='linear',
-                           trainable=True,
-                           name='output2')  # [B, K]
-
-        # Stack the logits together
-        output_one = tf2.expand_dims(output_one, axis=1)  # [B, 1, K]
-        output_two = tf2.expand_dims(output_two, axis=1)  # [B, 1, K]
-
-        logits = tf2.concat([output_one, output_two], axis=1)  # [B, 2, K]
-
-        return logits
-
-    def make_loss(self, logits: tf2.Tensor, labels: tf1.placeholder, model_mode: ModelMode) -> tf2.Tensor:
-        num_outputs = logits.get_shape()[1]  # L
-        labels = tf2.expand_dims(labels, axis=1)  # [B, 1]
-        labels = tf2.tile(labels, multiples=(1, num_outputs))  # [B, L]
-
-        loss = tf2.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits)  # [B, L]
-        loss_weights = tf2.constant([[0.3, 0.7]], dtype=loss.dtype)
-
-        weighted_loss = tf2.reduce_sum(loss * loss_weights, axis=-1)  # [B]
-        return tf2.reduce_mean(weighted_loss)  # Scalar
-
-
-class BranchyNetDNNSmall(BranchyNetDNN):
-
     @property
-    def name(self) -> str:
-        return 'branchynet-dnn-small'
+    def num_outputs(self) -> int:
+        return 2
 
-    def make_model(self, inputs: tf1.placeholder, dropout_keep_rate: tf2.Tensor, num_labels: int, model_mode: ModelMode) -> tf2.Tensor:
-        # Flatten the inputs
-        num_features = np.prod(self.metadata[MetaName.INPUT_SHAPE])
-        inputs = tf2.reshape(inputs, (-1, num_features))
+    def make_model(self, inputs: Input, num_labels: int, model_mode: ModelMode) -> List[Layer]:
+        dropout_keep_rate = 1.0 if model_mode == ModelMode.TEST else self.hypers[DROPOUT_KEEP_RATE]
+        is_train = (model_mode == ModelMode.TRAIN)
 
-        # Create the hidden layers
-        hidden1 = dense(inputs=inputs,
-                        output_units=16,
-                        use_dropout=False,
-                        dropout_keep_rate=dropout_keep_rate,
-                        activation=self.hypers[ACTIVATION],
-                        trainable=True,
-                        name='hidden1')
+        if len(inputs.get_shape()) > 2:
+            inputs = tf.keras.backend.reshape(inputs, shape=(-1, np.prod(inputs.get_shape()[1:])))
 
-        hidden2_inputs = tf2.concat([inputs, hidden1], axis=-1)
-        hidden2 = dense(inputs=hidden2_inputs,
-                        output_units=64,
-                        use_dropout=True,
-                        dropout_keep_rate=dropout_keep_rate,
-                        activation=self.hypers[ACTIVATION],
-                        trainable=True,
-                        name='hidden2')
+        hidden0 = Dense(16, activation='relu')(inputs)
+        dropout0 = Dropout(rate=1.0 - dropout_keep_rate)(hidden0, training=is_train)
 
-        # Create the output layers
-        output_one = dense(inputs=hidden1,
-                           output_units=num_labels,
-                           use_dropout=False,
-                           dropout_keep_rate=dropout_keep_rate,
-                           activation='linear',
-                           trainable=True,
-                           name='output1')  # [B, K]
+        concat = Concatenate(axis=-1)([inputs, dropout0])
+        hidden1 = Dense(128, activation='relu')(concat)
+        dropout1 = Dropout(rate=1.0 - dropout_keep_rate)(hidden1, training=is_train)
 
-        output_two = dense(inputs=hidden2,
-                           output_units=num_labels,
-                           use_dropout=False,
-                           dropout_keep_rate=dropout_keep_rate,
-                           activation='linear',
-                           trainable=True,
-                           name='output2')  # [B, K]
+        hidden2 = Dense(128, activation='relu')(dropout1)
+        dropout2 = Dropout(rate=1.0 - dropout_keep_rate)(hidden2, training=is_train)
 
-        # Stack the logits together
-        output_one = tf2.expand_dims(output_one, axis=1)  # [B, 1, K]
-        output_two = tf2.expand_dims(output_two, axis=1)  # [B, 1, K]
+        hidden3 = Dense(128, activation='relu')(dropout2)
+        dropout3 = Dropout(rate=1.0 - dropout_keep_rate)(hidden3, training=is_train)
 
-        logits = tf2.concat([output_one, output_two], axis=1)  # [B, 2, K]
+        output0 = Dense(num_labels, activation='softmax', name='output0')(dropout0)
+        output1 = Dense(num_labels, activation='softmax', name='output1')(dropout3)
 
-        return logits
+        return [output0, output1]
+

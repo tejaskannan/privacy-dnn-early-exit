@@ -43,6 +43,9 @@ if __name__ == '__main__':
             ngram_mut_info: List[float] = []
 
             for rate, results in reversed(sorted(test_log[policy_name].items())):
+                if args.dataset_order not in results:
+                    continue
+
                 preds = np.array(results[args.dataset_order]['preds'])
                 output_levels = np.array(results[args.dataset_order]['output_levels'])
                 labels = np.array(results[args.dataset_order]['labels'])
@@ -59,11 +62,12 @@ if __name__ == '__main__':
 
                 rates.append(round(1.0 - float(rate), 2))
 
-            print('{} & {:.4f} & {:.4f} & {:.4f} & {:.4f} & {:.4f} & {:.4f} \\\\'.format(policy_name, np.average(accuracy), np.max(accuracy), np.average(mut_info), np.max(mut_info), np.average(ngram_mut_info), np.max(ngram_mut_info)))
+            if len(accuracy) > 0:
+                print('{} & {:.4f} & {:.4f} & {:.4f} & {:.4f} & {:.4f} & {:.4f} \\\\'.format(policy_name, np.average(accuracy), np.max(accuracy), np.average(mut_info), np.max(mut_info), np.average(ngram_mut_info), np.max(ngram_mut_info)))
 
-            ax1.plot(rates, accuracy, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
-            ax2.plot(rates, mut_info, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
-            ax3.plot(rates, ngram_mut_info, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
+                ax1.plot(rates, accuracy, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
+                ax2.plot(rates, mut_info, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
+                ax3.plot(rates, ngram_mut_info, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
 
         ax1.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
         ax1.set_ylabel('Accuracy', fontsize=AXIS_FONT)

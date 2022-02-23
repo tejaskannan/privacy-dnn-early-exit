@@ -1,7 +1,8 @@
 import numpy as np
 import os.path
+from collections import defaultdict
 from annoy import AnnoyIndex
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict, Any, DefaultDict
 
 from privddnn.classifier import BaseClassifier, OpName
 from privddnn.dataset import Dataset
@@ -156,6 +157,64 @@ class NearestNeighborIterator(DataIterator):
         return self._data_fold[data_idx], sample_probs, self._labels[data_idx]
 
 
+class SameLabelIterator(DataIterator):
+
+    def __init__(self, dataset: Dataset, pred_probs: Optional[np.ndarray], window_size: int, num_reps: int, fold: str):
+        assert window_size >= 1, 'Must provide a positive window size.'
+
+        super().__init__(dataset=dataset, num_reps=num_reps, fold=fold, pred_probs=pred_probs)
+
+        # Initialize the current window parameters
+        self._window_size = window_size
+        self._current_window: List[int] = []
+        self._window_idx = 0
+        self._noise_rate = 0.2
+
+        # Get the indices that have the same label
+        self._same_label_indices: DefaultDict[int, List[int]] = defaultdict(list)
+
+        for idx, label in enumerate(self._labels):
+            self._same_label_indices[label].append(idx)
+
+    @property
+    def window_size(self) -> int:
+        return self._window_size
+
+    @property
+    def name(self) -> str:
+        return 'same-label-{}'.format(self.window_size)
+
+    def __next__(self) -> Tuple[np.ndarray, Optional[np.ndarray], int]:
+        if self._idx >= (self.num_samples * self._num_reps):
+            raise StopIteration
+
+        # Create a new nearest-neighbor window
+        if (self._window_idx >= self.window_size) or (self._idx == 0):
+            base_idx = self._rand.randint(low=0, high=self.num_samples)
+            base_label = self._labels[base_idx]
+
+            self._current_window: List[int] = []
+
+            same_rate = (1.0 - self._noise_rate)
+            same_label_idx = self._rand.choice(self._same_label_indices[base_label], size=int(same_rate * self._window_size))
+            self._current_window.extend(same_label_idx)
+
+            remaining_elements = self._window_size - int(same_rate * self._window_size)
+            rand_idx = self._rand.randint(low=0, high=self.num_samples, size=remaining_elements)
+            self._current_window.extend(rand_idx)
+
+            self._rand.shuffle(self._current_window)
+            self._window_idx = 0
+
+        data_idx = self._current_window[self._window_idx]
+
+        self._idx += 1
+        self._window_idx += 1
+
+        sample_probs = self._probs[data_idx] if (self._probs is not None) else None
+        return self._data_fold[data_idx], sample_probs, self._labels[data_idx]
+
+
 def make_data_iterator(name: str, dataset: Dataset, pred_probs: Optional[np.ndarray], num_reps: int, fold: str, **kwargs: Dict[str, Any]) -> DataIterator:
     name = name.lower()
 
@@ -166,5 +225,8 @@ def make_data_iterator(name: str, dataset: Dataset, pred_probs: Optional[np.ndar
     elif name in ('nearest', 'nearest_neighbor', 'nearest-neighbor'):
         assert kwargs.get('window_size') is not None, 'Must provide a window size.'
         return NearestNeighborIterator(dataset=dataset, pred_probs=pred_probs, num_reps=num_reps, fold=fold, window_size=int(kwargs['window_size']))
+    elif name in ('same-label', 'same_label'):
+        assert kwargs.get('window_size') is not None, 'Must provide a window size.'
+        return SameLabelIterator(dataset=dataset, pred_probs=pred_probs, num_reps=num_reps, fold=fold, window_size=int(kwargs['window_size']))
     else:
         raise ValueError('Unknown iterator for name: {}'.format(name))

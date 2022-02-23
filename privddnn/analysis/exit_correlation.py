@@ -44,7 +44,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     log1 = read_json_gz(args.log1)['val'][args.policy]
-    log2 = read_json_gz(args.log2)['val'][args.policy]
+    log2 = read_json_gz(args.log2)['test'][args.policy]
 
     exit_rate = str(round(float(args.exit_rate), 2))
     log1_results = log1[exit_rate][args.dataset_order]

@@ -7,7 +7,7 @@ from collections import OrderedDict
 
 from privddnn.classifier import ModelMode, OpName
 from .base import NeuralNetwork
-from .layers import conv2d, dense, dropout, fitnet_block
+from .layers import conv1d, dense
 
 
 class BranchyNet1dCNN(NeuralNetwork):
@@ -24,64 +24,87 @@ class BranchyNet1dCNN(NeuralNetwork):
         # Create the convolutions
         input_shape = inputs.get_shape()
 
-        filters_one = tf1.get_variable(name='filters-one',
-                                      shape=[1, input_shape[2], 1],
-                                      dtype=tf2.float32,
-                                      trainable=True)
-        bias_one = tf1.get_variable(name='bias-one',
-                                    shape=[1, 1, 1],
-                                    dtype=tf2.float32,
-                                    trainable=True)
+        # Make the 1D CNN blocks
+        conv0 = conv1d(inputs=inputs,
+                       filter_size=32,
+                       num_filters=32,
+                       stride=2,
+                       activation='relu',
+                       trainable=True,
+                       name='conv0')
 
-        conv_one = tf2.nn.conv1d(input=inputs,
-                                 filters=filters_one,
-                                 stride=1,
-                                 padding='SAME',
-                                 name='conv-one')
+        conv1 = conv1d(inputs=conv0,
+                       filter_size=32,
+                       num_filters=64,
+                       stride=2,
+                       activation='relu',
+                       trainable=True,
+                       name='conv1')
 
-        conv_one = tf2.nn.leaky_relu(conv_one + bias_one, alpha=0.25)
+        conv2 = conv1d(inputs=conv1,
+                       filter_size=16,
+                       num_filters=128,
+                       stride=1,
+                       activation='relu',
+                       trainable=True,
+                       name='conv2')
 
-        conv_one_shape = conv_one.get_shape()
-        flattened_one = tf2.reshape(conv_one, shape=(-1, np.prod(conv_one_shape[1:])))
+        conv3 = conv1d(inputs=conv2,
+                       filter_size=8,
+                       num_filters=128,
+                       stride=1,
+                       activation='relu',
+                       trainable=True,
+                       name='conv3')
 
-        filters_two = tf1.get_variable(name='filters-two',
-                                      shape=[1, input_shape[2] + 1, 8],
-                                      dtype=tf2.float32,
-                                      trainable=True)
-        bias_two = tf1.get_variable(name='bias-two',
-                                    shape=[1, 1, 8],
-                                    dtype=tf2.float32,
-                                    trainable=True)
+        conv4 = conv1d(inputs=conv3,
+                       filter_size=8,
+                       num_filters=128,
+                       stride=1,
+                       activation='relu',
+                       trainable=True,
+                       name='conv4')
 
-        inputs_concat = tf2.concat([inputs, conv_one], axis=-1)
-        conv_two = tf2.nn.conv1d(input=inputs_concat,
-                                 filters=filters_two,
-                                 stride=1,
-                                 padding='SAME',
-                                 name='conv-two')
+        # Make the output layers
+        conv0_shape = conv0.get_shape()
+        flattened0 = tf2.reshape(conv0, (-1, np.prod(conv0_shape[1:])))
 
-        conv_two = tf2.nn.leaky_relu(conv_two + bias_two, alpha=0.25)  # [B, D, K]
+        output0 = dense(inputs=flattened0,
+                        output_units=num_labels,
+                        use_dropout=False,
+                        dropout_keep_rate=1.0,
+                        activation='linear',
+                        trainable=True,
+                        name='output0')  # [B, K]
 
-        conv_two_shape = conv_two.get_shape()
-        flattened_two = tf2.reshape(conv_two, shape=(-1, np.prod(conv_two_shape[1:])))
+        conv4_shape = conv4.get_shape()
+        flattened4 = tf2.reshape(conv4, (-1, np.prod(conv4_shape[1:])))
 
-        logits_one = dense(inputs=flattened_one,
-                           output_units=num_labels,
-                           use_dropout=False,
-                           dropout_keep_rate=dropout_keep_rate,
-                           activation='linear',
-                           trainable=True,
-                           name='output-one')  # [B, K]
+        output1_hidden0 = dense(inputs=flattened4,
+                                output_units=1024,
+                                use_dropout=True,
+                                dropout_keep_rate=dropout_keep_rate,
+                                activation='relu',
+                                trainable=True,
+                                name='output1-hidden0')  # [B, D]
 
-        logits_two = dense(inputs=flattened_two,
-                           output_units=num_labels,
-                           use_dropout=False,
-                           dropout_keep_rate=dropout_keep_rate,
-                           activation='linear',
-                           trainable=True,
-                           name='output-two')  # [B, K]
+        output1_hidden1 = dense(inputs=output1_hidden0,
+                                output_units=1024,
+                                use_dropout=True,
+                                dropout_keep_rate=dropout_keep_rate,
+                                activation='relu',
+                                trainable=True,
+                                name='output1-hidden1')  # [B, D]
 
-        logits = tf2.concat([tf2.expand_dims(logits_one, axis=1), tf2.expand_dims(logits_two, axis=1)], axis=1)  # [B, 2, K]
+        output1 = dense(inputs=output1_hidden1,
+                        output_units=num_labels,
+                        use_dropout=False,
+                        dropout_keep_rate=1.0,
+                        activation='linear',
+                        trainable=True,
+                        name='output1')  # [B, D]
+
+        logits = tf2.concat([tf2.expand_dims(output0, axis=1), tf2.expand_dims(output1, axis=1)], axis=1)  # [B, 2, K]
         return logits
 
     def make_loss(self, logits: tf2.Tensor, labels: tf1.placeholder, model_mode: ModelMode) -> tf2.Tensor:
@@ -91,6 +114,6 @@ class BranchyNet1dCNN(NeuralNetwork):
 
         # Compute the per-output loss and aggregate for each sample
         sample_loss = tf2.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits)  # [B, 2]
-        aggregate_sample_loss = tf2.reduce_sum(sample_loss * tf2.constant([0.3, 0.7], dtype=sample_loss.dtype), axis=-1)  # [B]
+        aggregate_sample_loss = tf2.reduce_sum(sample_loss * tf2.constant([0.0, 1.0], dtype=sample_loss.dtype), axis=-1)  # [B]
 
         return tf2.reduce_mean(aggregate_sample_loss)

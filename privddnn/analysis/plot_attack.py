@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from argparse import ArgumentParser
 
-from privddnn.attack.attack_classifiers import MOST_FREQ, MAJORITY, LOGISTIC_REGRESSION, NAIVE_BAYES, NGRAM
+from privddnn.attack.attack_classifiers import MOST_FREQ, MAJORITY, LOGISTIC_REGRESSION, NAIVE_BAYES, NGRAM, RATE
 from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.plotting import to_label, COLORS, AXIS_FONT, TITLE_FONT, LEGEND_FONT
 from privddnn.utils.plotting import LINE_WIDTH, MARKER, MARKER_SIZE, PLOT_STYLE
@@ -12,8 +12,8 @@ from privddnn.dataset.dataset import Dataset
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--test-log', type=str, required=True)
-    parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2'])
-    parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION, NAIVE_BAYES, MOST_FREQ, NGRAM])
+    parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2', 'top5', 'top10', 'top(k-1)'])
+    parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION, NAIVE_BAYES, MOST_FREQ, NGRAM, RATE])
     parser.add_argument('--dataset-order', type=str, required=True)
     parser.add_argument('--attack-train-log', type=str)
     parser.add_argument('--train-policy', type=str, default='same')
@@ -37,7 +37,10 @@ if __name__ == '__main__':
         for policy_name, attack_results in attack_accuracy.items():
             metric_results = [r[args.metric] for r in attack_results[args.attack_model]]
 
-            print('{} & {:.4f} & {:.4f}'.format(policy_name, sum(metric_results) / len(metric_results), max(metric_results)))
+            average_metric = sum(metric_results) / len(metric_results)
+            max_metric = max(metric_results)
+
+            print('{} & {:.2f}\\% & {:.2f}\\%'.format(policy_name, average_metric * 100.0, max_metric * 100.0))
 
             # The given rates are the fraction stopping at the first output (which makes the axes confusing)
             xs = [1.0 - float(r) for r in rates]

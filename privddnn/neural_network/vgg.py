@@ -4,13 +4,20 @@ Pretrianed VGG model from: https://github.com/geifmany/cifar-vgg/
 import numpy as np
 import os.path
 import tensorflow as tf
+from enum import Enum, auto
 from tensorflow.keras.layers import Dense, Dropout, Flatten, Layer, Input
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, BatchNormalization
 from tensorflow.keras.metrics import Metric
 from typing import List, Dict
 
 from privddnn.classifier import ModelMode
+from .constants import DROPOUT_KEEP_RATE
 from .early_exit_dnn import EarlyExitNeuralNetwork
+
+
+class CifarMode(Enum):
+    CIFAR_10 = auto()
+    CIFAR_100 = auto()
 
 
 class VGG(EarlyExitNeuralNetwork):
@@ -25,24 +32,24 @@ class VGG(EarlyExitNeuralNetwork):
 
     def make_loss(self) -> Dict[str, str]:
         return {
-            'output0': 'sparse_categorical_crossentropy',
-            'dense_2': 'sparse_categorical_crossentropy'
+            'output0': 'sparse_categorical_crossentropy'
+            #'dense_2': 'sparse_categorical_crossentropy'
         }
 
     def make_metrics(self) -> Dict[str, Metric]:
         return {
-            'output0': tf.metrics.SparseCategoricalAccuracy(name='acc'),
-            'dense_2': tf.metrics.SparseCategoricalAccuracy(name='acc')
+            'output0': tf.metrics.SparseCategoricalAccuracy(name='acc')
+            #'dense_2': tf.metrics.SparseCategoricalAccuracy(name='acc')
         }
 
     def make_loss_weights(self) -> Dict[str, float]:
         return {
-            'output0': 0.25,
-            'dense_2': 0.75
+            'output0': 1.0
+            #'dense_2': 0.75
         }
 
     def make_model(self, inputs: Input, num_labels: int, model_mode: ModelMode) -> List[Layer]:
-        dropout_keep_rate = 1.0 if model_mode == ModelMode.TRAIN else self.hypers[DROPOUT_KEEP_RATE]
+        dropout_keep_rate = 1.0 if model_mode == ModelMode.TEST else self.hypers[DROPOUT_KEEP_RATE]
 
         conv0 = Conv2D(64, (3, 3), padding='same', activation='relu', trainable=False, name='conv2d_1')(inputs)
         batchnorm0 = BatchNormalization(name='batch_normalization_1')(conv0)
@@ -89,8 +96,11 @@ class VGG(EarlyExitNeuralNetwork):
         pooled12 = MaxPooling2D(pool_size=(2, 2))(batchnorm12)
 
         # Create the output layers
-        flattened0 = Flatten()(pooled1)
-        output0 = Dense(num_labels, activation='softmax', trainable=True, name='output0')(flattened0)
+        output0_pooled = pooled1 if self._cifar_mode == CifarMode.CIFAR_10 else pooled3
+        flattened0 = Flatten()(output0_pooled)
+        output0_hidden0 = Dense(64, activation='relu', trainable=True, name='output0_hidden0')(flattened0)
+        output0_batchnorm = BatchNormalization(name='batch_normalization_output0')(output0_hidden0)
+        output0 = Dense(num_labels, activation='softmax', trainable=True, name='output0')(output0_batchnorm)
 
         flattened1 = Flatten()(pooled12)
         hidden1 = Dense(512, activation='relu', trainable=False, name='dense_1')(flattened1)
@@ -100,7 +110,12 @@ class VGG(EarlyExitNeuralNetwork):
         return [output0, output1]
 
     def make(self, model_mode: ModelMode):
+        dataset_name = self.dataset.dataset_name
+        assert dataset_name in ('cifar10', 'cifar100'), 'Can only use the VGG model for cifar 10 and cifar 100'
+        self._cifar_mode = CifarMode.CIFAR_10 if dataset_name == 'cifar10' else CifarMode.CIFAR_100
+
         super().make(model_mode=model_mode)
 
+        pretrained_name = 'cifar10vgg' if self._cifar_mode == CifarMode.CIFAR_10 else 'cifar100vgg'
         dir_name = os.path.dirname(__file__)
-        self._model.load_weights(os.path.join(dir_name, 'pretrained/cifar10vgg.h5'), by_name=True)
+        self._model.load_weights(os.path.join(dir_name, 'pretrained/{}.h5'.format(pretrained_name)), by_name=True)

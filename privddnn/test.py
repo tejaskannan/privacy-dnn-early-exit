@@ -106,6 +106,7 @@ def execute_for_rate(dataset: Dataset,
         'labels': val_result.labels.tolist(),
         'num_changed': val_result.num_changed,
         'selection_counts': { key.name: value for key, value in val_result.selection_counts.items() },
+        'monitor_stats': val_result.monitor_stats,
         'window_size': window_size,
         'num_reps': num_reps
     }
@@ -116,6 +117,7 @@ def execute_for_rate(dataset: Dataset,
         'labels': test_result.labels.tolist(),
         'num_changed': test_result.num_changed,
         'selection_counts': { key.name: value for key, value in test_result.selection_counts.items() },
+        'monitor_stats': test_result.monitor_stats,
         'window_size': window_size,
         'num_reps': num_reps
     }
@@ -148,12 +150,11 @@ if __name__ == '__main__':
     val_labels = model.dataset.get_val_labels()  # [B]
     stop_counts = compute_stop_counts(probs=val_probs)
 
-    rates = list(sorted(np.arange(0.0, 1.01, 0.1)))
+    rates = list(sorted(np.arange(0.0, 1.01, 0.05)))
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
-    #strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
-    strategies = [ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]

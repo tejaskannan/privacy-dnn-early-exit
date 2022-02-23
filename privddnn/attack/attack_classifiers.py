@@ -1,7 +1,5 @@
 import numpy as np
-import tensorflow as tf2
-import tensorflow.compat.v1 as tf1
-from collections import defaultdict
+from collections import defaultdict, Counter
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import BernoulliNB
@@ -16,10 +14,14 @@ MOST_FREQ = 'MostFrequent'
 LOGISTIC_REGRESSION = 'LogisticRegression'
 NAIVE_BAYES = 'NaiveBayes'
 NGRAM = 'Ngram'
+RATE = 'Rate'
 
 
 ACCURACY = 'accuracy'
 TOP2 = 'top2'
+TOP5 = 'top5'
+TOP10 = 'top10'
+TOP_ALL_BUT_ONE = 'top(k-1)'
 
 
 class AttackClassifier:
@@ -52,18 +54,32 @@ class AttackClassifier:
 
         correct_count = 0.0
         top2_count = 0.0
+        top5_count = 0.0
+        top10_count = 0.0
+        toplast_count = 0.0
         total_count = 0.0
+
+        num_labels = np.amax(labels) + 1
 
         for count, label in zip(inputs, labels):
             preds = self.predict_rankings(count, top_k=2)
+            top5_preds = self.predict_rankings(count, top_k=5)
+            top10_preds = self.predict_rankings(count, top_k=10)
+            toplast_preds = self.predict_rankings(count, top_k=num_labels - 1)
 
             top2_count += float(label in preds)
+            top5_count += float(label in top5_preds)
+            top10_count += float(label in top10_preds)
+            toplast_count += float(label in toplast_preds)
             correct_count += float(preds[0] == label)
             total_count += 1.0
 
         return {
             ACCURACY: correct_count / total_count,
-            TOP2: top2_count / total_count
+            TOP2: top2_count / total_count,
+            TOP5: top5_count / total_count,
+            TOP10: top10_count / total_count,
+            TOP_ALL_BUT_ONE: toplast_count / total_count
         }
 
 
@@ -156,6 +172,72 @@ class NgramClassifier(AttackClassifier):
         rankings = self._clf.get(features, self._most_freq)
         return rankings[0:top_k].astype(int).tolist()
 
+
+class RateClassifier(AttackClassifier):
+
+    def __init__(self):
+        self._clf: np.ndarray = np.empty(0)  # Maps labels to exit rate
+        self._label_freq: Dict[int, float] = dict()
+        self._cutoff = 0.0
+
+    @property
+    def name(self) -> str:
+        return RATE
+
+    def fit(self, inputs: np.ndarray, labels: np.ndarray):
+        """
+        Fits the majority classifier which maps labels to the most
+        frequent label for each level count.
+
+        Args:
+            inputs: A [B, D] array of input features (D) for each input sample (B)
+            labels: A [B] array of data labels for each input sample (B)
+        """
+        assert len(inputs.shape) == 2, 'Must provide a 2d array of inputs'
+        assert len(labels.shape) == 1, 'Must provide a 1d array of labels'
+        assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
+
+        label_counts: DefaultDict[int, List[int]] = defaultdict(list)
+        label_counter: Counter = Counter()
+        num_labels = np.max(labels) + 1
+        self._cutoff = 1.0 / num_labels
+
+        for input_features, label in zip(inputs, labels):
+            label_counts[label].extend(((input_features + 1) / 2).astype(int))
+            label_counter[label] += 1
+
+        self._clf = np.zeros(num_labels, dtype=float)  # [L]
+
+        for label, counts in label_counts.items():
+            elev_rate = np.average(counts)
+            self._clf[label] = elev_rate
+
+        total_count = sum(label_counter.values())
+        for label in range(num_labels):
+            self._label_freq[label] = label_counter.get(label, 0) / total_count
+
+        return self._clf
+
+    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
+        assert len(inputs.shape) == 1, 'Must provide a 1d array of input features'
+
+        observed_elev = np.sum(((inputs + 1) / 2).astype(int))
+        expected_elev = inputs.shape[0] * self._clf
+
+        diff = np.abs(observed_elev - expected_elev)
+        rankings = np.argsort(diff)
+
+        above_rankings: List[int] = []
+        below_rankings: List[int] = []
+
+        for label in rankings:
+            if self._label_freq[label] < self._cutoff:
+                below_rankings.append(label)
+            else:
+                above_rankings.append(label)
+
+        concat_rankings = above_rankings + below_rankings
+        return concat_rankings[0:top_k]
 
 
 class MostFrequentClassifier(AttackClassifier):

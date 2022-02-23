@@ -35,13 +35,8 @@ class BranchyNetCNN(EarlyExitNeuralNetwork):
         batchnorm3 = BatchNormalization()(conv3)
         pooled3 = MaxPool2D(pool_size=(2, 2), strides=(2, 2))(batchnorm3)
 
-        #flattened0 = GlobalMaxPooling2D()(batchnorm1)
-        #flattened0 = Flatten()(pooled0)
-        output0_conv = Conv2D(filters=1, kernel_size=3, strides=(4, 4), activation='relu')(batchnorm0)
-        output0_batchnorm = BatchNormalization()(output0_conv)
-        flattened0 = Flatten()(output0_batchnorm)
-
-        #output0_hidden = Dense(16, activation='relu')(flattened0)
+        output0_pooled = MaxPool2D(pool_size=(4, 4), strides=(4, 4))(batchnorm0)
+        flattened0 = Flatten()(output0_pooled)
         output0 = Dense(num_labels, activation='softmax', name='output0')(flattened0)
 
         flattened2 = Flatten()(pooled3)
