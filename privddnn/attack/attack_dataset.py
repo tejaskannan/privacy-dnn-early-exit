@@ -52,6 +52,7 @@ def make_sequential_dataset(levels: List[int], preds: List[int], window_size: in
     input_list: List[np.ndarray] = []
     output_list: List[int] = []
     step = int(window_size)
+    levels_range = np.max(levels) + 1
 
     for idx in range(0, len(preds), step):
         sample_levels = levels[idx:idx+window_size]
@@ -65,13 +66,15 @@ def make_sequential_dataset(levels: List[int], preds: List[int], window_size: in
             pred_counter[pred] += 1
 
         sample_pred = pred_counter.most_common(1)[0][0]
+
+        input_features = np.zeros(shape=(window_size, levels_range))
+        for idx, level in sample_levels:
+            input_features[idx, level] = 1
         
-        input_list.append(np.expand_dims(sample_levels, axis=0))
+        input_list.append(np.expand_dims(input_features, axis=0))
         output_list.append(sample_pred)
 
     inputs = np.vstack(input_list)
-    inputs = 2 * inputs - 1  # Translate into +1, -1 values
-
     return inputs, np.vstack(output_list).reshape(-1)
 
 

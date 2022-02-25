@@ -8,6 +8,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 from typing import Dict, List, DefaultDict
 
+from privddnn.utils.constants import BIG_NUMBER
+
 
 MAJORITY = 'Majority'
 MOST_FREQ = 'MostFrequent'
@@ -86,7 +88,7 @@ class AttackClassifier:
 class MajorityClassifier(AttackClassifier):
 
     def __init__(self):
-        self._clf: Dict[int, List[int]] = dict()
+        self._clf: Dict[Tuple[int, ...], List[int]] = dict()
         self._most_freq = 0
 
     @property
@@ -99,32 +101,46 @@ class MajorityClassifier(AttackClassifier):
         frequent label for each level count.
 
         Args:
-            inputs: A [B, D] array of input features (D) for each input sample (B)
+            inputs: A [B, T, D] array of input features (D) for each input sample (B) and window step (T)
             labels: A [B] array of data labels for each input sample (B)
         """
-        assert len(inputs.shape) == 2, 'Must provide a 2d array of inputs'
+        assert len(inputs.shape) == 3, 'Must provide a 3d array of inputs'
         assert len(labels.shape) == 1, 'Must provide a 1d array of labels'
         assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
 
         label_counts: DefaultDict[int, List[int]] = defaultdict(list)
         num_labels = np.max(labels) + 1
+        input_range = np.max(inputs) + 1
 
         for input_features, label in zip(inputs, labels):
-            count = np.sum(input_features)
-            label_counts[count].append(label)
+            exit_counts = tuple(np.sum(input_features, axis=1))  # D
+            label_counts[exit_counts].append(label)
 
-        for count, count_labels in sorted(label_counts.items()):
+        for key, count_labels in sorted(label_counts.items()):
             freq = np.bincount(count_labels, minlength=num_labels)
             most_freq = np.argsort(freq)[::-1]
-            self._clf[count] = most_freq
+            self._clf[key] = most_freq
 
         label_counts = np.bincount(labels, minlength=num_labels)
         self._most_freq = np.argsort(label_counts)[::-1]
 
     def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
-        assert len(inputs.shape) == 1, 'Must provide a 1d array of input features'
-        count = np.sum(inputs)
-        rankings = self._clf.get(count, self._most_freq)
+        assert len(inputs.shape) == 2, 'Must provide a 2d array of input features'
+        target = tuple(np.sum(inputs, axis=1))
+        best_key = None
+        best_diff = BIG_NUMBER
+
+        for key in self._clf.keys():
+            diff = sum((abs(k - t) for k, t in zip(key, target)))
+            if diff < best_diff:
+                best_diff = diff
+                best_key = key
+
+        if best_key is None:
+            rankings = self._most_freq
+        else:
+            rankings = self._clf.get(best_key, self._most_freq)
+
         return rankings[0:top_k].astype(int).tolist()
 
 
@@ -144,10 +160,10 @@ class NgramClassifier(AttackClassifier):
         frequent label for each level count.
 
         Args:
-            inputs: A [B, D] array of input features (D) for each input sample (B)
+            inputs: A [B, T, D] array of input features (D) for each input sample (B) and window step (T)
             labels: A [B] array of data labels for each input sample (B)
         """
-        assert len(inputs.shape) == 2, 'Must provide a 2d array of inputs'
+        assert len(inputs.shape) == 3, 'Must provide a 3d array of inputs'
         assert len(labels.shape) == 1, 'Must provide a 1d array of labels'
         assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
 
@@ -155,7 +171,7 @@ class NgramClassifier(AttackClassifier):
         num_labels = np.max(labels) + 1
 
         for input_features, label in zip(inputs, labels):
-            features = tuple(input_features.astype(int).tolist())
+            features = tuple(int(np.argmax(vector)) for vector in input_features)
             label_counts[features].append(label)
 
         for features, feature_labels in sorted(label_counts.items()):
@@ -167,9 +183,23 @@ class NgramClassifier(AttackClassifier):
         self._most_freq = np.argsort(label_counts)[::-1]
 
     def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
-        assert len(inputs.shape) == 1, 'Must provide a 1d array of input features'
-        features = tuple(inputs.astype(int).tolist())
-        rankings = self._clf.get(features, self._most_freq)
+        assert len(inputs.shape) == 2, 'Must provide a 1d array of input features'
+        features = tuple(int(np.argmax(vector)) for vector in inputs)
+
+        best_key = None
+        best_diff = BIG_NUMBER
+
+        for key in self._clf.keys():
+            diff = sum(abs(k - t) for k, t in zip(key, features))
+            if diff < best_diff:
+                best_key = key
+                best_diff = diff
+
+        if best_key is None:
+            rankings = self._most_freq
+        else:
+            rankings = self._clf.get(best_key, self._most_freq)
+
         return rankings[0:top_k].astype(int).tolist()
 
 

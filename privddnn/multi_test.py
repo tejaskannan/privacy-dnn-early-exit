@@ -3,6 +3,7 @@ import os.path
 from argparse import ArgumentParser
 from collections import defaultdict
 from enum import Enum, auto
+from itertools import permutations
 from typing import List, Tuple, DefaultDict, Dict, Optional
 
 from privddnn.dataset import Dataset
@@ -11,66 +12,7 @@ from privddnn.classifier import BaseClassifier, ModelMode, OpName
 from privddnn.exiting import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
 from privddnn.restore import restore_classifier
 from privddnn.utils.file_utils import save_json_gz, read_json_gz
-
-
-def execute_for_rate(dataset: Dataset,
-                     val_probs: np.ndarray,
-                     val_labels: np.ndarray,
-                     test_probs: np.ndarray,
-                     data_iterator_name: str,
-                     window_size: Optional[int],
-                     rates: List[float],
-                     model_path: str,
-                     strategy: ExitStrategy,
-                     num_reps: int,
-                     max_num_samples: Optional[int]) -> Dict[str, Dict[str, List[float]]]:
-    # Make the exit policy
-    policy = make_policy(strategy=strategy, rates=rates, model_path=model_path)
-    policy.fit(val_probs=val_probs, val_labels=val_labels)
-
-    # Run the policy on the validation and test sets
-    val_iterator = make_data_iterator(name=data_iterator_name,
-                                      dataset=dataset,
-                                      pred_probs=val_probs,
-                                      window_size=window_size,
-                                      num_reps=num_reps,
-                                      fold='val')
-    val_result = policy.test(data_iterator=val_iterator,
-                             max_num_samples=max_num_samples)
-
-    test_iterator = make_data_iterator(name=data_iterator_name,
-                                       dataset=dataset,
-                                       pred_probs=test_probs,
-                                       window_size=window_size,
-                                       num_reps=num_reps,
-                                       fold='test')
-    test_result = policy.test(data_iterator=test_iterator,
-                              max_num_samples=max_num_samples)
-
-    result = dict(val=dict(), test=dict())
-
-    val_dict = {
-        'preds': val_result.predictions.tolist(),
-        'output_levels': val_result.output_levels.tolist(),
-        'labels': val_result.labels.tolist(),
-        'monitor_stats': val_result.monitor_stats,
-        'window_size': window_size,
-        'num_reps': num_reps
-    }
-
-    test_dict = {
-        'preds': test_result.predictions.tolist(),
-        'output_levels': test_result.output_levels.tolist(),
-        'labels': test_result.labels.tolist(),
-        'monitor_stats': test_result.monitor_stats,
-        'window_size': window_size,
-        'num_reps': num_reps
-    }
-
-    result['val'][val_iterator.name] = val_dict
-    result['test'][test_iterator.name] = test_dict
-
-    return result
+from privddnn.test import execute_for_rate
 
 
 if __name__ == '__main__':
@@ -94,7 +36,8 @@ if __name__ == '__main__':
     # Get the validation labels (we use this to fit any policies)
     val_labels = model.dataset.get_val_labels()  # [B]
 
-    rates = list(np.arange(0.0, 1.01, 0.05))
+    #single_rates = list(sorted(np.arange(0.0, 1.01, 0.1)))
+    single_rates = [0.3, 0.4]
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
@@ -110,6 +53,19 @@ if __name__ == '__main__':
     if os.path.exists(test_log_path):
         results = read_json_gz(test_log_path)
 
+    # Get the (unique) rate keys
+    rate_settings: List[Tuple[float, ...]] = list(permutations(single_rates, model.num_outputs - 1))
+
+    print(rate_settings)
+
+    rates: List[float] = []
+    for setting in rate_settings:
+        last_rate = 1.0 - sum(setting)
+        if last_rate >= 0.0:
+            rates.append(list(setting) + [last_rate])
+
+    print(rates)
+
     for strategy in strategies:
         strategy_name = strategy.name.lower()
 
@@ -119,14 +75,15 @@ if __name__ == '__main__':
         if strategy_name not in results['test']:
             results['test'][strategy_name] = dict()
 
-        for rate in reversed(rates):
-            print('Testing {} on {:.2f}'.format(strategy_name.capitalize(), float(round(rate, 2))), end='\r')
+        for rate_list in rates:
+            rate_key = ' '.join('{:.2f}'.format(round(r, 2)) for r in rate_list)
+            print('Testing {} on {}'.format(strategy_name.capitalize(), rate_key), end='\r')
 
             rate_result = execute_for_rate(dataset=model.dataset,
                                            val_probs=val_probs,
                                            val_labels=val_labels,
                                            test_probs=test_probs,
-                                           rates=[rate, 1.0 - rate],
+                                           rates=rate_list,
                                            model_path=args.model_path,
                                            strategy=strategy,
                                            data_iterator_name=args.dataset_order,
@@ -135,8 +92,6 @@ if __name__ == '__main__':
                                            max_num_samples=args.max_num_samples)
 
             # Log the results
-            rate_key = str(round(rate, 2))
-
             if rate_key not in results['val'][strategy_name]:
                 results['val'][strategy_name][rate_key] = dict()
 

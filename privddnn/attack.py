@@ -28,7 +28,6 @@ if __name__ == '__main__':
     train_log = read_json_gz(train_log_path)
     eval_log = read_json_gz(eval_log_path)
 
-    rates = [str(round(r / 20.0, 2)) for r in range(21)]
     policy_names = ['random', 'max_prob', 'adaptive_random_max_prob']
 
     # Maps policy name -> { clf type -> [accuracy] }
@@ -40,19 +39,19 @@ if __name__ == '__main__':
     val_probs = model.validate()  # [B, L, K]
     val_preds = np.argmax(val_probs, axis=-1)  # [B, L]
 
-    window_size = train_log['val']['random']['0.0'][args.dataset_order]['window_size']
+    key = next(iter(train_log['val']['random'].keys()))
+    window_size = train_log['val']['random'][key][args.dataset_order]['window_size']
     num_labels = np.amax(val_preds) + 1
-    #window_size = int(window_size / 2)
 
-    most_freq_clf = MostFrequentClassifier(window=window_size, num_labels=num_labels)
-    most_freq_clf.fit(inputs=val_preds, labels=val_preds)
+    #most_freq_clf = MostFrequentClassifier(window=window_size, num_labels=num_labels)
+    #most_freq_clf.fit(inputs=val_preds, labels=val_preds)
 
     for policy_name in policy_names:
         # Initialize the top-level dictionaries
         train_attack_results[policy_name] = defaultdict(list)
         test_attack_results[policy_name] = defaultdict(list)
 
-        for rate in rates:
+        for rate in train_log['val'][policy_name].keys():
             train_policy_name = policy_name if args.train_policy is None else args.train_policy
 
             # Get the results from training and validation
@@ -71,14 +70,14 @@ if __name__ == '__main__':
                                                                               preds=test_preds,
                                                                               window_size=window_size)
 
-            print('Starting {} on {:.2f}. # Train: {}, # Test: {}'.format(policy_name, round(float(rate), 2), len(train_attack_inputs), len(test_attack_inputs)), end='\r')
+            print('Starting {} on {}. # Train: {}, # Test: {}'.format(policy_name, len(train_attack_inputs), len(test_attack_inputs)), end='\r')
 
             # Evaluate the most-frequent classifier
-            train_acc = most_freq_clf.score(train_attack_inputs, train_attack_outputs)
-            test_acc = most_freq_clf.score(test_attack_inputs, test_attack_outputs)
+            #train_acc = most_freq_clf.score(train_attack_inputs, train_attack_outputs)
+            #test_acc = most_freq_clf.score(test_attack_inputs, test_attack_outputs)
 
-            train_attack_results[policy_name][most_freq_clf.name].append(train_acc)
-            test_attack_results[policy_name][most_freq_clf.name].append(test_acc)
+            #train_attack_results[policy_name][most_freq_clf.name].append(train_acc)
+            #test_attack_results[policy_name][most_freq_clf.name].append(test_acc)
 
             # Fit and evaluate the majority attack classifier
             majority_clf = MajorityClassifier()
@@ -101,24 +100,24 @@ if __name__ == '__main__':
             test_attack_results[policy_name][ngram_clf.name].append(test_acc)
 
             # Fit and evaluate the Rate classifier
-            rate_clf = RateClassifier()
-            rate_clf.fit(train_attack_inputs, train_attack_outputs)
+            #rate_clf = RateClassifier()
+            #rate_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            train_acc = rate_clf.score(train_attack_inputs, train_attack_outputs)
-            test_acc = rate_clf.score(test_attack_inputs, test_attack_outputs)
+            #train_acc = rate_clf.score(train_attack_inputs, train_attack_outputs)
+            #test_acc = rate_clf.score(test_attack_inputs, test_attack_outputs)
 
-            train_attack_results[policy_name][rate_clf.name].append(train_acc)
-            test_attack_results[policy_name][rate_clf.name].append(test_acc)
+            #train_attack_results[policy_name][rate_clf.name].append(train_acc)
+            #test_attack_results[policy_name][rate_clf.name].append(test_acc)
 
             ## Fit and evaluate the logistic regression classifier
-            lr_clf = LogisticRegressionClassifier()
-            lr_clf.fit(train_attack_inputs, train_attack_outputs)
+            #lr_clf = LogisticRegressionClassifier()
+            #lr_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
-            test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
+            #train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
+            #test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
 
-            train_attack_results[policy_name][lr_clf.name].append(train_acc)
-            test_attack_results[policy_name][lr_clf.name].append(test_acc)
+            #train_attack_results[policy_name][lr_clf.name].append(train_acc)
+            #test_attack_results[policy_name][lr_clf.name].append(test_acc)
 
             ## Fit and evaluate the naive bayes classifier
             #nb_clf = NaiveBayesClassifier()
