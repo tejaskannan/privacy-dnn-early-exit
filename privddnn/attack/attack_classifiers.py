@@ -15,6 +15,7 @@ MAJORITY = 'Majority'
 MOST_FREQ = 'MostFrequent'
 LOGISTIC_REGRESSION = 'LogisticRegression'
 NAIVE_BAYES = 'NaiveBayes'
+KMEANS = 'KMeans'
 NGRAM = 'Ngram'
 RATE = 'Rate'
 
@@ -45,12 +46,12 @@ class AttackClassifier:
         Evaluates the classifier on the given dataset.
 
         Args:
-            inputs: A [B, D] array of input features (D) for each sample (B)
+            inputs: A [B, T, D] array of input features (D) for each sample (B) and time step (T)
             labels: A [B] array of data labels.
         Returns:
             A dictionary of score metric name -> metric value
         """
-        assert len(inputs.shape) == 2, 'Must provide a 2d array of inputs'
+        assert len(inputs.shape) == 3, 'Must provide a 2d array of inputs'
         assert len(labels.shape) == 1, 'Must provide a 1d array of labels'
         assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
 
@@ -111,9 +112,10 @@ class MajorityClassifier(AttackClassifier):
         label_counts: DefaultDict[int, List[int]] = defaultdict(list)
         num_labels = np.max(labels) + 1
         input_range = np.max(inputs) + 1
+        features_array = np.sum(inputs, axis=1).astype(int)  # [B, D]
 
-        for input_features, label in zip(inputs, labels):
-            exit_counts = tuple(np.sum(input_features, axis=1))  # D
+        for input_features, label in zip(features_array, labels):
+            exit_counts = tuple(input_features)  # D
             label_counts[exit_counts].append(label)
 
         for key, count_labels in sorted(label_counts.items()):
@@ -126,7 +128,7 @@ class MajorityClassifier(AttackClassifier):
 
     def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
         assert len(inputs.shape) == 2, 'Must provide a 2d array of input features'
-        target = tuple(np.sum(inputs, axis=1))
+        target = tuple(np.sum(inputs, axis=0))
         best_key = None
         best_diff = BIG_NUMBER
 
@@ -320,18 +322,36 @@ class SklearnClassifier(AttackClassifier):
 
     def __init__(self):
         self._scaler = StandardScaler()
+        self._clf = None
 
     def fit(self, inputs: np.ndarray, labels: np.ndarray):
         """
         Fits a classifier for the given dataset.
         """
-        scaled_inputs = self._scaler.fit_transform(inputs)
+        assert self._clf is not None, 'Subclass must set a classifier'
+        input_features = self.make_input_features(inputs)
+        scaled_inputs = self._scaler.fit_transform(input_features)
         self._clf.fit(scaled_inputs, labels)
 
+    def make_input_features(self, inputs: np.ndarray) -> np.ndarray:
+        assert len(inputs.shape) in (2, 3), 'Inputs array must be either 2d or 3d'
+
+        if len(inputs.shape) == 2:
+            return inputs.reshape(-1)
+        else:
+            num_samples = inputs.shape[0]
+            return inputs.reshape(num_samples, -1)
+
     def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
-        scaled_inputs = self._scaler.transform(np.expand_dims(inputs, axis=0))
+        assert len(inputs.shape) == 2, 'Must provide a 2d array of inputs'
+        assert self._clf is not None, 'Subclass must set a classifier'
+
+        input_features = self.make_input_features(inputs)  # K
+        scaled_inputs = self._scaler.transform(input_features)
+
         probs = self._clf.predict_proba(scaled_inputs)[0]  # [L]
         rankings = np.argsort(probs)[::-1]
+
         return rankings[0:top_k].astype(int).tolist()
 
     def score(self, inputs: np.ndarray, labels: np.ndarray) -> Dict[str, float]:
@@ -344,12 +364,15 @@ class SklearnClassifier(AttackClassifier):
         Returns:
             A dictionary of score metric name -> metric value
         """
-        assert len(inputs.shape) == 2, 'Must provide a 2d array of inputs'
+        assert len(inputs.shape) == 3, 'Must provide a 2d array of inputs'
         assert len(labels.shape) == 1, 'Must provide a 1d array of labels'
         assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
+        assert self._clf is not None, 'Subclass must set a classifier'
 
-        scaled_inputs = self._scaler.transform(inputs)
+        input_features = self.make_input_features(inputs)
+        scaled_inputs = self._scaler.transform(input_features)
         probs = self._clf.predict_proba(scaled_inputs)  # [B, L]
+        preds = np.argmax(probs, axis=-1)
 
         accuracy = accuracy_score(y_true=labels, y_pred=np.argmax(probs, axis=-1))
         top2 = top_k_accuracy_score(y_true=labels, y_score=probs, k=2)
@@ -369,6 +392,17 @@ class LogisticRegressionClassifier(SklearnClassifier):
     @property
     def name(self) -> str:
         return LOGISTIC_REGRESSION
+
+
+class KMeansClassifier(SklearnClassifier):
+
+    def __init__(self, n_clusters: int):
+        super().__init__()
+        self._clf = KMeans(n_clusters=n_clusters, random_state=89032, max_iter=1000)
+
+    @property
+    def name(self) -> str:
+        return KMEANS
 
 
 class NaiveBayesClassifier(SklearnClassifier):

@@ -29,6 +29,8 @@ if __name__ == '__main__':
         mut_info: List[float] = []
         #ngram_mut_info: List[float] = []
 
+        print('Num Rates: {}'.format(len(test_log[policy_name])))
+
         for rate, results in reversed(sorted(test_log[policy_name].items())):
             if args.dataset_order not in results:
                 continue

@@ -36,13 +36,11 @@ if __name__ == '__main__':
     # Get the validation labels (we use this to fit any policies)
     val_labels = model.dataset.get_val_labels()  # [B]
 
-    #single_rates = list(sorted(np.arange(0.0, 1.01, 0.1)))
-    single_rates = [0.3, 0.4]
+    single_rates = list(sorted(np.arange(0.0, 1.01, 0.1)))
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies
-    #strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
-    strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]
@@ -56,15 +54,11 @@ if __name__ == '__main__':
     # Get the (unique) rate keys
     rate_settings: List[Tuple[float, ...]] = list(permutations(single_rates, model.num_outputs - 1))
 
-    print(rate_settings)
-
     rates: List[float] = []
     for setting in rate_settings:
         last_rate = 1.0 - sum(setting)
         if last_rate >= 0.0:
             rates.append(list(setting) + [last_rate])
-
-    print(rates)
 
     for strategy in strategies:
         strategy_name = strategy.name.lower()
@@ -96,7 +90,7 @@ if __name__ == '__main__':
                 results['val'][strategy_name][rate_key] = dict()
 
             if rate_key not in results['test'][strategy_name]:
-                    results['test'][strategy_name][rate_key] = dict()
+                results['test'][strategy_name][rate_key] = dict()
 
             results['val'][strategy_name][rate_key].update(rate_result['val'])
             results['test'][strategy_name][rate_key].update(rate_result['test'])

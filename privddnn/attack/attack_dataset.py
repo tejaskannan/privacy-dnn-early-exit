@@ -68,7 +68,7 @@ def make_sequential_dataset(levels: List[int], preds: List[int], window_size: in
         sample_pred = pred_counter.most_common(1)[0][0]
 
         input_features = np.zeros(shape=(window_size, levels_range))
-        for idx, level in sample_levels:
+        for idx, level in enumerate(sample_levels):
             input_features[idx, level] = 1
         
         input_list.append(np.expand_dims(input_features, axis=0))

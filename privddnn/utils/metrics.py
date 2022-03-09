@@ -143,7 +143,6 @@ def compute_mutual_info(X: np.ndarray, Y: np.ndarray, should_normalize: bool) ->
     assert len(Y.shape) == 1, 'Must provide a 1d input for Y'
 
     joint_probs = get_joint_distribution(X=X, Y=Y)
-
     probs_x = np.sum(joint_probs, axis=1)
     probs_y = np.sum(joint_probs, axis=0)
 

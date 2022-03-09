@@ -12,19 +12,25 @@ class EarlyExitNeuralNetwork(NeuralNetwork):
         raise NotImplementedError()
 
     def make_loss(self) -> Dict[str, str]:
-        return {
-            'output0': 'sparse_categorical_crossentropy',
-            'output1': 'sparse_categorical_crossentropy'
-        }
+        loss_dict: Dict[str, str] = dict()
+
+        for idx in range(self.num_outputs):
+            loss_dict['output{}'.format(idx)] = 'sparse_categorical_crossentropy'
+
+        return loss_dict
 
     def make_metrics(self) -> Dict[str, Metric]:
-        return {
-            'output0': tf.metrics.SparseCategoricalAccuracy(name='acc'),
-            'output1': tf.metrics.SparseCategoricalAccuracy(name='acc')
-        }
+        metrics_dict: Dict[str, Metric] = dict()
+
+        for idx in range(self.num_outputs):
+            metrics_dict['output{}'.format(idx)] = tf.metrics.SparseCategoricalAccuracy(name='acc')
+
+        return metrics_dict
 
     def make_loss_weights(self) -> Dict[str, float]:
-        return {
-            'output0': 0.25,
-            'output1': 0.75
-        }
+        loss_weights: Dict[str, float] = dict()
+
+        for idx in range(self.num_outputs):
+            loss_weights['output{}'.format(idx)] = (idx + 1) / self.num_outputs
+
+        return loss_weights

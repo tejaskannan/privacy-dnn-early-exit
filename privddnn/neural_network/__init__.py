@@ -5,10 +5,10 @@ from typing import Type
 from privddnn.classifier import OpName, ModelMode
 from .base import NeuralNetwork
 from .vgg import VGG
-from .branchynet_cnn import BranchyNetCNN, BranchyNetCNN3
-from .branchynet_dnn import BranchyNetDNN
+from .branchynet_cnn import BranchyNetCNN, BranchyNetCNN3, BranchyNetCNN4
+from .branchynet_dnn import BranchyNetDNN, BranchyNetDNN3, BranchyNetDNN4
 from .branchynet_rnn import BranchyNetRNN
-from .speech_cnn import SpeechCNN
+from .speech_cnn import SpeechCNN, SpeechCNN3, SpeechCNN4
 
 
 def get_model_class(name: str) -> Type[NeuralNetwork]:
@@ -18,14 +18,22 @@ def get_model_class(name: str) -> Type[NeuralNetwork]:
         return BranchyNetCNN
     elif name == 'branchynet-cnn-3':
         return BranchyNetCNN3
+    elif name == 'branchynet-cnn-4':
+        return BranchyNetCNN4
     elif name == 'branchynet-dnn':
         return BranchyNetDNN
-    elif name == 'branchynet-rnn':
-        return BranchyNetRNN
+    elif name == 'branchynet-dnn-3':
+        return BranchyNetDNN3
+    elif name == 'branchynet-dnn-4':
+        return BranchyNetDNN4
     elif name == 'vgg':
         return VGG
     elif name == 'speech-cnn':
         return SpeechCNN
+    elif name == 'speech-cnn-3':
+        return SpeechCNN3
+    elif name == 'speech-cnn-4':
+        return SpeechCNN4
     else:
         raise ValueError('Unknown neural network with name: {}'.format(name))
 

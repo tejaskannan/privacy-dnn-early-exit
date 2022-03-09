@@ -8,10 +8,10 @@ from enum import Enum, auto
 from tensorflow.keras.layers import Dense, Dropout, Flatten, Layer, Input
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, BatchNormalization
 from tensorflow.keras.metrics import Metric
-from typing import List, Dict
+from typing import List, Dict, Any
 
 from privddnn.classifier import ModelMode
-from .constants import DROPOUT_KEEP_RATE
+from .constants import DROPOUT_KEEP_RATE, BATCH_SIZE
 from .early_exit_dnn import EarlyExitNeuralNetwork
 
 
@@ -27,26 +27,55 @@ class VGG(EarlyExitNeuralNetwork):
         return 'vgg'
 
     @property
+    def default_hypers(self) -> Dict[str, Any]:
+        default_hypers = super().default_hypers
+        default_hypers['num_outputs'] = 2
+        return default_hypers
+
+    @property
     def num_outputs(self) -> int:
-        return 2
+        return self.hypers['num_outputs']
 
     def make_loss(self) -> Dict[str, str]:
-        return {
-            'output0': 'sparse_categorical_crossentropy'
-            #'dense_2': 'sparse_categorical_crossentropy'
-        }
+        loss_dict: Dict[str, str] = dict()
+
+        for idx in range(self.num_outputs - 1):
+            loss_dict['output{}'.format(idx)] = 'sparse_categorical_crossentropy'
+
+        return loss_dict
 
     def make_metrics(self) -> Dict[str, Metric]:
-        return {
-            'output0': tf.metrics.SparseCategoricalAccuracy(name='acc')
-            #'dense_2': tf.metrics.SparseCategoricalAccuracy(name='acc')
-        }
+        metrics_dict: Dict[str, Metric] = dict()
+
+        for idx in range(self.num_outputs - 1):
+            metrics_dict['output{}'.format(idx)] = tf.metrics.SparseCategoricalAccuracy('acc')
+
+        return metrics_dict
 
     def make_loss_weights(self) -> Dict[str, float]:
-        return {
-            'output0': 1.0
-            #'dense_2': 0.75
-        }
+        weights_dict: Dict[str, float] = dict()
+
+        for idx in range(self.num_outputs - 1):
+            weights_dict['output{}'.format(idx)] = 1.0
+
+        return weights_dict
+
+    def compute_probs(self, inputs: np.ndarray) -> np.ndarray:
+        """
+        Computes the predicted probabilites on the given dataset.
+        """
+        preds = self._model.predict(inputs, batch_size=self.hypers[BATCH_SIZE], verbose=0)
+
+        if self.num_outputs == 2:
+            preds_list = [preds[0], preds[3]]
+        elif self.num_outputs == 3:
+            preds_list = [preds[0], preds[1], preds[3]]
+        elif self.num_outputs == 4:
+            preds_list = preds
+        else:
+            raise ValueError('Can only support a number of outputs in [2, 4]')
+
+        return np.concatenate([np.expand_dims(arr, axis=1) for arr in preds_list])
 
     def make_model(self, inputs: Input, num_labels: int, model_mode: ModelMode) -> List[Layer]:
         dropout_keep_rate = 1.0 if model_mode == ModelMode.TEST else self.hypers[DROPOUT_KEEP_RATE]
@@ -98,16 +127,28 @@ class VGG(EarlyExitNeuralNetwork):
         # Create the output layers
         output0_pooled = pooled1 if self._cifar_mode == CifarMode.CIFAR_10 else pooled3
         flattened0 = Flatten()(output0_pooled)
-        output0_hidden0 = Dense(64, activation='relu', trainable=True, name='output0_hidden0')(flattened0)
-        output0_batchnorm = BatchNormalization(name='batch_normalization_output0')(output0_hidden0)
+        output0_hidden = Dense(64, activation='relu', trainable=True, name='output0_hidden0')(flattened0)
+        output0_batchnorm = BatchNormalization(name='batch_normalization_output0')(output0_hidden)
         output0 = Dense(num_labels, activation='softmax', trainable=True, name='output0')(output0_batchnorm)
 
-        flattened1 = Flatten()(pooled12)
-        hidden1 = Dense(512, activation='relu', trainable=False, name='dense_1')(flattened1)
-        hidden1_batchnorm = BatchNormalization(name='batch_normalization_14')(hidden1)
-        output1 = Dense(num_labels, activation='softmax', trainable=False, name='dense_2')(hidden1_batchnorm)
+        output1_pooled = pooled3 if self._cifar_mode == CifarMode.CIFAR_10 else pooled6
+        flattened1 = Flatten()(output1_pooled)
+        output1_hidden = Dense(64, activation='relu', trainable=True, name='output1_hidden0')(flattened1)
+        output1_batchnorm = BatchNormalization(name='batch_normalization_output1')(output1_hidden)
+        output1 = Dense(num_labels, activation='softmax', trainable=True, name='output1')(output1_batchnorm)
 
-        return [output0, output1]
+        output2_pooled = pooled6 if self._cifar_mode == CifarMode.CIFAR_10 else pooled9
+        flattened2 = Flatten()(output2_pooled)
+        output2_hidden = Dense(128, activation='relu', trainable=True, name='output2_hidden0')(flattened2)
+        output2_batchnorm = BatchNormalization(name='batch_normalization_output2')(output2_hidden)
+        output2 = Dense(num_labels, activation='softmax', trainable=True, name='output2')(output2_batchnorm)
+
+        flattened3 = Flatten()(pooled12)
+        output3_hidden = Dense(512, activation='relu', trainable=False, name='dense_1')(flattened3)
+        output3_batchnorm = BatchNormalization(name='batch_normalization_14')(output3_hidden)
+        output3 = Dense(num_labels, activation='softmax', trainable=False, name='dense_2')(output3_batchnorm)
+
+        return [output0, output1, output2, output3]
 
     def make(self, model_mode: ModelMode):
         dataset_name = self.dataset.dataset_name
