@@ -26,6 +26,14 @@ COLORS = {
     'rolling_max_prob': 'gray'
 }
 
+
+DATASET_LABELS = {
+    'emnist': 'EMNIST',
+    'mnist': 'MNIST',
+    'fashion_mnist': 'Fashion MNIST',
+    'uci_har': 'Activity'
+}
+
 def to_label(name: str) -> str:
     tokens = name.split('_')
     return ' '.join(t.capitalize() for t in tokens)

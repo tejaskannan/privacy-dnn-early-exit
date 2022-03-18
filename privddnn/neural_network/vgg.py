@@ -125,30 +125,42 @@ class VGG(EarlyExitNeuralNetwork):
         pooled12 = MaxPooling2D(pool_size=(2, 2))(batchnorm12)
 
         # Create the output layers
+        outputs: List[Layer] = []
+
         output0_pooled = pooled1 if self._cifar_mode == CifarMode.CIFAR_10 else pooled3
         flattened0 = Flatten()(output0_pooled)
         output0_hidden = Dense(64, activation='relu', trainable=True, name='output0_hidden0')(flattened0)
         output0_batchnorm = BatchNormalization(name='batch_normalization_output0')(output0_hidden)
         output0 = Dense(num_labels, activation='softmax', trainable=True, name='output0')(output0_batchnorm)
 
-        output1_pooled = pooled3 if self._cifar_mode == CifarMode.CIFAR_10 else pooled6
-        flattened1 = Flatten()(output1_pooled)
-        output1_hidden = Dense(64, activation='relu', trainable=True, name='output1_hidden0')(flattened1)
-        output1_batchnorm = BatchNormalization(name='batch_normalization_output1')(output1_hidden)
-        output1 = Dense(num_labels, activation='softmax', trainable=True, name='output1')(output1_batchnorm)
+        outputs.append(output0)
 
-        output2_pooled = pooled6 if self._cifar_mode == CifarMode.CIFAR_10 else pooled9
-        flattened2 = Flatten()(output2_pooled)
-        output2_hidden = Dense(128, activation='relu', trainable=True, name='output2_hidden0')(flattened2)
-        output2_batchnorm = BatchNormalization(name='batch_normalization_output2')(output2_hidden)
-        output2 = Dense(num_labels, activation='softmax', trainable=True, name='output2')(output2_batchnorm)
+        if self.num_outputs >= 3:
+            output1_pooled = pooled3 if self._cifar_mode == CifarMode.CIFAR_10 else pooled6
+            flattened1 = Flatten()(output1_pooled)
+            output1_hidden = Dense(64, activation='relu', trainable=True, name='output1_hidden0')(flattened1)
+            output1_batchnorm = BatchNormalization(name='batch_normalization_output1')(output1_hidden)
+            output1 = Dense(num_labels, activation='softmax', trainable=True, name='output1')(output1_batchnorm)
+
+            outputs.append(output1)
+
+        if self.num_outputs == 4:
+            output2_pooled = pooled6 if self._cifar_mode == CifarMode.CIFAR_10 else pooled9
+            flattened2 = Flatten()(output2_pooled)
+            output2_hidden = Dense(128, activation='relu', trainable=True, name='output2_hidden0')(flattened2)
+            output2_batchnorm = BatchNormalization(name='batch_normalization_output2')(output2_hidden)
+            output2 = Dense(num_labels, activation='softmax', trainable=True, name='output2')(output2_batchnorm)
+
+            outputs.append(output2)
 
         flattened3 = Flatten()(pooled12)
         output3_hidden = Dense(512, activation='relu', trainable=False, name='dense_1')(flattened3)
         output3_batchnorm = BatchNormalization(name='batch_normalization_14')(output3_hidden)
         output3 = Dense(num_labels, activation='softmax', trainable=False, name='dense_2')(output3_batchnorm)
 
-        return [output0, output1, output2, output3]
+        outputs.append(output3)
+
+        return outputs
 
     def make(self, model_mode: ModelMode):
         dataset_name = self.dataset.dataset_name

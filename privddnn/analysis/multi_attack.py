@@ -2,8 +2,9 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 from argparse import ArgumentParser
+from typing import List
 
-from privddnn.attack.attack_classifiers import MOST_FREQ, MAJORITY, LOGISTIC_REGRESSION, NAIVE_BAYES, NGRAM, RATE
+from privddnn.attack.attack_classifiers import MOST_FREQ, MAJORITY, LOGISTIC_REGRESSION_COUNT, NGRAM
 from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.plotting import to_label, COLORS, AXIS_FONT, TITLE_FONT, LEGEND_FONT
 from privddnn.utils.plotting import LINE_WIDTH, MARKER, MARKER_SIZE, PLOT_STYLE
@@ -13,7 +14,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--test-log', type=str, required=True)
     parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2', 'top5', 'top10', 'top(k-1)'])
-    parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION, NAIVE_BAYES, MOST_FREQ, NGRAM, RATE])
+    parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION_COUNT, MOST_FREQ, NGRAM, 'best'])
     parser.add_argument('--dataset-order', type=str, required=True)
     parser.add_argument('--attack-train-log', type=str)
     parser.add_argument('--train-policy', type=str, default='same')
@@ -30,7 +31,15 @@ if __name__ == '__main__':
     attack_accuracy = test_log[attack_key][args.dataset_order]['attack_test']
 
     for policy_name, attack_results in attack_accuracy.items():
-        metric_results = [r[args.metric] * 100.0 for r in attack_results[args.attack_model]]
+
+        if args.attack_model == 'best':
+            all_results: List[List[float]] = []
+            for attack_result in attack_results.values():
+                all_results.append([r[args.metric] * 100.0 for r in attack_result])
+
+            metric_results = np.max(all_results, axis=0)
+        else:
+            metric_results = [r[args.metric] * 100.0 for r in attack_results[args.attack_model]]
 
         average_metric = sum(metric_results) / len(metric_results)
         med_metric = np.median(metric_results)

@@ -9,7 +9,10 @@ from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metr
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.exit_utils import get_adaptive_elevation_bounds
 
+
 EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'labels', 'observed_rates', 'monitor_stats'])
+BufferedEntry = namedtuple('BufferedEntry', ['probs', 'label'])
+BufferedResult = namedtuple('BufferedResult', ['preds', 'exit_decisions', 'labels'])
 
 
 class ExitStrategy(Enum):
@@ -190,32 +193,79 @@ class MaxProbExit(ThresholdExiter):
 
 class BufferedExiter(ThresholdExiter):
 
-    def __init__(self, epsilon: float, rates: List[float], window_size: int, pred_window: int):
+    def __init__(self, rates: List[float], window_size: int):
         super().__init__(rates=rates)
-        assert epsilon < (1.0 / window_size), 'Epsilon must be at most (1 / W).'
-
         self._window_size = window_size
-        self._pred_window = pred_window
-        self._epsilon = epsilon
 
     @property
     def window_size(self) -> int:
         return self._window_size
 
-    @property
-    def pred_window(self) -> int:
-        return self._pred_window
+    def get_exit_quotas(self, window_size: int) -> List[int]:
+        result: List[int] = []
 
-    @property
-    def epsilon(self) -> float:
-        return self._epsilon
+        for rate in self.rates:
+            if np.isclose(rate, 0.0):
+                exit_quota = 0
+            elif np.isclose(rate, 1.0):
+                exit_quota = window_size
+            else:
+                int_part = int(rate * window_size)
+                frac_part = (rate * window_size) - int_part
+                rand_add = int(np.random.uniform() < frac_part)
+                exit_quota = int_part + rand_add
+
+            result.append(exit_quota)
+
+        return result
+
+    def process_window(self, window_probs: [np.ndarray], window_labels: List[int]) -> BufferedResult:
+        window_size = len(window_probs)
+        exit_quotas = self.get_exit_quotas(window_size=window_size)
+
+        probs = np.vstack([np.expand_dims(arr, axis=0) for arr in window_probs])  # [W, L, C]
+
+        exit_decisions = np.zeros(shape=(window_size, ))  # [W]
+        preds = np.zeros(shape=(window_size, ))  # [W]
+        labels = np.zeros(shape=(window_size, ))  # [W]
+
+        used_indices: Set[int] = set()
+
+        for level in range(len(self.rates)):
+            # Compute all of the metrics for this level
+            level_probs = probs[:, level, :]
+            level_preds = np.argmax(level_probs, axis=-1)
+            level_metrics = self.compute_metric(level_probs)  # [W]
+
+            # Get the quota for this exit point
+            level_quota = exit_quotas[level]
+            if level_quota == 0:
+                continue
+
+            # Get the elements with the highest confidence metric values (filter out used entries)
+            sorted_indices = np.argsort(level_metrics)[::-1]  # [W] sorted indices from highest to lowest
+            selected_indices = list(filter(lambda idx: (idx not in used_indices), sorted_indices))[0:level_quota]
+            used_indices.update(selected_indices)
+
+            for idx in selected_indices:
+                exit_decisions[idx] = level
+                preds[idx] = level_preds[idx]
+                labels[idx] = window_labels[idx]
+
+        # Shuffle the result
+        sample_idx = np.arange(window_size)
+        np.random.shuffle(sample_idx)
+
+        return BufferedResult(exit_decisions=exit_decisions[sample_idx].astype(int).tolist(),
+                              preds=preds[sample_idx].astype(int).tolist(),
+                              labels=labels[sample_idx].astype(int).tolist())
 
     def test(self, data_iterator: DataIterator, max_num_samples: Optional[int]) -> EarlyExitResult:
         predictions: List[int] = []
         output_levels: List[int] = []
         labels: List[int] = []
 
-        window_data: List[np.ndarray] = []
+        window_probs: List[np.ndarray] = []
         window_labels: List[int] = []
 
         self.reset()
@@ -228,47 +278,30 @@ class BufferedExiter(ThresholdExiter):
             if (max_num_samples is not None) and (num_samples >= max_num_samples):
                 break
 
-            window_data.append(sample_probs)
+            # Add the entry to the current window
+            window_probs.append(sample_probs)
             window_labels.append(label)
 
-            if len(window_data) == self.window_size:
-                confidence_scores = np.array([s[0] for s in map(self.compute_metric, window_data)])
+            if len(window_probs) == self.window_size:
+                buffered_result = self.process_window(window_probs=window_probs,
+                                                      window_labels=window_labels)
 
-                window_count = int(min(elev_count + int(np.random.uniform() < elev_remainder), self.window_size))
-                window_indices = np.arange(self.window_size)
+                predictions.extend(buffered_result.preds)
+                output_levels.extend(buffered_result.exit_decisions)
+                labels.extend(buffered_result.labels)
 
-                result_levels = np.zeros(self.window_size, dtype=int)
-                result_preds = np.zeros(self.window_size, dtype=int) - 1
-                result_changed = np.zeros(self.window_size)
-
-                if np.isclose(self.rates[1], 1.0):
-                    selected_indices = window_indices
-                elif np.isclose(self.rates[1], 0.0):
-                    selected_indices = []
-                else:
-                    selected_indices = np.argsort(confidence_scores)[0:window_count].astype(int).tolist()
-
-                for idx in range(self.window_size):
-                    level = int(idx in selected_indices)
-                    pred = self.get_prediction(window_data[idx], level=level)
-
-                    result_levels[idx] = level
-                    result_preds[idx] = pred
-                    result_changed[idx] = int(did_change)
-
-                # Make each window order-invariant
-                sample_idx = np.arange(self.window_size)
-                np.random.shuffle(sample_idx)
-
-                for idx in sample_idx:
-                    predictions.append(result_preds[idx])
-                    labels.append(window_labels[idx])
-                    output_levels.append(result_levels[idx])
-
-                window_data = []
+                window_probs = []
                 window_labels = []
 
             num_samples += 1
+
+        if len(window_probs) > 0:
+            buffered_result = self.process_window(window_probs=window_probs,
+                                                  window_labels=window_labels)
+
+            predictions.extend(buffered_result.preds)
+            output_levels.extend(buffered_result.exit_decisions)
+            labels.extend(buffered_result.labels)
 
         output_counts = np.bincount(output_levels, minlength=self.num_outputs)
         observed_rates = output_counts / num_samples
@@ -277,7 +310,7 @@ class BufferedExiter(ThresholdExiter):
                                output_levels=np.vstack(output_levels).reshape(-1),
                                labels=np.vstack(labels).reshape(-1),
                                observed_rates=observed_rates,
-                               metric_stats=dict())
+                               monitor_stats=dict())
 
 
 class BufferedMaxProb(BufferedExiter):
@@ -554,9 +587,9 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
     elif strategy == ExitStrategy.LABEL_ENTROPY:
         return LabelEntropyExit(rates=rates)
     elif strategy == ExitStrategy.BUFFERED_MAX_PROB:
-        return BufferedMaxProb(rates=rates, window_size=10, epsilon=0.02, pred_window=50)
+        return BufferedMaxProb(rates=rates, window_size=10)
     elif strategy == ExitStrategy.BUFFERED_ENTROPY:
-        return BufferedEntropy(rates=rates, window_size=10, epsilon=0.02, pred_window=50)
+        return BufferedEntropy(rates=rates, window_size=10)
     elif strategy == ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB:
         return AdaptiveRandomMaxProb(rates=rates)
     elif strategy == ExitStrategy.ADAPTIVE_RANDOM_ENTROPY:
