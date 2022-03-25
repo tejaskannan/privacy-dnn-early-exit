@@ -97,8 +97,11 @@ if __name__ == '__main__':
     rates = list(np.arange(0.0, 1.01, 0.05))
     rand = np.random.RandomState(seed=591)
 
+    rates = [0.4, 0.5, 0.6]
+
     # Execute all early stopping policies
-    strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    #strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.NEAREST_NEIGHBOR, ExitStrategy.RANDOM]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]

@@ -35,6 +35,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset-order', type=str, required=True, choices=['nearest', 'same-label'])
     parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'mutual_information'])
     parser.add_argument('--window-sizes', type=int, required=True, nargs='+')
+    parser.add_argument('--output-file', type=str)
     args = parser.parse_args()
 
     # Get the data-dependent accuracy for each window size
@@ -116,4 +117,7 @@ if __name__ == '__main__':
         ax.set_ylabel('{} Improvement Score'.format(metric_name), size=AXIS_FONT)
         ax.set_title('{} Improvement for Varying Window Sizes'.format(metric_name), size=TITLE_FONT)
 
-        plt.show()
+        if args.output_file is None:
+            plt.show()
+        else:
+            plt.savefig(args.output_file, transparent=True, bbox_inches='tight')

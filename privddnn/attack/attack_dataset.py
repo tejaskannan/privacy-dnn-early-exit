@@ -4,6 +4,8 @@ from collections import Counter, defaultdict
 from typing import Tuple, List, DefaultDict
 
 from privddnn.utils.file_utils import read_pickle_gz
+from privddnn.dataset import Dataset
+from privddnn.dataset.data_iterators import make_data_iterator
 
 
 def make_noisy_dataset(levels: List[int],
@@ -77,6 +79,54 @@ def make_sequential_dataset(levels: List[int], preds: List[int], window_size: in
     inputs = np.vstack(input_list)
     return inputs, np.vstack(output_list).reshape(-1)
 
+
+
+def make_input_sequential_dataset(dataset: Dataset, dataset_order: str, exit_decisions: List[int], fold: str, window_size: int, num_exits: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+    data_iterator = make_data_iterator(dataset_order, dataset=dataset, pred_probs=None, fold=fold, num_reps=1, window_size=window_size)
+
+    data_input_list: List[np.ndarray] = []
+    decisions_list: List[np.ndarray] = []
+    labels_list: List[int] = []
+    step = int(window_size)
+    step_counter = 0
+
+    decision_window: List[np.ndarray] = []
+    label_counter: Counter = Counter()
+
+    for idx, (inputs, _, label) in enumerate(data_iterator):
+        if idx == 0:
+            accumulator = np.zeros_like(inputs)
+
+        accumulator += inputs
+        step_counter += 1
+
+        decision_vector = np.zeros(shape=(1, num_exits), dtype=int)
+        decision_vector[0, exit_decisions[idx]] = 1
+        decision_window.append(decision_vector)
+        label_counter[label] += 1
+
+        if step_counter >= step:
+            avg_input = accumulator / step_counter
+            data_input_list.append(np.expand_dims(avg_input, axis=0))
+
+            decisions_list.append(np.expand_dims(np.vstack(decision_window), axis=0))
+
+            majority_label = label_counter.most_common(1)[0][0]
+            labels_list.append(majority_label)
+
+            accumulator = np.zeros_like(inputs)
+            decision_window = []
+            label_counter = Counter()
+            step_counter = 0
+
+    #if step_counter > 0:
+    #    avg_input = accumulator / step_counter
+    #    data_input_list.append(np.expand_dims(avg_input, axis=0))
+    #    decisions_list.append(np.expand_dims(decision_window, axis=0))
+
+    return np.vstack(decisions_list), np.vstack(data_input_list), np.vstack(labels_list).reshape(-1)
+        
 
 def make_similar_dataset(levels: List[int],
                          preds: List[int],

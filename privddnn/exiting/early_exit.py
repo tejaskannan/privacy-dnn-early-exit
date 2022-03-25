@@ -1,13 +1,15 @@
 import numpy as np
 import time
+from annoy import AnnoyIndex
 from collections import namedtuple, defaultdict, Counter
 from enum import Enum, auto
 from typing import Any, List, Tuple, Dict, DefaultDict, Optional
 
 from privddnn.dataset.data_iterators import DataIterator
-from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metric
+from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metric, sigmoid, compute_entropy
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.exit_utils import get_adaptive_elevation_bounds
+from .linear_optimizer import GeneticLinearOptimizer
 
 
 EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'labels', 'observed_rates', 'monitor_stats'])
@@ -99,6 +101,8 @@ class EarlyExiter:
         output_counts = np.bincount(output_levels, minlength=self.num_outputs)
         observed_rates = output_counts / num_samples
 
+        print(observed_rates)
+
         return EarlyExitResult(predictions=np.vstack(predictions).reshape(-1),
                                output_levels=np.vstack(output_levels).reshape(-1),
                                labels=np.vstack(labels).reshape(-1),
@@ -119,6 +123,77 @@ class RandomExit(EarlyExiter):
     def select_output(self, probs: np.ndarray) -> int:
         level = np.random.choice(self._output_idx, size=1, p=self.rates)
         return int(level)
+
+
+class LinearExiter(EarlyExiter):
+
+    @property
+    def name(self) -> str:
+        return 'linear'
+
+    def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
+        super().fit(val_probs=val_probs, val_labels=val_labels)
+
+        optimizer = GeneticLinearOptimizer(keep_rate=0.25, population_size=128, mutation_rate=0.01)
+        self._weights = optimizer.fit(probs=val_probs,
+                                      labels=val_labels,
+                                      exit_rate=self.rates[0],
+                                      max_iters=100,
+                                      patience=5)
+
+    def select_output(self, probs: np.ndarray) -> int:
+        first_probs = probs[0, :]
+        entropy = np.expand_dims(compute_entropy(first_probs, axis=-1), axis=-1)
+        max_prob = np.expand_dims(np.max(first_probs, axis=-1), axis=-1)
+        features = np.concatenate([first_probs, entropy, max_prob], axis=-1)
+
+        exit_val = sigmoid(features.dot(self._weights))
+        return int(exit_val < 0.5)
+
+
+class NearestNeighborExiter(EarlyExiter):
+
+    @property
+    def name(self) -> str:
+        return 'knn'
+
+    @property
+    def num_neighbors(self) -> int:
+        return 100
+
+    def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
+        super().fit(val_probs=val_probs, val_labels=val_labels)
+
+        self._nn_index = AnnoyIndex(val_probs.shape[-1], 'euclidean')
+        self._pred_map: Dict[int, int] = dict()
+
+        first_probs = val_probs[:, 0, :]  # [B, D]
+        for idx, probs in enumerate(first_probs):
+            self._nn_index.add_item(idx, probs)
+            self._pred_map[idx] = val_labels[idx]
+
+        self._nn_index.build(32)
+
+        entropy_list: List[float] = []
+        for idx, probs in enumerate(first_probs):
+            neighbor_idx = self._nn_index.get_nns_by_vector(probs, n=self.num_neighbors)
+            neighbor_labels = [self._pred_map[i] for i in neighbor_idx]
+            label_dist = np.bincount(neighbor_labels).astype(float)
+            label_dist /= np.sum(label_dist)
+            entropy_list.append(max(compute_entropy(label_dist, axis=-1), 0.0))
+
+        self._threshold = np.quantile(entropy_list, q=self.rates[0])
+        print(self._threshold)
+
+    def select_output(self, probs: np.ndarray) -> int:
+        first_probs = probs[0]
+        neighbor_idx = self._nn_index.get_nns_by_vector(first_probs, n=self.num_neighbors)
+        neighbor_labels = [self._pred_map[i] for i in neighbor_idx]
+        label_dist = np.bincount(neighbor_labels).astype(float)
+        label_dist /= np.sum(label_dist)
+        label_entropy = max(compute_entropy(label_dist, axis=-1), 0.0)
+
+        return int(label_entropy >= self._threshold)
 
 
 class ThresholdExiter(EarlyExiter):

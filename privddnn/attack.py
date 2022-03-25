@@ -6,7 +6,8 @@ from collections import defaultdict
 from typing import DefaultDict, List, Tuple, Dict
 
 from privddnn.attack.attack_dataset import make_similar_dataset, make_noisy_dataset, make_sequential_dataset
-from privddnn.attack.attack_classifiers import MostFrequentClassifier, MajorityClassifier, LogisticRegressionClassifier, NaiveBayesClassifier, NgramClassifier, RateClassifier
+from privddnn.attack.attack_classifiers import MostFrequentClassifier, MajorityClassifier, LogisticRegressionCount, LogisticRegressionNgram, NgramClassifier
+from privddnn.attack.attack_classifiers import WindowNgramClassifier
 from privddnn.classifier import BaseClassifier, ModelMode, OpName
 from privddnn.restore import restore_classifier
 from privddnn.utils.file_utils import read_json_gz, save_json_gz
@@ -41,7 +42,7 @@ if __name__ == '__main__':
 
     key = next(iter(train_log['val']['random'].keys()))
     window_size = train_log['val']['random'][key][args.dataset_order]['window_size']
-    num_labels = np.amax(val_preds) + 1
+    num_labels = val_probs.shape[-1]
 
     #most_freq_clf = MostFrequentClassifier(window=window_size, num_labels=num_labels)
     #most_freq_clf.fit(inputs=val_preds, labels=val_preds)
@@ -51,7 +52,7 @@ if __name__ == '__main__':
         train_attack_results[policy_name] = defaultdict(list)
         test_attack_results[policy_name] = defaultdict(list)
 
-        if policy_name != 'max_prob':
+        if policy_name == 'adaptive_random_max_prob':
             continue
 
         for rate in train_log['val'][policy_name].keys():
@@ -73,7 +74,8 @@ if __name__ == '__main__':
                                                                               preds=test_preds,
                                                                               window_size=window_size)
 
-            print('Starting {} on {:.2f}. # Train: {}, # Test: {}'.format(policy_name, round(float(rate), 2), len(train_attack_inputs), len(test_attack_inputs)), end='\r')
+            rate_str = ' '.join('{:.2f}'.format(round(float(r), 2)) for r in rate.split(' '))
+            print('Starting {} on {}. # Train: {}, # Test: {}'.format(policy_name, rate_str, len(train_attack_inputs), len(test_attack_inputs)), end='\r')
 
             # Evaluate the most-frequent classifier
             #train_acc = most_freq_clf.score(train_attack_inputs, train_attack_outputs)
@@ -86,25 +88,37 @@ if __name__ == '__main__':
             majority_clf = MajorityClassifier()
             majority_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            train_acc = majority_clf.score(train_attack_inputs, train_attack_outputs)
-            test_acc = majority_clf.score(test_attack_inputs, test_attack_outputs)
+            train_acc = majority_clf.score(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
+            test_acc = majority_clf.score(test_attack_inputs, test_attack_outputs, num_labels=num_labels)
 
-            #print('Train Accuracy: {:.5f}, Test Accuracy: {:.5f}'.format(train_acc['accuracy'], test_acc['accuracy']))
+            #print('Majority: Train Accuracy: {:.5f}, Test Accuracy: {:.5f}'.format(train_acc['accuracy'], test_acc['accuracy']))
+            #print('Majority Weighted: Train Accuracy: {:.5f}, Test Accuracy: {:.5f}'.format(train_acc['weighted_accuracy'], test_acc['weighted_accuracy']))
 
             train_attack_results[policy_name][majority_clf.name].append(train_acc)
             test_attack_results[policy_name][majority_clf.name].append(test_acc)
 
+            wngram_clf = WindowNgramClassifier(window_size=5, num_neighbors=5)
+            wngram_clf.fit(train_attack_inputs, train_attack_outputs)
+
+            train_acc = wngram_clf.score(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
+            test_acc = wngram_clf.score(test_attack_inputs, test_attack_outputs, num_labels=num_labels)
+
+            #print('WNgram: Train Accuracy: {:.5f}, Test Accuracy: {:.5f}'.format(train_acc['accuracy'], test_acc['accuracy']))
+
+            train_attack_results[policy_name][wngram_clf.name].append(train_acc)
+            test_attack_results[policy_name][wngram_clf.name].append(test_acc)
+
             # Fit and evaluate the NGram classifier
-            #ngram_clf = NgramClassifier()
-            #ngram_clf.fit(train_attack_inputs, train_attack_outputs)
+            ngram_clf = NgramClassifier(num_neighbors=10)
+            ngram_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            #train_acc = ngram_clf.score(train_attack_inputs, train_attack_outputs)
-            #test_acc = ngram_clf.score(test_attack_inputs, test_attack_outputs)
+            train_acc = ngram_clf.score(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
+            test_acc = ngram_clf.score(test_attack_inputs, test_attack_outputs, num_labels=num_labels)
 
-            #print('Train Accuracy: {:.5f}, Test Accuracy: {:.5f}'.format(train_acc['accuracy'], test_acc['accuracy']))
+            #print('NGram: Train Accuracy: {:.5f}, Test Accuracy: {:.5f}'.format(train_acc['accuracy'], test_acc['accuracy']))
 
-            #train_attack_results[policy_name][ngram_clf.name].append(train_acc)
-            #test_attack_results[policy_name][ngram_clf.name].append(test_acc)
+            train_attack_results[policy_name][ngram_clf.name].append(train_acc)
+            test_attack_results[policy_name][ngram_clf.name].append(test_acc)
 
             # Fit and evaluate the Rate classifier
             #rate_clf = RateClassifier()
@@ -116,27 +130,34 @@ if __name__ == '__main__':
             #train_attack_results[policy_name][rate_clf.name].append(train_acc)
             #test_attack_results[policy_name][rate_clf.name].append(test_acc)
 
-            ## Fit and evaluate the logistic regression classifier
-            lr_clf = LogisticRegressionClassifier()
+            # Fit and evaluate the logistic regression classifiers
+            lr_clf = LogisticRegressionCount()
             lr_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
-            test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
+            train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
+            test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs, num_labels=num_labels)
 
-            print('Logistic. Train Acc: {:.5f}, Test Acc: {:.5f}'.format(train_acc['accuracy'], test_acc['accuracy']))
-            
             train_attack_results[policy_name][lr_clf.name].append(train_acc)
             test_attack_results[policy_name][lr_clf.name].append(test_acc)
-            
-            ## Fit and evaluate the naive bayes classifier
-            #nb_clf = NaiveBayesClassifier()
-            #nb_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            #train_acc = nb_clf.score(train_attack_inputs, train_attack_outputs)
-            #test_acc = nb_clf.score(test_attack_inputs, test_attack_outputs)
+            lrn_clf = LogisticRegressionNgram()
+            lrn_clf.fit(train_attack_inputs, train_attack_outputs)
 
-            #train_attack_results[policy_name][nb_clf.name].append(train_acc)
-            #test_attack_results[policy_name][nb_clf.name].append(test_acc)
+            train_acc = lrn_clf.score(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
+            test_acc = lrn_clf.score(test_attack_inputs, test_attack_outputs, num_labels=num_labels)
+
+            train_attack_results[policy_name][lrn_clf.name].append(train_acc)
+            test_attack_results[policy_name][lrn_clf.name].append(test_acc)
+
+            # Fit and evaluate the naive bayes classifier
+            #dt_clf = DecisionTreeEnsemble()
+            #dt_clf.fit(train_attack_inputs, train_attack_outputs)
+
+            #train_acc = dt_clf.score(train_attack_inputs, train_attack_outputs)
+            #test_acc = dt_clf.score(test_attack_inputs, test_attack_outputs)
+
+            #train_attack_results[policy_name][dt_clf.name].append(train_acc)
+            #test_attack_results[policy_name][dt_clf.name].append(test_acc)
 
         print()
 
@@ -156,4 +177,4 @@ if __name__ == '__main__':
     eval_log[attack_key][args.dataset_order]['attack_test'] = test_attack_results
     eval_log[attack_key][args.dataset_order]['attack_train'] = train_attack_results
     eval_log[attack_key][args.dataset_order]['attack_train_log'] = train_log_path
-    #save_json_gz(eval_log, eval_log_path)
+    save_json_gz(eval_log, eval_log_path)

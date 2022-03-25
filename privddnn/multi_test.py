@@ -36,7 +36,7 @@ if __name__ == '__main__':
     # Get the validation labels (we use this to fit any policies)
     val_labels = model.dataset.get_val_labels()  # [B]
 
-    single_rates = list(sorted(np.arange(0.3, 0.71, 0.05)))
+    single_rates = list(sorted(np.arange(0.1, 0.41, 0.05)))
     rand = np.random.RandomState(seed=591)
 
     # Execute all early stopping policies

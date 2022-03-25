@@ -10,6 +10,7 @@ from privddnn.utils.constants import SMALL_NUMBER
 
 
 MODULUS = 2**16
+DATASET_NOISE = 0.25
 
 
 class DataFold(Enum):
@@ -43,9 +44,15 @@ class Dataset:
     def __init__(self, dataset_name: str):
         # Get the dataset by name and load the data
         dataset_name = dataset_name.lower()
+        self._dataset_name = dataset_name
         dir_path = os.path.dirname(os.path.realpath(__file__))
 
         has_val_split = False
+        self._is_noisy = False
+
+        if dataset_name.endswith('_noisy'):
+            dataset_name = dataset_name.replace('_noisy', '')
+            self._is_noisy = True
 
         if dataset_name == 'mnist':
             tf_dataset = tf2.keras.datasets.mnist
@@ -59,26 +66,19 @@ class Dataset:
 
             X_train = np.expand_dims(X_train, axis=-1)  # [N, 28, 28, 1]
             X_test = np.expand_dims(X_test, axis=-1)  # [M, 28, 28, 1]
-        elif dataset_name == 'kmnist':
-            X_train, y_train = load_npz_dataset(path=os.path.join(dir_path, '..', 'data', 'kmnist'), fold='train')
-            X_test, y_test = load_npz_dataset(path=os.path.join(dir_path, '..', 'data', 'kmnist'), fold='test')
-        elif dataset_name in ('cifar_10', 'cifar10'):
-            dataset_name = 'cifar10'
+        elif dataset_name == 'cifar10':
             tf_dataset = tf2.keras.datasets.cifar10
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
-        elif dataset_name in ('cifar_100', 'cifar100'):
+        elif dataset_name == 'cifar100':
             dataset_name = 'cifar100'
             tf_dataset = tf2.keras.datasets.cifar100
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
-        elif dataset_name == 'pen_digits':
-            X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'train.h5'))
-            X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', 'pen_digits', 'test.h5'))
         elif dataset_name == 'traffic_signs':
             X_train, y_train = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'train.h5'))
             X_val, y_val = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'test.h5'))
             has_val_split = True
-        elif (dataset_name in ('uci_har', 'land_cover', 'mnist1d', 'spoken_digit', 'speech_commands', 'wisdm')) or (dataset_name.endswith('noisy')):
+        elif dataset_name in ('uci_har', 'speech_commands', 'wisdm', 'emnist', 'wisdm_real'):
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'train.h5'))
             X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'test.h5'))
@@ -86,7 +86,6 @@ class Dataset:
         else:
             raise ValueError('Unknown dataset with name: {}'.format(dataset_name))
 
-        self._dataset_name = dataset_name
         self._rand = np.random.RandomState(58924)
 
         # Make sure we have 1d label arrays
@@ -213,6 +212,16 @@ class Dataset:
         self._train_inputs = (self._train_inputs - self._mean) / (self._std + SMALL_NUMBER)
         self._val_inputs = (self._val_inputs - self._mean) / (self._std + SMALL_NUMBER)
         self._test_inputs = (self._test_inputs - self._mean) / (self._std + SMALL_NUMBER)
+
+        # Apply noise after normalization (standardizes across datasets)
+        if self._is_noisy:
+            train_noise = self._rand.normal(loc=0.0, scale=DATASET_NOISE, size=self._train_inputs.shape)
+            val_noise = self._rand.normal(loc=0.0, scale=DATASET_NOISE, size=self._val_inputs.shape)
+            test_noise = self._rand.normal(loc=0.0, scale=DATASET_NOISE, size=self._test_inputs.shape)
+
+            self._train_inputs += train_noise
+            self._val_inputs += val_noise
+            self._test_inputs += test_noise
 
         self._is_normalized = True
 

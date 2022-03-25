@@ -13,7 +13,7 @@ from privddnn.dataset.dataset import Dataset
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--test-log', type=str, required=True)
-    parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2', 'top5', 'top10', 'top(k-1)'])
+    parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2', 'top5', 'top10', 'top(k-1)', 'weighted_accuracy'])
     parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION_COUNT, MOST_FREQ, NGRAM, 'best'])
     parser.add_argument('--dataset-order', type=str, required=True)
     parser.add_argument('--attack-train-log', type=str)

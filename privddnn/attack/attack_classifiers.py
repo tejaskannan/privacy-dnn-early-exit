@@ -6,9 +6,10 @@ from sklearn.ensemble import AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import accuracy_score, top_k_accuracy_score
 from sklearn.preprocessing import StandardScaler
-from typing import Dict, List, DefaultDict
+from typing import Dict, List, DefaultDict, Tuple
 
 from privddnn.utils.constants import BIG_NUMBER
+from privddnn.utils.metrics import compute_entropy
 
 
 MAJORITY = 'Majority'
@@ -27,6 +28,7 @@ TOP5 = 'top5'
 TOP10 = 'top10'
 TOP_UNTIL_90 = 'topUntil90'
 TOP_ALL_BUT_ONE = 'top(k-1)'
+WEIGHTED_ACCURACY = 'weighted_accuracy'
 
 
 class AttackClassifier:
@@ -37,11 +39,11 @@ class AttackClassifier:
     def fit(self, inputs: np.ndarray, labels: np.ndarray):
         raise NotImplementedError()
 
-    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
+    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> Tuple[List[int], float]:
         raise NotImplementedError()
 
     def predict(self, inputs: np.ndarray) -> int:
-        return self.predict_rankings(inputs=inputs, top_k=1)[0]
+        return self.predict_rankings(inputs=inputs, top_k=1)[0][0]
 
     def score(self, inputs: np.ndarray, labels: np.ndarray, num_labels: int) -> Dict[str, float]:
         """
@@ -62,19 +64,26 @@ class AttackClassifier:
         top5_count = 0.0
         top10_count = 0.0
         toplast_count = 0.0
+        weighted_count = 0.0
+
         total_count = 0.0
+        weight_sum = 0.0
 
         rankings_list: List[List[int]] = []
 
         for count, label in zip(inputs, labels):
-            rankings = self.predict_rankings(count, top_k=num_labels)
+            rankings, confidence = self.predict_rankings(count, top_k=num_labels)
 
             top2_count += float(label in rankings[0:2])
             top5_count += float(label in rankings[0:5])
             top10_count += float(label in rankings[0:10])
             toplast_count += float(label in rankings[0:num_labels-1])
             correct_count += float(rankings[0] == label)
+            weighted_count += confidence * float(rankings[0] == label)
+
             total_count += 1.0
+            weight_sum += confidence
+
             rankings_list.append(np.expand_dims(rankings, axis=0))
 
         rankings_array = np.vstack(rankings_list)  # [N, L]
@@ -96,7 +105,8 @@ class AttackClassifier:
             TOP5: top5_count / total_count,
             TOP10: top10_count / total_count,
             TOP_ALL_BUT_ONE: toplast_count / total_count,
-            TOP_UNTIL_90: top_until_90
+            TOP_UNTIL_90: top_until_90,
+            WEIGHTED_ACCURACY: weighted_count / weight_sum
         }
 
 
@@ -104,6 +114,7 @@ class MajorityClassifier(AttackClassifier):
 
     def __init__(self):
         self._clf: Dict[Tuple[int, ...], List[int]] = dict()
+        self._confidence: Dict[Tuple[int, ...], float] = dict()
         self._most_freq = 0
 
     @property
@@ -132,10 +143,16 @@ class MajorityClassifier(AttackClassifier):
             exit_counts = tuple(input_features)  # D
             label_counts[exit_counts].append(label)
 
+        max_dist = np.ones(shape=(num_labels, )).astype(float) / num_labels
+        max_entropy = compute_entropy(max_dist, axis=-1)
+
         for key, count_labels in sorted(label_counts.items()):
-            freq = np.bincount(count_labels, minlength=num_labels)
+            bincounts = np.bincount(count_labels, minlength=num_labels)
+            freq = bincounts / np.sum(bincounts)
+
             most_freq = np.argsort(freq)[::-1]
             self._clf[key] = most_freq
+            self._confidence[key] = 1.0 - max(compute_entropy(freq, axis=-1), 0.0) / max_entropy
 
         label_counts = np.bincount(labels, minlength=num_labels)
         self._most_freq = np.argsort(label_counts)[::-1]
@@ -148,6 +165,7 @@ class MajorityClassifier(AttackClassifier):
 
         if target in self._clf:
             rankings = self._clf[target]
+            confidence = self._confidence[target]
         else:
             for key in self._clf.keys():
                 diff = sum((abs(k - t) for k, t in zip(key, target)))
@@ -157,21 +175,29 @@ class MajorityClassifier(AttackClassifier):
 
             if best_key is None:
                 rankings = self._most_freq
+                confidence = 0.0
             else:
                 rankings = self._clf.get(best_key, self._most_freq)
+                confidence = self._confidence.get(best_key, 0.0)
 
-        return rankings[0:top_k].astype(int).tolist()
+        return rankings[0:top_k].astype(int).tolist(), confidence
 
 
 class NgramClassifier(AttackClassifier):
 
-    def __init__(self):
+    def __init__(self, num_neighbors: int):
         self._clf: Dict[Tuple[int, ...], np.ndarray] = dict()
+        self._confidence: Dict[Tuple[int, ...], float] = dict()
         self._most_freq = 0
+        self._num_neighbors = num_neighbors
 
     @property
     def name(self) -> str:
         return NGRAM
+
+    @property
+    def num_neighbors(self) -> int:
+        return self._num_neighbors
 
     def fit(self, inputs: np.ndarray, labels: np.ndarray):
         """
@@ -189,52 +215,74 @@ class NgramClassifier(AttackClassifier):
         label_counts: DefaultDict[Tuple[int, ...], List[int]] = defaultdict(list)
         num_labels = np.max(labels) + 1
 
-        for input_features, label in zip(inputs, labels):
-            features = tuple(int(np.argmax(vector)) for vector in input_features)
-            label_counts[features].append(label)
+        # Make the nearest neighbor index
+        _, window_size, num_exits = inputs.shape
+        index_features = num_exits * window_size
 
-        for features, feature_labels in sorted(label_counts.items()):
-            freq = np.bincount(feature_labels, minlength=num_labels)
-            most_freq = np.argsort(freq)[::-1]
-            self._clf[features] = most_freq
+        self._nn_index = AnnoyIndex(index_features, metric='euclidean')
+
+        # Make the reverse index for predictions and add all features to the nearest
+        # neighbor index
+        self._pred_counters: Dict[int, Counter] = dict()
+        features_num = 0
+
+        self._reverse_index: Dict[Tuple[int, ...], int] = dict()
+
+        for input_features, label in zip(inputs, labels):
+            features = input_features.reshape(-1).astype(int).tolist()
+            features_tuple = tuple(features)
+            features_idx = self._reverse_index.get(features_tuple, -1)
+
+            if features_idx == -1:
+                self._pred_counters[features_num] = Counter()
+                self._reverse_index[features_tuple] = features_num
+                self._nn_index.add_item(features_num, features)
+                features_num += 1
+
+            features_idx = self._reverse_index[features_tuple]
+            self._pred_counters[features_idx][label] += 1
+
+        # Build the nearest neighbor index
+        self._nn_index.build(32)
 
         label_counts = np.bincount(labels, minlength=num_labels)
-        self._most_freq = np.argsort(label_counts)[::-1]
+        self._most_freq = int(np.argmax(label_counts))
 
-    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
+    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> Tuple[List[int], float]:
         assert len(inputs.shape) == 2, 'Must provide a 1d array of input features'
-        features = tuple(int(np.argmax(vector)) for vector in inputs)
 
-        if features in self._clf:
-            rankings = self._clf[features]
-        else:
-            best_key = None
-            best_diff = BIG_NUMBER
+        features = inputs.reshape(-1).astype(int).tolist()
+        neighbor_indices = self._nn_index.get_nns_by_vector(features, self.num_neighbors, include_distances=False)
 
-            for key in self._clf.keys():
-                diff = sum(abs(k - t) for k, t in zip(key, features))
-                if diff < best_diff:
-                    best_key = key
-                    best_diff = diff
+        label_counter: Counter = Counter()
+        for neighbor_idx in neighbor_indices:
+            neighbor_counters = self._pred_counters[neighbor_idx]
+            label_counter.update(neighbor_counters)
 
-            if best_key is None:
-                rankings = self._most_freq
-            else:
-                rankings = self._clf.get(best_key, self._most_freq)
+        rankings_with_counts = label_counter.most_common(top_k)
+        rankings = list(map(lambda t: t[0], rankings_with_counts))
 
-        return rankings[0:top_k].astype(int).tolist()
+        while len(rankings) < top_k:
+            rankings.append(self._most_freq)
+
+        return rankings, 1.0
 
 
 class WindowNgramClassifier(AttackClassifier):
 
-    def __init__(self, window_size: int):
+    def __init__(self, window_size: int, num_neighbors: int):
         self._clf: Dict[Tuple[int, ...], np.ndarray] = dict()
         self._most_freq = 0
         self._window_size = window_size
+        self._num_neighbors = num_neighbors
 
     @property
     def name(self) -> str:
         return WINDOW_NGRAM
+
+    @property
+    def num_neighbors(self) -> int:
+        return self._num_neighbors
 
     @property
     def window_size(self) -> int:
@@ -256,121 +304,70 @@ class WindowNgramClassifier(AttackClassifier):
         label_counts: DefaultDict[Tuple[int, ...], List[int]] = defaultdict(list)
         num_labels = np.max(labels) + 1
 
+        # Make the nearest neighbor index
+        _, seq_size, num_exits = inputs.shape
+        index_features = num_exits * self.window_size
+        self._nn_indices = [AnnoyIndex(index_features, metric='euclidean') for _ in range(0, seq_size - self.window_size + 1, self.window_size)]
+
+        # Make the reverse index for predictions and add all features to the nearest
+        # neighbor index
+        self._pred_counters: DefaultDict[int, Dict[int, Counter]] = defaultdict(dict)
+        feature_nums = [0 for _ in range(len(self._nn_indices))]
+
+        self._reverse_index: DefaultDict[int, Dict[Tuple[int, ...], int]] = defaultdict(dict)
+
         for input_features, label in zip(inputs, labels):
-            features_list: List[int] = []
 
-            for idx in range(0, len(input_features) - self.window_size + 1, self.window_size):
-                input_slice = input_features[idx:idx+self.window_size]  # [W, D]
-                window_features = np.sum(input_slice, axis=0).astype(int)  # [D]
-                features_list.extend(window_features)
+            for nn_idx, window_idx in enumerate(range(0, seq_size - self.window_size + 1, self.window_size)):
+                window_features = input_features[window_idx:window_idx+self.window_size]
+                if len(window_features) < self.window_size:
+                    continue
 
-            features = tuple(features_list)
-            label_counts[features].append(label)
+                features = window_features.reshape(-1).astype(int).tolist()
+                features_tuple = tuple(features)
+                features_idx = self._reverse_index[nn_idx].get(features_tuple, -1)
 
-        for features, feature_labels in sorted(label_counts.items()):
-            freq = np.bincount(feature_labels, minlength=num_labels)
-            most_freq = np.argsort(freq)[::-1]
-            self._clf[features] = most_freq
+                if features_idx == -1:
+                    self._pred_counters[nn_idx][feature_nums[nn_idx]] = Counter()
+                    self._reverse_index[nn_idx][features_tuple] = feature_nums[nn_idx]
+                    self._nn_indices[nn_idx].add_item(feature_nums[nn_idx], features)
+                    feature_nums[nn_idx] += 1
+
+                features_idx = self._reverse_index[nn_idx][features_tuple]
+                self._pred_counters[nn_idx][features_idx][label] += 1
+
+        # Build the nearest neighbor index
+        for nn_index in self._nn_indices:
+            nn_index.build(32)
 
         label_counts = np.bincount(labels, minlength=num_labels)
-        self._most_freq = np.argsort(label_counts)[::-1]
+        self._most_freq = int(np.argmax(label_counts))
 
-    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
+    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> Tuple[List[int], float]:
         assert len(inputs.shape) == 2, 'Must provide a 1d array of input features'
+
         label_counter: Counter = Counter()
+        seq_size = inputs.shape[0]
 
-        features_list: List[int] = []
-        for idx in range(0, len(inputs) - self.window_size + 1, self.window_size):
-            input_slice = inputs[idx:idx+self.window_size]  # [W, D]
-            window_features = np.sum(input_slice, axis=0).astype(int)
-            features_list.extend(window_features)
+        for nn_idx, window_idx in enumerate(range(0, seq_size - self.window_size + 1, self.window_size)):
+            window_features = inputs[window_idx:window_idx+self.window_size]
+            if len(window_features) < self.window_size:
+                continue
 
-        features = tuple(features_list)
+            features = window_features.reshape(-1).astype(int).tolist()
 
-        if features in self._clf:
-            rankings = self._clf[features]
-        else:
-            best_key = None
-            best_diff = BIG_NUMBER
-            for key in self._clf.keys():
-                diff = sum(abs(k - t) for k, t in zip(key, features))
-                if diff < best_diff:
-                    best_key = key
-                    best_diff = diff
+            neighbor_indices = self._nn_indices[nn_idx].get_nns_by_vector(features, self.num_neighbors, include_distances=False)
+            for neighbor_idx in neighbor_indices:
+                neighbor_counter = self._pred_counters[nn_idx][neighbor_idx]
+                label_counter.update(neighbor_counter)
 
-            if best_key is None:
-                rankings = self._most_freq
-            else:
-                rankings = self._clf.get(best_key, self._most_freq)
+        rankings_with_counts = label_counter.most_common(top_k)
+        rankings = list(map(lambda t: t[0], rankings_with_counts))
 
-        return rankings[0:top_k].astype(int).tolist()
+        while len(rankings) < top_k:
+            rankings.append(self._most_freq)
 
-
-class RateClassifier(AttackClassifier):
-
-    def __init__(self):
-        self._clf: np.ndarray = np.empty(0)  # Maps labels to exit rate
-        self._label_freq: Dict[int, float] = dict()
-        self._cutoff = 0.0
-
-    @property
-    def name(self) -> str:
-        return RATE
-
-    def fit(self, inputs: np.ndarray, labels: np.ndarray):
-        """
-        Fits the majority classifier which maps labels to the most
-        frequent label for each level count.
-
-        Args:
-            inputs: A [B, D] array of input features (D) for each input sample (B)
-            labels: A [B] array of data labels for each input sample (B)
-        """
-        assert len(inputs.shape) == 2, 'Must provide a 2d array of inputs'
-        assert len(labels.shape) == 1, 'Must provide a 1d array of labels'
-        assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
-
-        label_counts: DefaultDict[int, List[int]] = defaultdict(list)
-        label_counter: Counter = Counter()
-        num_labels = np.max(labels) + 1
-        self._cutoff = 1.0 / num_labels
-
-        for input_features, label in zip(inputs, labels):
-            label_counts[label].extend(((input_features + 1) / 2).astype(int))
-            label_counter[label] += 1
-
-        self._clf = np.zeros(num_labels, dtype=float)  # [L]
-
-        for label, counts in label_counts.items():
-            elev_rate = np.average(counts)
-            self._clf[label] = elev_rate
-
-        total_count = sum(label_counter.values())
-        for label in range(num_labels):
-            self._label_freq[label] = label_counter.get(label, 0) / total_count
-
-        return self._clf
-
-    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
-        assert len(inputs.shape) == 1, 'Must provide a 1d array of input features'
-
-        observed_elev = np.sum(((inputs + 1) / 2).astype(int))
-        expected_elev = inputs.shape[0] * self._clf
-
-        diff = np.abs(observed_elev - expected_elev)
-        rankings = np.argsort(diff)
-
-        above_rankings: List[int] = []
-        below_rankings: List[int] = []
-
-        for label in rankings:
-            if self._label_freq[label] < self._cutoff:
-                below_rankings.append(label)
-            else:
-                above_rankings.append(label)
-
-        concat_rankings = above_rankings + below_rankings
-        return concat_rankings[0:top_k]
+        return rankings, 1.0
 
 
 class MostFrequentClassifier(AttackClassifier):
@@ -412,11 +409,11 @@ class MostFrequentClassifier(AttackClassifier):
             level_preds = np.bincount(labels[:, level], minlength=self.num_labels)
             self._clf[level] = np.argsort(level_preds)[::-1]
 
-    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
+    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> Tuple[List[int], float]:
         count = np.sum(inputs)
         level = int(count >= (self.window / 2.0))
         rankings = self._clf[level]
-        return rankings[0:top_k].astype(int).tolist()
+        return rankings[0:top_k].astype(int).tolist(), 1.0
 
 
 class SklearnClassifier(AttackClassifier):
@@ -463,7 +460,9 @@ class SklearnClassifier(AttackClassifier):
         probs = self._clf.predict_proba(scaled_inputs)[0]  # [L]
         rankings = np.argsort(probs)[::-1]
 
-        return rankings[0:top_k].astype(int).tolist()
+        confidence = float(probs[0])
+
+        return rankings[0:top_k].astype(int).tolist(), confidence
 
     def score(self, inputs: np.ndarray, labels: np.ndarray, num_labels: int) -> Dict[str, float]:
         """
@@ -484,6 +483,7 @@ class SklearnClassifier(AttackClassifier):
         scaled_inputs = self._scaler.transform(input_features)
         probs = self._clf.predict_proba(scaled_inputs)  # [B, L]
         preds = np.argmax(probs, axis=-1)
+        confidence = probs[:, 0]  # [B]
 
         label_space = list(range(num_labels))
 
@@ -502,11 +502,14 @@ class SklearnClassifier(AttackClassifier):
                 
             probs = np.concatenate(probs_list, axis=-1)
 
-        accuracy = accuracy_score(y_true=labels, y_pred=np.argmax(probs, axis=-1))
+        preds = np.argmax(probs, axis=-1)
+
+        accuracy = accuracy_score(y_true=labels, y_pred=preds)
         top2 = top_k_accuracy_score(y_true=labels, y_score=probs, k=2, labels=label_space)
         top5 = top_k_accuracy_score(y_true=labels, y_score=probs, k=5, labels=label_space) if num_labels > 5 else 1.0
         top10 = top_k_accuracy_score(y_true=labels, y_score=probs, k=10, labels=label_space) if num_labels > 10 else 1.0
         top_last = top_k_accuracy_score(y_true=labels, y_score=probs, k=num_labels - 1, labels=label_space)
+        weighted_accuracy = accuracy_score(y_true=labels, y_pred=preds, sample_weight=confidence)
 
         top_until_90 = num_labels
         for topk in range(1, num_labels):
@@ -521,7 +524,8 @@ class SklearnClassifier(AttackClassifier):
             TOP5: float(top5),
             TOP10: float(top10),
             TOP_ALL_BUT_ONE: float(top_last),
-            TOP_UNTIL_90: int(top_until_90)
+            TOP_UNTIL_90: int(top_until_90),
+            WEIGHTED_ACCURACY: weighted_accuracy
         }
 
 
