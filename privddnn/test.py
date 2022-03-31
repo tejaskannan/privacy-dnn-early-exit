@@ -3,14 +3,22 @@ import os.path
 from argparse import ArgumentParser
 from collections import defaultdict
 from enum import Enum, auto
-from typing import List, Tuple, DefaultDict, Dict, Optional
+from itertools import permutations
+from typing import List, Tuple, DefaultDict, Dict, Optional, Any
 
 from privddnn.dataset import Dataset
 from privddnn.dataset.data_iterators import make_data_iterator
 from privddnn.classifier import BaseClassifier, ModelMode, OpName
 from privddnn.exiting import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
 from privddnn.restore import restore_classifier
-from privddnn.utils.file_utils import save_json_gz, read_json_gz
+from privddnn.utils.file_utils import save_json_gz, make_dir, read_json_gz
+
+
+TARGET_BOUNDS = {
+    2: (0.0, 1.0),
+    3: (0.2, 0.7),
+    4: (0.2, 0.5)
+}
 
 
 def execute_for_rate(dataset: Dataset,
@@ -23,7 +31,7 @@ def execute_for_rate(dataset: Dataset,
                      model_path: str,
                      strategy: ExitStrategy,
                      num_reps: int,
-                     max_num_samples: Optional[int]) -> Dict[str, Dict[str, List[float]]]:
+                     max_num_samples: Optional[int]) -> Dict[str, Dict[str, Any]]:
     # Make the exit policy
     policy = make_policy(strategy=strategy, rates=rates, model_path=model_path)
     policy.fit(val_probs=val_probs, val_labels=val_labels)
@@ -78,6 +86,7 @@ if __name__ == '__main__':
     parser.add_argument('--model-path', type=str, required=True, help='Path to the saved model weights')
     parser.add_argument('--dataset-order', type=str, required=True, help='The type of data iterator to create.')
     parser.add_argument('--reps', type=int, default=1, help='The number of repetitions of the dataset.')
+    parser.add_argument('--trials', type=int, default=1, help='The number of independent trials.')
     parser.add_argument('--window-size', type=int, help='The window size used to build the dataset.')
     parser.add_argument('--max-num-samples', type=int, help='Optional maximum number of samples (for testing)')
     args = parser.parse_args()
@@ -94,65 +103,77 @@ if __name__ == '__main__':
     # Get the validation labels (we use this to fit any policies)
     val_labels = model.dataset.get_val_labels()  # [B]
 
-    rates = list(np.arange(0.0, 1.01, 0.05))
+    # Make the target rates
+    (lower_bound, upper_bound) = TARGET_BOUNDS[model.num_outputs]
+    single_rates = list(np.arange(lower_bound, upper_bound + 0.01, 0.05))
     rand = np.random.RandomState(seed=591)
 
-    rates = [0.4, 0.5, 0.6]
+    rate_settings: List[Tuple[float, ...]] = list(permutations(single_rates, model.num_outputs - 1))
+
+    rates: List[List[float]] = []
+    for setting in rate_settings:
+        last_rate = 1.0 - sum(setting)
+        if last_rate >= 0.0:
+            rates.append(list(setting) + [last_rate])
 
     # Execute all early stopping policies
-    #strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
-    strategies = [ExitStrategy.NEAREST_NEIGHBOR, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+
+    rates = [[0.9, 0.1]]
+    strategies = [ExitStrategy.LABEL_MAX_PROB, ExitStrategy.RANDOM, ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]
-    test_log_name = '{}_test-log.json.gz'.format(file_name)
-    test_log_path = os.path.join(os.path.dirname(args.model_path), test_log_name)
+    output_folder_path = os.path.join(os.path.dirname(args.model_path), '{}_test-logs'.format(file_name))
+    make_dir(output_folder_path)
+    
+    for trial in range(args.trials):
+        for strategy in strategies:
+            strategy_name = strategy.name.lower()
 
-    results: Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]] = dict(val=dict(), test=dict())
-    if os.path.exists(test_log_path):
-        results = read_json_gz(test_log_path)
+            # Read in the old log (if it exists)
+            test_log_name = '{}_trial{}.json.gz'.format(strategy_name, trial)
+            test_log_path = os.path.join(output_folder_path, test_log_name)
 
-    for strategy in strategies:
-        strategy_name = strategy.name.lower()
+            results: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {
+                'val': dict(),
+                'test': dict()
+            }
 
-        if strategy_name not in results['val']:
-            results['val'][strategy_name] = dict()
+            if os.path.exists(test_log_path):
+                results = read_json_gz(test_log_path)
 
-        if strategy_name not in results['test']:
-            results['test'][strategy_name] = dict()
+            for rate_list in rates:
+                rate_key = ' '.join('{:.2f}'.format(round(r, 2)) for r in rate_list)
+                print('Testing {} on {}'.format(strategy_name.capitalize(), rate_key), end='\r')
 
-        for rate in reversed(rates):
-            print('Testing {} on {:.2f}'.format(strategy_name.capitalize(), float(round(rate, 2))), end='\r')
+                rate_result = execute_for_rate(dataset=model.dataset,
+                                               val_probs=val_probs,
+                                               val_labels=val_labels,
+                                               test_probs=test_probs,
+                                               rates=rate_list,
+                                               model_path=args.model_path,
+                                               strategy=strategy,
+                                               data_iterator_name=args.dataset_order,
+                                               window_size=args.window_size,
+                                               num_reps=args.reps,
+                                               max_num_samples=args.max_num_samples)
 
-            rate_result = execute_for_rate(dataset=model.dataset,
-                                           val_probs=val_probs,
-                                           val_labels=val_labels,
-                                           test_probs=test_probs,
-                                           rates=[rate, 1.0 - rate],
-                                           model_path=args.model_path,
-                                           strategy=strategy,
-                                           data_iterator_name=args.dataset_order,
-                                           window_size=args.window_size,
-                                           num_reps=args.reps,
-                                           max_num_samples=args.max_num_samples)
+                # Log the results
+                if len(rate_list) == 2:
+                    rate_key = str(round(rate_list[0], 2))
 
-            # Log the results
-            rate_key = str(round(rate, 2))
+                for fold in ['val', 'test']:
+                    if rate_key not in results[fold]:
+                        results[fold][rate_key] = dict()
 
-            if rate_key not in results['val'][strategy_name]:
-                results['val'][strategy_name][rate_key] = dict()
+                    for dataset_order in rate_result[fold].keys():
+                        results[fold][rate_key][dataset_order] = rate_result[fold][dataset_order]
 
-            if rate_key not in results['test'][strategy_name]:
-                results['test'][strategy_name][rate_key] = dict()
+            print()
 
-            results['val'][strategy_name][rate_key].update(rate_result['val'])
-            results['test'][strategy_name][rate_key].update(rate_result['test'])
+            # Save the results into the test log
+            test_log_name = '{}-trial{}.json.gz'.format(strategy_name, trial)
+            test_log_path = os.path.join(output_folder_path, test_log_name)
 
-        print()
-
-    # Save the results into the test log
-    file_name = os.path.basename(args.model_path).split('.')[0]
-    test_log_name = '{}_test-log.json.gz'.format(file_name)
-    test_log_path = os.path.join(os.path.dirname(args.model_path), test_log_name)
-
-    save_json_gz(results, test_log_path)
+            save_json_gz(results, test_log_path)
