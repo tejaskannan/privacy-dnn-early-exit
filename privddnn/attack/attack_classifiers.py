@@ -29,6 +29,8 @@ TOP10 = 'top10'
 TOP_UNTIL_90 = 'topUntil90'
 TOP_ALL_BUT_ONE = 'top(k-1)'
 WEIGHTED_ACCURACY = 'weighted_accuracy'
+AVG_CORRECT_RANK = 'correct_rank'
+STD_CORRECT_RANK = 'correct_rank_std'
 
 
 class AttackClassifier:
@@ -70,6 +72,7 @@ class AttackClassifier:
         weight_sum = 0.0
 
         rankings_list: List[List[int]] = []
+        correct_ranks: List[int] = []
 
         for count, label in zip(inputs, labels):
             rankings, confidence = self.predict_rankings(count, top_k=num_labels)
@@ -80,6 +83,9 @@ class AttackClassifier:
             toplast_count += float(label in rankings[0:num_labels-1])
             correct_count += float(rankings[0] == label)
             weighted_count += confidence * float(rankings[0] == label)
+
+            rank = np.argmax(np.equal(rankings, label)) + 1
+            correct_ranks.append(rank)
 
             total_count += 1.0
             weight_sum += confidence
@@ -105,8 +111,10 @@ class AttackClassifier:
             TOP5: top5_count / total_count,
             TOP10: top10_count / total_count,
             TOP_ALL_BUT_ONE: toplast_count / total_count,
-            TOP_UNTIL_90: top_until_90,
-            WEIGHTED_ACCURACY: weighted_count / weight_sum
+            TOP_UNTIL_90: int(top_until_90),
+            WEIGHTED_ACCURACY: weighted_count / max(weight_sum, 1.0),
+            AVG_CORRECT_RANK: np.average(correct_ranks),
+            STD_CORRECT_RANK: np.std(correct_ranks)
         }
 
 
@@ -518,6 +526,9 @@ class SklearnClassifier(AttackClassifier):
                 top_until_90 = topk
                 break
 
+        rankings = np.argsort(probs, axis=-1)  # [B, K]
+        correct_rank = np.argmax(np.equal(rankings, np.expand_dims(labels, axis=-1)), axis=-1) + 1  # [B]
+
         return {
             ACCURACY: float(accuracy),
             TOP2: float(top2),
@@ -525,7 +536,9 @@ class SklearnClassifier(AttackClassifier):
             TOP10: float(top10),
             TOP_ALL_BUT_ONE: float(top_last),
             TOP_UNTIL_90: int(top_until_90),
-            WEIGHTED_ACCURACY: weighted_accuracy
+            WEIGHTED_ACCURACY: float(weighted_accuracy),
+            AVG_CORRECT_RANK: np.average(correct_rank),
+            STD_CORRECT_RANK: np.std(correct_rank)
         }
 
 

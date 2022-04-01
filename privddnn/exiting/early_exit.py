@@ -101,8 +101,6 @@ class EarlyExiter:
         output_counts = np.bincount(output_levels, minlength=self.num_outputs)
         observed_rates = output_counts / num_samples
 
-        print(observed_rates)
-
         return EarlyExitResult(predictions=np.vstack(predictions).reshape(-1),
                                output_levels=np.vstack(output_levels).reshape(-1),
                                labels=np.vstack(labels).reshape(-1),

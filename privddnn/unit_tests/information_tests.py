@@ -131,21 +131,21 @@ class MutualInformationTests(unittest.TestCase):
         X = np.array([0, 1, 0, 1])
         Y = np.array([1, 1, 0, 0])
 
-        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=False)
+        mutual_info = compute_mutual_info(X=X, Y=Y)
         self.assertAlmostEqual(mutual_info, 0.0, places=7)
 
     def test_mutual_information_2_2_max(self):
         X = np.array([1, 1, 0, 0])
         Y = np.array([1, 1, 0, 0])
 
-        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=False)
+        mutual_info = compute_mutual_info(X=X, Y=Y)
         self.assertAlmostEqual(mutual_info, 1.0, places=7)
 
     def test_mutual_information_2_3_uneven(self):
         X = np.array([0, 1, 0, 1, 0, 0, 1, 0])
         Y = np.array([1, 1, 1, 0, 2, 2, 2, 2])
 
-        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=False)
+        mutual_info = compute_mutual_info(X=X, Y=Y)
         self.assertAlmostEqual(mutual_info, 0.2044340029, places=7)
 
 

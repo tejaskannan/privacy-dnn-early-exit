@@ -13,97 +13,89 @@ from privddnn.utils.file_utils import read_json_gz, save_json_gz
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--train-model-path', type=str, required=True)
-    parser.add_argument('--eval-log', type=str)
+    parser.add_argument('--model-path', type=str, required=True)
     parser.add_argument('--dataset-order', type=str, required=True)
+    parser.add_argument('--policy-names', type=str, required=True, nargs='+')
     parser.add_argument('--train-policy', type=str, choices=['max_prob', 'entropy'])
+    parser.add_argument('--trials', type=int, default=1, required=True)
     args = parser.parse_args()
 
     # Get the path to the training log (default to eval log if needed)
-    train_log_path = args.train_model_path.replace('.h5', '_test-log.json.gz')
-    eval_log_path = train_log_path if args.eval_log is None else args.eval_log
-
-    # Read the logs for training and testing
-    train_log = read_json_gz(train_log_path)
-    eval_log = read_json_gz(eval_log_path)
-
-    policy_names = ['random', 'max_prob', 'adaptive_random_max_prob']
+    log_folder = args.model_path.replace('.h5', '_test-logs')
 
     # Maps policy name -> { clf type -> [accuracy] }
     train_attack_results: Dict[str, DefaultDict[str, List[Dict[str, float]]]] = dict()
     test_attack_results: Dict[str, DefaultDict[str, List[Dict[str, float]]]] = dict()
 
     # Fit the most-frequent classifier based on the original model
-    model: BaseClassifier = restore_classifier(model_path=args.train_model_path, model_mode=ModelMode.TEST)
+    model: BaseClassifier = restore_classifier(model_path=args.model_path, model_mode=ModelMode.TEST)
 
-    key = next(iter(train_log['val']['random'].keys()))
-    window_size = train_log['val']['random'][key][args.dataset_order]['window_size']
     order_name = '-'.join(args.dataset_order.split('-')[0:-1])
 
-    for policy_name in policy_names:
-        # Initialize the top-level dictionaries
-        train_attack_results[policy_name] = defaultdict(list)
-        test_attack_results[policy_name] = defaultdict(list)
+    for trial in range(args.trials):
+        for policy_name in args.policy_names:
+            # Initialize the top-level dictionaries
+            train_attack_results: DefaultDict[str, Dict[str, float]] = defaultdict(dict)
+            test_attack_results: DefaultDict[str, Dict[str, float]] = defaultdict(dict)
 
-        if policy_name != 'max_prob':
-            continue
-
-        for rate in sorted(train_log['val'][policy_name].keys()):
             train_policy_name = policy_name if args.train_policy is None else args.train_policy
+            train_log_path = os.path.join(log_folder, '{}-trial{}.json.gz'.format(train_policy_name, trial))
+            train_log = read_json_gz(train_log_path)['val']
 
-            train_decisions = train_log['val'][train_policy_name][rate][args.dataset_order]['output_levels']
-            test_decisions = eval_log['test'][policy_name][rate][args.dataset_order]['output_levels']
+            eval_log_path = os.path.join(log_folder, '{}-trial{}.json.gz'.format(policy_name, trial))
+            eval_log = read_json_gz(eval_log_path)['test']
 
-            # Build the attack datasets
-            train_attack_decisions, train_attack_data, train_attack_labels = make_input_sequential_dataset(dataset=model.dataset,
-                                                                                                           dataset_order=order_name,
-                                                                                                           exit_decisions=train_decisions,
-                                                                                                           fold='val',
-                                                                                                           num_exits=model.num_outputs,
-                                                                                                           window_size=window_size)
+            output_path = os.path.join(log_folder, '{}-attack_input-trial{}.json.gz'.format(policy_name, trial))
+            if os.path.exists(output_path):
+                output_log = read_json_gz(output_path)
+            else:
+                output_log = dict()
 
-            test_attack_decisions, test_attack_data, _ = make_input_sequential_dataset(dataset=model.dataset,
-                                                                                       dataset_order=order_name,
-                                                                                       exit_decisions=test_decisions,
-                                                                                       fold='test',
-                                                                                       num_exits=model.num_outputs,
-                                                                                       window_size=window_size)
+            for rate in sorted(train_log.keys()):
+                window_size = int(train_log[rate][args.dataset_order]['window_size'])
+                train_decisions = train_log[rate][args.dataset_order]['output_levels']
+                test_decisions = eval_log[rate][args.dataset_order]['output_levels']
 
-            rate_str = ' '.join('{:.2f}'.format(round(float(r), 2)) for r in rate.split(' '))
-            print('Starting {} on {}. # Train: {}, # Test: {}'.format(policy_name, rate_str, train_attack_data.shape, test_attack_data.shape), end='\n')
+                # Build the attack datasets
+                train_attack_decisions, train_attack_data, train_attack_labels = make_input_sequential_dataset(dataset=model.dataset,
+                                                                                                               dataset_order=order_name,
+                                                                                                               exit_decisions=train_decisions,
+                                                                                                               fold='val',
+                                                                                                               num_exits=model.num_outputs,
+                                                                                                               window_size=window_size)
 
-            # Fit and evaluate the majority attack classifier
-            majority_model = MajorityGenerator()
-            majority_model.fit(train_attack_decisions, train_attack_data, train_attack_labels)
+                test_attack_decisions, test_attack_data, test_attack_labels = make_input_sequential_dataset(dataset=model.dataset,
+                                                                                                            dataset_order=order_name,
+                                                                                                            exit_decisions=test_decisions,
+                                                                                                            fold='test',
+                                                                                                            num_exits=model.num_outputs,
+                                                                                                            window_size=window_size)
 
-            train_error = majority_model.score(train_attack_decisions, train_attack_data)
-            test_error = majority_model.score(test_attack_decisions, test_attack_data)
+                rate_str = ' '.join('{:.2f}'.format(round(float(r), 2)) for r in rate.split(' '))
+                print('Starting {} on {}. # Train: {}, # Test: {}'.format(policy_name, rate_str, train_attack_data.shape[0], test_attack_data.shape[0]), end='\r')
 
-            train_error['exit_rates'] = rate
-            test_error['exit_rates'] = rate
+                # Fit and evaluate the majority attack classifier
+                majority_model = MajorityGenerator()
+                majority_model.fit(train_attack_decisions, train_attack_data, train_attack_labels)
 
-            print('Majority: Train Error: {:.5f}, Test Error: {:.5f}'.format(train_error['l1_error'], test_error['l1_error']))
-            print('Majority Weighted: Train Error: {:.5f}, Test Error: {:.5f}'.format(train_error['weighted_l1_error'], test_error['weighted_l1_error']))
+                train_error = majority_model.score(train_attack_decisions, train_attack_data, train_attack_labels)
+                test_error = majority_model.score(test_attack_decisions, test_attack_data, test_attack_labels)
 
-            train_attack_results[policy_name][majority_model.name].append(train_error)
-            test_attack_results[policy_name][majority_model.name].append(test_error)
+                train_error['exit_rates'] = rate
+                test_error['exit_rates'] = rate
 
-        print()
+                #print('Majority: Train Error: {:.5f}, Test Error: {:.5f}'.format(train_error['l1_error'], test_error['l1_error']))
+                #print('Majority Weighted: Train Error: {:.5f}, Test Error: {:.5f}'.format(train_error['weighted_l1_error'], test_error['weighted_l1_error']))
 
-    # The attack log uses a dictionary of dictionaries. The top-level key is the
-    # train model type, and the value is the attack results for this configuration
-    train_policy_name = args.train_policy if args.train_policy is not None else 'same'
-    train_log_name = os.path.basename(train_log_path)
-    attack_key = '{}_{}'.format(train_log_name.replace('_test-log.json.gz', ''), train_policy_name)
+                train_attack_results[majority_model.name][rate] = train_error
+                test_attack_results[majority_model.name][rate] = test_error
 
-    if attack_key not in eval_log:
-        eval_log[attack_key] = dict()
+            print()
 
-    if args.dataset_order not in eval_log[attack_key]:
-        eval_log[attack_key][args.dataset_order] = dict()
+            # Save the result in the output log
+            if args.dataset_order not in output_log:
+                output_log[args.dataset_order] = dict()
 
-    # Save the results
-    eval_log[attack_key][args.dataset_order]['input_attack_test'] = test_attack_results
-    eval_log[attack_key][args.dataset_order]['input_attack_train'] = train_attack_results
-    eval_log[attack_key][args.dataset_order]['input_attack_train_log'] = train_log_path
-    save_json_gz(eval_log, eval_log_path)
+            output_log[args.dataset_order]['train'] = train_attack_results
+            output_log[args.dataset_order]['test'] = test_attack_results
+            save_json_gz(output_log, output_path)

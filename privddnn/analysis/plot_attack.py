@@ -4,7 +4,9 @@ import numpy as np
 from argparse import ArgumentParser
 from typing import List
 
+from privddnn.analysis.read_logs import get_attack_results
 from privddnn.attack.attack_classifiers import MOST_FREQ, MAJORITY, LOGISTIC_REGRESSION_COUNT, NGRAM
+from privddnn.utils.constants import BIG_NUMBER
 from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.plotting import to_label, COLORS, AXIS_FONT, TITLE_FONT, LEGEND_FONT
 from privddnn.utils.plotting import LINE_WIDTH, MARKER, MARKER_SIZE, PLOT_STYLE
@@ -12,62 +14,81 @@ from privddnn.dataset.dataset import Dataset
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--test-log', type=str, required=True)
-    parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2', 'top5', 'top10', 'top(k-1)', 'topUntil90'])
+    parser.add_argument('--test-log-folder', type=str, required=True)
+    parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2', 'top5', 'top10', 'top(k-1)', 'topUntil90', 'correct_rank'])
     parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION_COUNT, MOST_FREQ, NGRAM, 'best'])
     parser.add_argument('--dataset-order', type=str, required=True)
-    parser.add_argument('--attack-train-log', type=str)
+    parser.add_argument('--attack-log-folder', type=str)
     parser.add_argument('--train-policy', type=str, default='same')
+    parser.add_argument('--should-plot', action='store_true')
+    parser.add_argument('--trials', type=int)
     parser.add_argument('--output-file', type=str)
     args = parser.parse_args()
 
+    attack_log_folder = args.test_log_folder if args.attack_log_folder is None else args.attack_log_folder
+
     # Read the attack accuracy
-    test_log = read_json_gz(args.test_log)
+    attack_results = get_attack_results(folder_path=args.test_log_folder,
+                                        fold='test',
+                                        dataset_order=args.dataset_order,
+                                        attack_train_log=attack_log_folder,
+                                        attack_policy=args.train_policy,
+                                        metric=args.metric,
+                                        attack_model=args.attack_model,
+                                        trials=args.trials)
 
-    attack_train_log = args.test_log if args.attack_train_log is None else args.attack_train_log
-    attack_train_log_name = os.path.basename(attack_train_log)
+    # Print out the aggregate results in a table format
+    policy_names = list(sorted(attack_results.keys()))
+    print('Policy & Avg {0} & Max {0} & Min {0} \\\\'.format(args.metric))
 
-    attack_key = '{}_{}'.format(attack_train_log_name.replace('_test-log.json.gz', ''), args.train_policy)
-    attack_accuracy = test_log[attack_key][args.dataset_order]['attack_test']
+    for policy_name in policy_names:
+        
+        max_metric = 0.0
+        min_metric = BIG_NUMBER
+        metric_sums: List[float] = []  # Keep the sum of all metric values per trial
 
-    with plt.style.context(PLOT_STYLE):
-        fig, ax = plt.subplots()
+        num_rates = 0
+        for rate, rate_results in attack_results[policy_name].items():
+            if len(metric_sums) == 0:
+                metric_sums = [0.0 for _ in rate_results]
 
-        rates = [round(r / 20.0, 2) for r in range(21)]
+            for idx in range(len(rate_results)):
+                metric_sums[idx] += rate_results[idx]
+                max_metric = max(max_metric, rate_results[idx])
+                min_metric = min(min_metric, rate_results[idx])
 
-        for policy_name, attack_results in attack_accuracy.items():
+            num_rates += 1
 
-            if args.attack_model == 'best':
-                all_results: List[List[float]] = []
-                for attack_result in attack_results.values():
-                    all_results.append([r[args.metric] for r in attack_result])
+        avg_metric = np.average([metric / num_rates for metric in metric_sums])
+        std_metric = np.std([metric / num_rates for metric in metric_sums])
 
-                metric_results = np.max(all_results, axis=0).astype(float).tolist()
+        print('{} & {:.2f} ({:.2f}) & {:.2f} & {:.2f}  \\\\'.format(policy_name, avg_metric, std_metric, max_metric, min_metric))
+
+    if args.should_plot:
+        with plt.style.context(PLOT_STYLE):
+            fig, ax = plt.subplots()
+
+            for policy_name, policy_results in attack_results.items():
+                rates = list(sorted(policy_results.keys()))
+                metric_results = [policy_results[r] * 100.0 for r in rates]
+
+                # The given rates are the fraction stopping at the first output (which makes the axes confusing)
+                xs = [1.0 - float(r) for r in rates]
+
+                ax.plot(xs, metric_results,
+                        label=to_label(policy_name),
+                        marker=MARKER,
+                        markersize=MARKER_SIZE,
+                        linewidth=LINE_WIDTH,
+                        color=COLORS[policy_name])
+
+            ax.set_xlabel('Frac Stopping at 2nd Output', fontsize=AXIS_FONT)
+            ax.set_ylabel('Attack Accuracy (%)', fontsize=AXIS_FONT)
+            ax.set_title('Attack {} Against Exit Policies'.format(args.metric.capitalize()), fontsize=TITLE_FONT)
+
+            ax.legend(fontsize=LEGEND_FONT)
+
+            if args.output_file is None:
+                plt.show()
             else:
-                metric_results = [r[args.metric] for r in attack_results[args.attack_model]]
-
-            average_metric = sum(metric_results) / len(metric_results)
-            max_metric = max(metric_results)
-
-            print('{} & {:.2f}\\% & {:.2f}\\%'.format(policy_name, average_metric * 100.0, max_metric * 100.0))
-
-            # The given rates are the fraction stopping at the first output (which makes the axes confusing)
-            xs = [1.0 - float(r) for r in rates]
-
-            ax.plot(xs, list(map(lambda a : a * 100.0, metric_results)),
-                    label=to_label(policy_name),
-                    marker=MARKER,
-                    markersize=MARKER_SIZE,
-                    linewidth=LINE_WIDTH,
-                    color=COLORS[policy_name])
-
-        ax.set_xlabel('Frac Stopping at 2nd Output', fontsize=AXIS_FONT)
-        ax.set_ylabel('Attack Accuracy (%)', fontsize=AXIS_FONT)
-        ax.set_title('Attack {} Against Exit Policies'.format(args.metric.capitalize()), fontsize=TITLE_FONT)
-
-        ax.legend(fontsize=LEGEND_FONT)
-
-        if args.output_file is None:
-            plt.show()
-        else:
-            plt.savefig(args.output_file, bbox_inches='tight', transparent=True)
+                plt.savefig(args.output_file, bbox_inches='tight', transparent=True)

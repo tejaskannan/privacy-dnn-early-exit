@@ -3,7 +3,7 @@ import scipy.integrate
 from argparse import ArgumentParser
 from typing import List, Dict
 
-from privddnn.utils.file_utils import read_json_gz
+from privddnn.analysis.read_logs import get_test_results
 from privddnn.utils.metrics import compute_mutual_info
 
 
@@ -24,32 +24,22 @@ def area_between_curves(rates: List[str], upper: Dict[str, float], lower: Dict[s
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--test-log', type=str, required=True)
-    parser.add_argument('--metric', type=str, choices=['accuracy', 'mutual_info'], required=True)
+    parser.add_argument('--test-log-folder', type=str, required=True)
+    parser.add_argument('--metric', type=str, choices=['accuracy', 'mutual_information'], required=True)
     parser.add_argument('--dataset-order', type=str, required=True)
     args = parser.parse_args()
 
-    test_log = read_json_gz(args.test_log)['test']
-    metric_scores: Dict[str, Dict[str, float]] = dict()
+    metric_results = get_test_results(folder_path=args.test_log_folder,
+                                      fold='test',
+                                      metric=args.metric,
+                                      dataset_order=args.dataset_order)
 
-    for policy_name, policy_results in sorted(test_log.items()):
-        policy_scores: Dict[str, float] = dict()
+    metric_scores: Dict[str, Dict[str, float]] = dict()
+    for policy_name, policy_results in metric_results.items():
+        metric_scores[policy_name] = dict()
 
         for rate, rate_results in policy_results.items():
-            preds = rate_results[args.dataset_order]['preds']
-
-            if args.metric == 'accuracy':
-                labels = rate_results[args.dataset_order]['labels']
-                accuracy = np.average(np.isclose(preds, labels).astype(float))
-                policy_scores[rate] = accuracy
-            elif args.metric == 'mutual_info':
-                exit_decisions = rate_results[args.dataset_order]['output_levels']
-                mutual_info = compute_mutual_info(X=np.array(exit_decisions), Y=np.array(preds), should_normalize=False)
-                policy_scores[rate] = mutual_info
-            else:
-                raise ValueError('Unknown metric {}'.format(args.metric))
-
-        metric_scores[policy_name] = policy_scores
+            metric_scores[policy_name][rate] = np.average(rate_results)
 
     data_dependent_policies = ['max_prob']
     rates = list(metric_scores['random'].keys())
@@ -65,5 +55,8 @@ if __name__ == '__main__':
                                                    lower=metric_scores['random'])
 
         improvement_fraction = adaptive_random_area / data_dependent_area
+
+        if args.metric == 'mutual_information':
+            improvement_fraction = 1.0 - improvement_fraction
 
         print('{} & {:.4f}'.format(adaptive_random_policy, improvement_fraction))

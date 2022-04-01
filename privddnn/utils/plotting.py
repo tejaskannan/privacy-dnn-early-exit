@@ -2,6 +2,7 @@
 MARKER = 'o'
 MARKER_SIZE = 8
 LINE_WIDTH = 3
+CAPSIZE = 5
 PLOT_STYLE = 'seaborn-ticks'
 AXIS_FONT = 14
 TITLE_FONT = 16

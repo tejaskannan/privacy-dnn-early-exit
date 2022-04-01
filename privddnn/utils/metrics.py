@@ -1,6 +1,7 @@
 import numpy as np
 import math
 from collections import defaultdict
+from sklearn.metrics import accuracy_score, mutual_info_score
 from typing import List, DefaultDict, Tuple, Union
 from .constants import SMALL_NUMBER
 
@@ -10,9 +11,7 @@ def compute_accuracy(predictions: np.ndarray, labels: np.ndarray) -> float:
     Computes the accuracy of the given predictions
     """
     assert len(predictions.shape) == len(labels.shape), 'Must provide same # dimensions for preds ({}) and labels ({})'.format(len(predictions.shape), len(labels.shape))
-
-    correct = np.isclose(predictions, labels)
-    return np.average(correct)
+    return accuracy_score(predictions, labels)
 
 
 def create_confusion_matrix(predictions: np.ndarray, labels: np.ndarray) -> np.ndarray:
@@ -30,32 +29,6 @@ def create_confusion_matrix(predictions: np.ndarray, labels: np.ndarray) -> np.n
         confusion_mat[pred, label] += 1.0
 
     return confusion_mat
-
-
-def create_metric_distributions(predictions: np.ndarray, labels: np.ndarray, metrics: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Comptutes the average and std deviation metric value condition on the (pred, label) pair
-    """
-    assert len(predictions.shape) == 1, 'Must provide a 1d predictions array'
-    assert predictions.shape == labels.shape, 'Must provide equal-sized predictions and labels'
-    assert predictions.shape == metrics.shape, 'Must provide equal-sized predictions and metrics'
-
-    num_labels = np.max(labels) + 1
-    distributions: DefaultDict[Tuple[int, int], List[float]] = defaultdict(list)
-
-    for pred, label, metric in zip(predictions, labels, metrics):
-        key = (pred, label)
-        distributions[key].append(metric)
-
-    means = np.zeros(shape=(num_labels, num_labels))
-    stds = np.zeros_like(means)
-
-    for (pred, label), metrics in distributions.items():
-        if len(metrics) > 0:
-            means[pred, label] = np.average(metrics)
-            stds[pred, label] = np.std(metrics)
-
-    return means, stds
 
 
 def compute_entropy(probs: np.ndarray, axis: int) -> np.ndarray:
@@ -135,30 +108,34 @@ def compute_joint_entropy(joint_distribution: np.ndarray) -> np.ndarray:
     return joint_entropy
 
 
-def compute_mutual_info(X: np.ndarray, Y: np.ndarray, should_normalize: bool) -> np.ndarray:
+def compute_mutual_info(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
     """
     Computes the mutual information between the samples X and Y
     """
     assert len(X.shape) == 1, 'Must provide a 1d input for X'
     assert len(Y.shape) == 1, 'Must provide a 1d input for Y'
 
-    joint_probs = get_joint_distribution(X=X, Y=Y)
-    probs_x = np.sum(joint_probs, axis=1)
-    probs_y = np.sum(joint_probs, axis=0)
+    bins_x = np.max(X) + 1
+    bins_y = np.max(Y) + 1
 
-    entropy_x = compute_entropy(probs_x, axis=0)
-    entropy_y = compute_entropy(probs_y, axis=0)
-    entropy_xy = compute_joint_entropy(joint_probs)
+    joint_counts = np.histogram2d(X, Y, bins=[bins_x, bins_y])[0]
 
-    mut_info = entropy_x + entropy_y - entropy_xy
+    mutual_info_nits = mutual_info_score(None, None, contingency=joint_counts)
+    mutual_info_bits = mutual_info_nits / np.log(2)
 
-    # Employ bias correction
-    #num_bins = joint_probs.shape[0] * joint_probs.shape[1]
-    #num_samples = X.shape[0]
-    #correction_term = num_bins / (2 * np.log(2) * num_samples)
-    #mut_info -= correction_term
+    return mutual_info_bits
 
-    return (mut_info) / max(entropy_x, entropy_y) if should_normalize else mut_info
+    #joint_probs = get_joint_distribution(X=X, Y=Y)
+    #probs_x = np.sum(joint_probs, axis=1)
+    #probs_y = np.sum(joint_probs, axis=0)
+
+    #entropy_x = compute_entropy(probs_x, axis=0)
+    #entropy_y = compute_entropy(probs_y, axis=0)
+    #entropy_xy = compute_joint_entropy(joint_probs)
+
+    #mut_info = entropy_x + entropy_y - entropy_xy
+
+    #return (mut_info) / max(entropy_x, entropy_y) if should_normalize else mut_info
 
 
 def softmax(logits: np.ndarray, axis: int) -> np.ndarray:

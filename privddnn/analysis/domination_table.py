@@ -1,46 +1,42 @@
 import numpy as np
 from argparse import ArgumentParser
 from typing import List, Dict
-from privddnn.utils.file_utils import read_json_gz
+
+from privddnn.analysis.read_logs import get_test_results
 
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--test-log', type=str, required=True)
+    parser.add_argument('--test-log-folder', type=str, required=True)
     parser.add_argument('--dataset-order', type=str, required=True)
     args = parser.parse_args()
 
-    test_log = read_json_gz(args.test_log)['test']
-    accuracy_scores: Dict[str, Dict[str, float]] = dict()
+    accuracy_results = get_test_results(folder_path=args.test_log_folder,
+                                        dataset_order=args.dataset_order,
+                                        fold='test',
+                                        metric='accuracy')
 
-    for policy_name, policy_results in sorted(test_log.items()):
-        policy_scores: Dict[str, float] = dict()
+    policy_names = list(sorted(accuracy_results.keys()))
+    print('& {}'.format(' & '.join(policy_names)))
 
-        for rate, rate_results in policy_results.items():
-            preds = rate_results[args.dataset_order]['preds']
-            labels = rate_results[args.dataset_order]['labels']
-            accuracy = np.average(np.isclose(preds, labels).astype(float))
-            policy_scores[rate] = accuracy
-            
-        accuracy_scores[policy_name] = policy_scores
-
-    
-    print('& {}'.format(' & '.join(sorted(accuracy_scores.keys()))))
-
-    for first_policy in sorted(accuracy_scores.keys()):
+    for first_policy in policy_names:
         print('{} &'.format(first_policy), end=' ')
         comparison: List[float] = []
 
-        for second_policy in sorted(accuracy_scores.keys()):
+        for second_policy in policy_names:
 
             num_greater = 0
             total_rates = 0
-            for rate in accuracy_scores[first_policy].keys():
+            for rate in accuracy_results[first_policy].keys():
                 if np.isclose(float(rate), 0.0) or np.isclose(float(rate), 1.0):
                     continue
 
-                first_accuracy = accuracy_scores[first_policy][rate]
-                second_accuracy = accuracy_scores[second_policy][rate]
+                first_accuracy_list = accuracy_results[first_policy][rate]
+                first_accuracy = np.average(first_accuracy_list) - np.std(first_accuracy_list)
+
+                second_accuracy_list = accuracy_results[second_policy][rate]
+                second_accuracy = np.average(second_accuracy_list)
+
                 num_greater += int(first_accuracy > second_accuracy)
                 total_rates += 1
 

@@ -8,66 +8,121 @@ from privddnn.dataset.dataset import Dataset
 from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.metrics import compute_accuracy, compute_mutual_info, compute_geometric_mean
 from privddnn.utils.ngrams import create_ngrams, create_ngram_counts
-from privddnn.utils.plotting import to_label, COLORS, MARKER, MARKER_SIZE, LINE_WIDTH
+from privddnn.utils.plotting import to_label, COLORS, MARKER, MARKER_SIZE, LINE_WIDTH, CAPSIZE
 from privddnn.utils.plotting import AXIS_FONT, TITLE_FONT, LABEL_FONT, LEGEND_FONT
+from privddnn.analysis.read_logs import get_test_results
 
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--test-log', type=str, required=True)
+    parser.add_argument('--test-log-folder', type=str, required=True)
     parser.add_argument('--dataset-order', type=str, required=True)
+    parser.add_argument('--trials', type=int)
     parser.add_argument('--output-file', type=str)
     args = parser.parse_args()
 
-    test_log = read_json_gz(args.test_log)['test']
-    policies = list(test_log.keys())
-    n = 7
+    # Read the test results
+    accuracy_results = get_test_results(folder_path=args.test_log_folder,
+                                        fold='test',
+                                        dataset_order=args.dataset_order,
+                                        metric='accuracy',
+                                        trials=args.trials)
 
-    #tokens = args.test_log.split(os.sep)
-    #dataset = Dataset(tokens[-3])
-    #labels = dataset.get_test_labels()
+    mut_info_results = get_test_results(folder_path=args.test_log_folder,
+                                        fold='test',
+                                        dataset_order=args.dataset_order,
+                                        metric='mutual_information',
+                                        trials=args.trials)
+
+    exit_deviation_results = get_test_results(folder_path=args.test_log_folder,
+                                              fold='test',
+                                              dataset_order=args.dataset_order,
+                                              metric='exit_rate_deviation',
+                                              trials=args.trials)
+
+    ngram_size = 3
+    ngram_results = get_test_results(folder_path=args.test_log_folder,
+                                     fold='test',
+                                     dataset_order=args.dataset_order,
+                                     metric='ngram_{}'.format(ngram_size),
+                                     trials=args.trials)
 
     with plt.style.context('seaborn-ticks'):
         fig, (ax1, ax2, ax3) = plt.subplots(nrows=1, ncols=3, figsize=(12, 6))
 
-        for policy_name in policies:
-
-            if policy_name == 'most_freq':
-                continue
+        for policy_name in sorted(accuracy_results.keys()):
 
             rates: List[float] = []
-            accuracy: List[float] = []
-            accuracy_std: List[float] = []
-            mut_info: List[float] = []
-            mut_info_std: List[float] = []
-            ngram_mut_info: List[float] = []
+            accuracy_list: List[float] = []
+            accuracy_std_list: List[float] = []
+            mut_info_list: List[float] = []
+            mut_info_std_list: List[float] = []
+            ngram_mut_info_list: List[float] = []
+            ngram_mut_info_std_list: List[float] = []
 
-            for rate, results in reversed(sorted(test_log[policy_name].items())):
-                if args.dataset_order not in results:
-                    continue
+            for rate in sorted(accuracy_results[policy_name].keys()):
+                # Add the accuracy results
+                avg_accuracy = np.average(accuracy_results[policy_name][rate])
+                std_accuracy = np.std(accuracy_results[policy_name][rate])
 
-                preds = np.array(results[args.dataset_order]['preds'])
-                output_levels = np.array(results[args.dataset_order]['output_levels'])
-                labels = np.array(results[args.dataset_order]['labels'])
+                accuracy_list.append(avg_accuracy)
+                accuracy_std_list.append(std_accuracy)
 
-                acc = compute_accuracy(predictions=preds, labels=labels)
-                mi = compute_mutual_info(X=output_levels, Y=preds, should_normalize=False)
+                # Add the mutual information results
+                avg_mut_info = np.average(mut_info_results[policy_name][rate])
+                std_mut_info = np.std(mut_info_results[policy_name][rate])
+                
+                mut_info_list.append(avg_mut_info)
+                mut_info_std_list.append(std_mut_info)
 
-                ngram_levels, ngram_preds = create_ngram_counts(levels=output_levels, preds=preds, n=n)
-                ngram_mi = compute_mutual_info(X=ngram_levels, Y=ngram_preds, should_normalize=False)
+                # Add the ngram mutual information results
+                avg_ngram = np.average(ngram_results[policy_name][rate])
+                std_ngram = np.std(ngram_results[policy_name][rate])
 
-                accuracy.append(acc)
-                mut_info.append(mi)
-                ngram_mut_info.append(ngram_mi)
+                ngram_mut_info_list.append(avg_ngram)
+                ngram_mut_info_std_list.append(std_ngram)
 
                 rates.append(round(1.0 - float(rate), 2))
+                num_trials = len(accuracy_results[policy_name][rate])
 
-            if len(accuracy) > 0:
-                print('{} & {:.4f} & {:.4f} & {:.4f} & {:.4f} & {:.4f} & {:.4f} \\\\'.format(policy_name, np.average(accuracy), np.max(accuracy), np.average(mut_info), np.max(mut_info), np.average(ngram_mut_info), np.max(ngram_mut_info)))
+            # Get the deviation for the average result across all trials
+            avg_accuracy_list: List[float] = []
+            avg_mut_info_list: List[float] = []
+            avg_ngram_list: List[float] = []
 
-                ax1.plot(rates, accuracy, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
-                ax2.plot(rates, mut_info, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
-                ax3.plot(rates, ngram_mut_info, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name])
+            for trial in range(num_trials):
+                trial_accuracy: List[float] = []
+                trial_mut_info: List[float] = []
+                trial_ngram: List[float] = []
+
+                for rate in sorted(accuracy_results[policy_name].keys()):
+                    trial_accuracy.append(accuracy_results[policy_name][rate][trial])
+                    trial_mut_info.append(mut_info_results[policy_name][rate][trial])
+                    trial_ngram.append(ngram_results[policy_name][rate][trial])
+
+                avg_accuracy_list.append(np.average(trial_accuracy))
+                avg_mut_info_list.append(np.average(trial_mut_info))
+                avg_ngram_list.append(np.average(trial_ngram))
+
+            # Print the aggregate results
+            avg_acc = np.average(accuracy_list)
+            max_acc = np.max(accuracy_list)
+            std_acc = np.std(avg_accuracy_list)
+
+            avg_mi = np.average(mut_info_list)
+            max_mi = np.max(mut_info_list)
+            std_mi = np.std(avg_mut_info_list)
+
+            avg_ngram = np.average(ngram_mut_info_list)
+            max_ngram = np.max(ngram_mut_info_list)
+            std_ngram = np.std(avg_ngram_list)
+
+            print('{} & {:.4f} ({:.4f}) & {:.4f} & {:.4f} ({:.4f}) & {:.4f} & {:.4f} ({:.4f}) & {:.4f} \\\\'.format(policy_name, avg_acc, std_acc, max_acc, avg_mi, std_mi, max_mi, avg_ngram, std_ngram, max_ngram))
+
+            # Plot the results
+            ax1.errorbar(rates, accuracy_list, yerr=accuracy_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
+            ax2.errorbar(rates, mut_info_list, yerr=mut_info_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
+            ax3.errorbar(rates, ngram_mut_info_list, yerr=ngram_mut_info_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
 
         ax1.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
         ax1.set_ylabel('Accuracy', fontsize=AXIS_FONT)
@@ -82,7 +137,7 @@ if __name__ == '__main__':
 
         ax3.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
         ax3.set_ylabel('Empirical Mutual Information (bits)', fontsize=AXIS_FONT)
-        ax3.set_title('{}-gram Mut Info: Label vs Exit'.format(n), fontsize=TITLE_FONT)
+        ax3.set_title('{}-gram Mut Info: Label vs Exit'.format(ngram_size), fontsize=TITLE_FONT)
         ax3.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
         plt.tight_layout()

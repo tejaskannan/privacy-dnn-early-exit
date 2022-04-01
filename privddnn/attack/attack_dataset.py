@@ -92,7 +92,10 @@ def make_input_sequential_dataset(dataset: Dataset, dataset_order: str, exit_dec
     step_counter = 0
 
     decision_window: List[np.ndarray] = []
-    label_counter: Counter = Counter()
+    data_window: List[np.ndarray] = []
+    label_counter: List[int] = []
+
+    rand = np.random.RandomState(seed=6243809)
 
     for idx, (inputs, _, label) in enumerate(data_iterator):
         if idx == 0:
@@ -101,23 +104,38 @@ def make_input_sequential_dataset(dataset: Dataset, dataset_order: str, exit_dec
         accumulator += inputs
         step_counter += 1
 
+        data_window.append(inputs)
+
         decision_vector = np.zeros(shape=(1, num_exits), dtype=int)
         decision_vector[0, exit_decisions[idx]] = 1
         decision_window.append(decision_vector)
-        label_counter[label] += 1
+
+        label_counter.append(label)
+        #label_counter[label] += 1
 
         if step_counter >= step:
-            avg_input = accumulator / step_counter
-            data_input_list.append(np.expand_dims(avg_input, axis=0))
+            #avg_input = accumulator / step_counter
+            #data_input_list.append(np.expand_dims(avg_input, axis=0))
 
             decisions_list.append(np.expand_dims(np.vstack(decision_window), axis=0))
 
-            majority_label = label_counter.most_common(1)[0][0]
+            #majority_label = label_counter.most_common(1)[0][0]
+            label_counts = np.bincount(label_counter, minlength=dataset.num_labels)
+            majority_label = np.argmax(label_counts)
             labels_list.append(majority_label)
 
-            accumulator = np.zeros_like(inputs)
+            candidate_indices = []
+            for idx, label in enumerate(label_counter):
+                if label == majority_label:
+                    candidate_indices.append(idx)
+
+            representative_idx = rand.choice(candidate_indices)
+            data_input_list.append(np.expand_dims(data_window[representative_idx], axis=0))
+
+            #accumulator = np.zeros_like(inputs)
             decision_window = []
-            label_counter = Counter()
+            data_window = []
+            label_counter = []
             step_counter = 0
 
     #if step_counter > 0:
