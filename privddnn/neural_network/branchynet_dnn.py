@@ -81,6 +81,7 @@ class BranchyNetDNN3(EarlyExitNeuralNetwork):
 
         return [output0, output1, output2]
 
+
 class BranchyNetDNN4(EarlyExitNeuralNetwork):
 
     @property

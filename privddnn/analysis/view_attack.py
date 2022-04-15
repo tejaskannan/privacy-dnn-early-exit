@@ -20,6 +20,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset-order', type=str, required=True)
     parser.add_argument('--attack-log-folder', type=str)
     parser.add_argument('--train-policy', type=str, default='same')
+    parser.add_argument('--fold', type=str, default='test', choices=['train', 'test'])
     parser.add_argument('--should-plot', action='store_true')
     parser.add_argument('--trials', type=int)
     parser.add_argument('--output-file', type=str)
@@ -29,7 +30,7 @@ if __name__ == '__main__':
 
     # Read the attack accuracy
     attack_results = get_attack_results(folder_path=args.test_log_folder,
-                                        fold='test',
+                                        fold=args.fold,
                                         dataset_order=args.dataset_order,
                                         attack_train_log=attack_log_folder,
                                         attack_policy=args.train_policy,
@@ -59,8 +60,15 @@ if __name__ == '__main__':
 
             num_rates += 1
 
-        avg_metric = np.average([metric / num_rates for metric in metric_sums])
-        std_metric = np.std([metric / num_rates for metric in metric_sums])
+        if args.metric == 'correct_rank':
+            metrics = [metric / num_rates for metric in metric_sums]
+        else:
+            metrics = [100.0 * (metric / num_rates) for metric in metric_sums]
+            max_metric *= 100.0
+            min_metric *= 100.0
+
+        avg_metric = np.average(metrics)
+        std_metric = np.std(metrics)
 
         print('{} & {:.2f} ({:.2f}) & {:.2f} & {:.2f}  \\\\'.format(policy_name, avg_metric, std_metric, max_metric, min_metric))
 

@@ -23,7 +23,7 @@ COLORS = {
     'even_label_max_prob': '#253494',
     'buffered_max_prob': '#2c7fb8',
     'delayed_max_prob': '#2c7fb8',
-    'adaptive_random_max_prob': 'red',
+    'adaptive_random_max_prob': '#2c7fb8',
     'rolling_max_prob': 'gray',
     'linear': '#2c7fb8'
 }
@@ -33,7 +33,10 @@ DATASET_LABELS = {
     'emnist': 'EMNIST',
     'mnist': 'MNIST',
     'fashion_mnist': 'Fashion MNIST',
-    'uci_har': 'Activity'
+    'uci_har': 'Activity',
+    'cifar10': 'Cifar10',
+    'cifar100': 'Cifar100',
+    'wisdm_real': 'WISDM'
 }
 
 def to_label(name: str) -> str:

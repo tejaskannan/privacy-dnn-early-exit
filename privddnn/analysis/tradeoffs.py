@@ -40,6 +40,12 @@ if __name__ == '__main__':
                                               metric='exit_rate_deviation',
                                               trials=args.trials)
 
+    avg_exit_results = get_test_results(folder_path=args.test_log_folder,
+                                        fold='test',
+                                        dataset_order=args.dataset_order,
+                                        metric='avg_exit',
+                                        trials=args.trials)
+
     ngram_size = 3
     ngram_results = get_test_results(folder_path=args.test_log_folder,
                                      fold='test',
@@ -82,7 +88,9 @@ if __name__ == '__main__':
                 ngram_mut_info_list.append(avg_ngram)
                 ngram_mut_info_std_list.append(std_ngram)
 
-                rates.append(round(1.0 - float(rate), 2))
+                exit_rate = np.average(avg_exit_results[policy_name][rate])
+
+                rates.append(exit_rate)
                 num_trials = len(accuracy_results[policy_name][rate])
 
             # Get the deviation for the average result across all trials
@@ -124,18 +132,18 @@ if __name__ == '__main__':
             ax2.errorbar(rates, mut_info_list, yerr=mut_info_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
             ax3.errorbar(rates, ngram_mut_info_list, yerr=ngram_mut_info_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
 
-        ax1.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
+        ax1.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
         ax1.set_ylabel('Accuracy', fontsize=AXIS_FONT)
         ax1.set_title('Model Accuracy', fontsize=TITLE_FONT)
         ax1.legend(fontsize=LEGEND_FONT)
         ax1.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
-        ax2.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
+        ax2.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
         ax2.set_ylabel('Empirical Mutual Information (bits)', fontsize=AXIS_FONT)
         ax2.set_title('Mut Info: Label vs Exit', fontsize=TITLE_FONT)
         ax2.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
-        ax3.set_xlabel('Frac stopping at 2nd Exit', fontsize=AXIS_FONT)
+        ax3.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
         ax3.set_ylabel('Empirical Mutual Information (bits)', fontsize=AXIS_FONT)
         ax3.set_title('{}-gram Mut Info: Label vs Exit'.format(ngram_size), fontsize=TITLE_FONT)
         ax3.tick_params(axis='both', which='major', labelsize=LABEL_FONT)

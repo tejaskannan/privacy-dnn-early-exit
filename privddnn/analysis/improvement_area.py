@@ -27,12 +27,14 @@ if __name__ == '__main__':
     parser.add_argument('--test-log-folder', type=str, required=True)
     parser.add_argument('--metric', type=str, choices=['accuracy', 'mutual_information'], required=True)
     parser.add_argument('--dataset-order', type=str, required=True)
+    parser.add_argument('--trials', type=int, required=True)
     args = parser.parse_args()
 
     metric_results = get_test_results(folder_path=args.test_log_folder,
                                       fold='test',
                                       metric=args.metric,
-                                      dataset_order=args.dataset_order)
+                                      dataset_order=args.dataset_order,
+                                      trials=args.trials)
 
     metric_scores: Dict[str, Dict[str, float]] = dict()
     for policy_name, policy_results in metric_results.items():

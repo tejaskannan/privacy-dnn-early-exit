@@ -88,6 +88,9 @@ def get_test_results(folder_path: str, fold: str, dataset_order: str, metric: st
                 ngram_decisions, ngram_preds = create_ngram_counts(levels=exit_decisions, preds=preds, n=ngram_size)
                 ngram_mi = compute_mutual_info(X=ngram_decisions, Y=ngram_preds)
                 results[strategy_name][rate_str].append(ngram_mi)
+            elif metric == 'avg_exit':
+                avg_exit = np.average(exit_decisions)
+                results[strategy_name][rate_str] = avg_exit
             else:
                 raise ValueError('Unknown metric name: {}'.format(metric))
 
@@ -155,7 +158,7 @@ def get_attack_results(folder_path: str, fold: str, dataset_order: str, attack_t
             for model_name, model_results in log_results.items():
                 for rate, rate_results in log_results[model_name].items():
                     if rate not in results[strategy_name]:
-                        results[strategy_name][rate] = [0.0 for _ in range(num_trials + 1)]
+                        results[strategy_name][rate] = [0.0 for _ in range(num_trials)]
 
                     results[strategy_name][rate][trial] = max(results[strategy_name][rate][trial], rate_results[metric])
         else:

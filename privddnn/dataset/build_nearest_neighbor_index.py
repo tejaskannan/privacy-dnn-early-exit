@@ -8,7 +8,7 @@ from privddnn.dataset.dataset import Dataset
 from privddnn.utils.file_utils import save_pickle_gz
 
 
-NUM_COMPONENTS = 32
+NUM_COMPONENTS = 64
 NUM_TREES = 16
 
 

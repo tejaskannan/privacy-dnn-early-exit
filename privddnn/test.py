@@ -1,5 +1,6 @@
 import numpy as np
 import os.path
+import time
 from argparse import ArgumentParser
 from collections import defaultdict
 from enum import Enum, auto
@@ -12,12 +13,13 @@ from privddnn.classifier import BaseClassifier, ModelMode, OpName
 from privddnn.exiting import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
 from privddnn.restore import restore_classifier
 from privddnn.utils.file_utils import save_json_gz, make_dir, read_json_gz
+from privddnn.utils.exit_utils import get_exit_rates
 
 
 TARGET_BOUNDS = {
     2: (0.0, 1.0),
     3: (0.2, 0.7),
-    4: (0.2, 0.5)
+    4: (0.2, 0.4)
 }
 
 
@@ -108,19 +110,10 @@ if __name__ == '__main__':
     single_rates = list(np.arange(lower_bound, upper_bound + 0.01, 0.05))
     rand = np.random.RandomState(seed=591)
 
-    rate_settings: List[Tuple[float, ...]] = list(permutations(single_rates, model.num_outputs - 1))
-
-    rates: List[List[float]] = []
-    for setting in rate_settings:
-        last_rate = 1.0 - sum(setting)
-        if last_rate >= 0.0:
-            rates.append(list(setting) + [last_rate])
+    rates = get_exit_rates(single_rates=single_rates, num_outputs=model.num_outputs)
 
     # Execute all early stopping policies
     strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
-
-    rates = [[0.9, 0.1]]
-    strategies = [ExitStrategy.LABEL_MAX_PROB, ExitStrategy.RANDOM, ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]

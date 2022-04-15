@@ -8,7 +8,8 @@ from typing import Any, List, Tuple, Dict, DefaultDict, Optional
 from privddnn.dataset.data_iterators import DataIterator
 from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metric, sigmoid, compute_entropy
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
-from privddnn.utils.exit_utils import get_adaptive_elevation_bounds
+from privddnn.utils.exit_utils import get_adaptive_elevation_bounds, normalize_exit_rates
+from privddnn.utils.random import RandomUniformGenerator, RandomChoiceGenerator, RandomIntGenerator
 from .linear_optimizer import GeneticLinearOptimizer
 
 
@@ -112,86 +113,17 @@ class RandomExit(EarlyExiter):
 
     def __init__(self, rates: List[float]):
         super().__init__(rates=rates)
-        self._output_idx = list(range(len(rates)))
+        self._random_choice = RandomChoiceGenerator(num_choices=len(rates),
+                                                    rates=rates,
+                                                    batch_size=5000)
 
     @property
     def name(self) -> str:
         return 'random'
 
     def select_output(self, probs: np.ndarray) -> int:
-        level = np.random.choice(self._output_idx, size=1, p=self.rates)
+        level = self._random_choice.get()
         return int(level)
-
-
-class LinearExiter(EarlyExiter):
-
-    @property
-    def name(self) -> str:
-        return 'linear'
-
-    def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
-        super().fit(val_probs=val_probs, val_labels=val_labels)
-
-        optimizer = GeneticLinearOptimizer(keep_rate=0.25, population_size=128, mutation_rate=0.01)
-        self._weights = optimizer.fit(probs=val_probs,
-                                      labels=val_labels,
-                                      exit_rate=self.rates[0],
-                                      max_iters=100,
-                                      patience=5)
-
-    def select_output(self, probs: np.ndarray) -> int:
-        first_probs = probs[0, :]
-        entropy = np.expand_dims(compute_entropy(first_probs, axis=-1), axis=-1)
-        max_prob = np.expand_dims(np.max(first_probs, axis=-1), axis=-1)
-        features = np.concatenate([first_probs, entropy, max_prob], axis=-1)
-
-        exit_val = sigmoid(features.dot(self._weights))
-        return int(exit_val < 0.5)
-
-
-class NearestNeighborExiter(EarlyExiter):
-
-    @property
-    def name(self) -> str:
-        return 'knn'
-
-    @property
-    def num_neighbors(self) -> int:
-        return 100
-
-    def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
-        super().fit(val_probs=val_probs, val_labels=val_labels)
-
-        self._nn_index = AnnoyIndex(val_probs.shape[-1], 'euclidean')
-        self._pred_map: Dict[int, int] = dict()
-
-        first_probs = val_probs[:, 0, :]  # [B, D]
-        for idx, probs in enumerate(first_probs):
-            self._nn_index.add_item(idx, probs)
-            self._pred_map[idx] = val_labels[idx]
-
-        self._nn_index.build(32)
-
-        entropy_list: List[float] = []
-        for idx, probs in enumerate(first_probs):
-            neighbor_idx = self._nn_index.get_nns_by_vector(probs, n=self.num_neighbors)
-            neighbor_labels = [self._pred_map[i] for i in neighbor_idx]
-            label_dist = np.bincount(neighbor_labels).astype(float)
-            label_dist /= np.sum(label_dist)
-            entropy_list.append(max(compute_entropy(label_dist, axis=-1), 0.0))
-
-        self._threshold = np.quantile(entropy_list, q=self.rates[0])
-        print(self._threshold)
-
-    def select_output(self, probs: np.ndarray) -> int:
-        first_probs = probs[0]
-        neighbor_idx = self._nn_index.get_nns_by_vector(first_probs, n=self.num_neighbors)
-        neighbor_labels = [self._pred_map[i] for i in neighbor_idx]
-        label_dist = np.bincount(neighbor_labels).astype(float)
-        label_dist /= np.sum(label_dist)
-        label_entropy = max(compute_entropy(label_dist, axis=-1), 0.0)
-
-        return int(label_entropy >= self._threshold)
 
 
 class ThresholdExiter(EarlyExiter):
@@ -511,13 +443,19 @@ class AdaptiveRandomExit(LabelThresholdExiter):
         self._max_epsilon = 0.5
         self._increase_factor = 2.0
         self._decrease_factor = 0.9
-
-        self._epsilons = [self._max_epsilon for _ in range(self.num_outputs)]
         self._window_min = 5
         self._window_max = 20
+
+        self._rand_uniform = RandomUniformGenerator(batch_size=5000)
+        self._rand_choice = RandomChoiceGenerator(num_choices=len(rates), rates=rates, batch_size=5000)
+        self._rand_int = RandomIntGenerator(low=self._window_min, high=self._window_max + 1, batch_size=5000)
+
+        self._epsilons = [self._max_epsilon for _ in range(self.num_outputs)]
         self._level_counter: Counter = Counter()
         self._prev_preds: List[int] = []
         self._step = 0
+
+        self._level_rates = normalize_exit_rates(rates=rates)
 
     @property
     def epsilons(self) -> List[float]:
@@ -545,12 +483,11 @@ class AdaptiveRandomExit(LabelThresholdExiter):
                 break
 
             frac_part = (self.rates[level] * self._window) - level_targets[level]
-            if np.random.uniform() < frac_part:
+            if self._rand_uniform.get() < frac_part:
                 level_targets[level] += 1
 
-        level_idx = np.arange(self.num_outputs)
         for _ in range(self._window - sum(level_targets)):
-            rand_level = np.random.choice(level_idx, p=self.rates)
+            rand_level = int(self._rand_choice.get())
             level_targets[rand_level] += 1
 
         assert sum(level_targets) == self._window, 'Found an allocation of {}, Expected {}'.format(sum(level_targets), self._window)
@@ -576,20 +513,28 @@ class AdaptiveRandomExit(LabelThresholdExiter):
         }
 
     def select_output(self, probs: np.ndarray) -> int:
+        """
+        Selects the exit point to use given the predicted probabilities.
+
+        Args:
+            probs: A [L, K] array where L is the number of exit points and K
+                is the number of classes.
+        """
         metrics = self.compute_metric(probs)
+        preds = np.argmax(probs, axis=-1)  # [L]
 
         level_idx = list(range(self.num_outputs))
-        selected_level = int(np.random.choice(level_idx, p=self.rates))
+        selected_level = self.num_outputs - 1
 
         for level in range(self.num_outputs):
             # Get the data-dependent information for this level
             level_metric = metrics[level]
             level_probs = probs[level]
-            level_pred = np.argmax(level_probs)
+            level_pred = preds[level]
             level_threshold = self.get_threshold(level=level, pred=level_pred)
 
-            rate_sum = sum(self.rates[level:])
-            level_rate = self.rates[level] / sum(self.rates[level:])
+            # Get the exit rate for this output
+            level_rate = self._level_rates[level]
 
             # Get the remaining number of elements to stop at this level
             num_remaining = self._window - self._step  # Number of remaining elements in this window
@@ -603,16 +548,16 @@ class AdaptiveRandomExit(LabelThresholdExiter):
             min_rate, max_rate = get_adaptive_elevation_bounds(continue_rate=(1.0 - level_rate),
                                                                epsilon=self.get_epsilon(level=level))
 
-            if np.isclose(level_rate, 1.0):
+            if abs(level_rate - 1.0) < SMALL_NUMBER:
                 continue_prob = 0.0
-            elif np.isclose(level_rate, 0.0):
+            elif abs(level_rate) < SMALL_NUMBER:
                 continue_prob = 1.0
             elif level_metric < level_threshold:
                 continue_prob = max_rate
             else:
                 continue_prob = min_rate
 
-            should_continue = (np.random.uniform() < continue_prob)
+            should_continue = (self._rand_uniform.get() < continue_prob)
         
             if remaining_to_exit == 0:
                 should_continue = True
@@ -628,7 +573,7 @@ class AdaptiveRandomExit(LabelThresholdExiter):
 
         self._step += 1
         if self._step == self._window:
-            self._window = np.random.randint(low=self._window_min, high=self._window_max + 1)
+            self._window = self._rand_int.get()
             self._level_counter: Counter = Counter()
             self._level_targets = self.make_level_targets()
             self._step = 0
