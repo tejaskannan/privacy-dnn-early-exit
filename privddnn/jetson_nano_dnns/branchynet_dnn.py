@@ -45,7 +45,7 @@ class JetsonNanoBranchyNetDNN:
         output0 = Dense(num_labels, activation='softmax', name='output0')(hidden0)
 
         model0 = Model(inputs=model0_inputs, outputs=[hidden0, output0])
-        model0.compile(loss=['mse', 'sparse_categorical_cross_entropy'])
+        model0.compile(loss=['mse', 'mse'])
 
         # Make the full model
         model1_inputs0 = Input(shape=input_shape, name='model1-inputs0')
@@ -58,7 +58,7 @@ class JetsonNanoBranchyNetDNN:
         output1 = Dense(num_labels, activation='softmax', name='output1')(hidden3)
 
         model1 = Model(inputs=[model1_inputs0, model1_inputs1], outputs=[hidden3, output1])
-        model1.compile()
+        model1.compile(loss=['mse', 'mse'])
 
         return model0, model1
 
