@@ -78,7 +78,7 @@ class Dataset:
             X_val, y_val = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'test.h5'))
             has_val_split = True
-        elif dataset_name in ('uci_har', 'speech_commands', 'wisdm', 'emnist', 'wisdm_real', 'fashion_mnist_max_prob', 'fashion_mnist_label_max_prob'):
+        elif dataset_name in ('uci_har', 'speech_commands', 'wisdm', 'emnist', 'wisdm_real', 'fashion_mnist_max_prob', 'fashion_mnist_label_max_prob', 'uci_har_32'):
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'train.h5'))
             X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'test.h5'))

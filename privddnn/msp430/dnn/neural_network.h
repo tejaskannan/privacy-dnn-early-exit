@@ -1,12 +1,13 @@
 #include <stdint.h>
 #include "matrix.h"
 #include "parameters.h"
-#include "utils/array.h"
 #include "utils/inference_result.h"
+#include "utils/array.h"
+#include "policy.h"
 
 #ifndef NEURAL_NETWORK_H_
 #define NEURAL_NETWORK_H_
 
-struct inference_result *neural_network(struct inference_result *result, struct matrix *hiddenResult, struct matrix *inputs, uint8_t precision);
+struct inference_result *branchynet_dnn(struct inference_result *result, struct matrix *inputs, uint8_t precision, struct exit_policy *policy);
 
 #endif

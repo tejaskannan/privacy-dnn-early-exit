@@ -14,7 +14,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset-name', type=str, required=True, help='The name of the dataset to serialize.')
     parser.add_argument('--precision', type=int, required=True, help='The fixed point precision.')
     parser.add_argument('--fold', type=str, required=True, choices=['train', 'val', 'test'], help='The dataset fold to serialize.')
-    parser.add_argument('--data-order', type=str, required=True, choices=['nearest', 'randomized'], help='Name of the dataset order to serialize.')
+    parser.add_argument('--dataset-order', type=str, required=True, help='Name of the dataset order to serialize.')
     parser.add_argument('--num-inputs', type=int, required=True, help='The maximum number of inputs to include.')
     parser.add_argument('--window', type=int, help='The window size to use for the `nearest` order.')
     parser.add_argument('--is-msp', action='store_true', help='Whether to prepare the dataset for the MSP430 device.')
@@ -25,13 +25,13 @@ if __name__ == '__main__':
     dataset = Dataset(dataset_name=args.dataset_name)
 
     # Normalize the values
-    dataset.fit_normalizer(is_global=False)
+    dataset.fit_normalizer()
     dataset.normalize_data()
 
-    data_iterator = make_data_iterator(name=args.data_order,
+    data_iterator = make_data_iterator(name=args.dataset_order,
                                        dataset=dataset,
-                                       clf=None,
-                                       num_trials=1,
+                                       pred_probs=None,
+                                       num_reps=1,
                                        fold=args.fold,
                                        window_size=args.window)
 

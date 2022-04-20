@@ -127,3 +127,58 @@ uint8_t vector_argmax(struct matrix *vec) {
 
     return maxIdx;
 }
+
+
+struct matrix *vector_concat(struct matrix *result, struct matrix *vec1, struct matrix *vec2) {
+    if ((result->numCols != VECTOR_COLS) || (vec1->numCols != VECTOR_COLS) || (vec2->numCols != VECTOR_COLS) || (result->numRows != (vec1->numRows + vec2->numRows))) {
+        return result;
+    }
+
+    const uint16_t vec1Elems = vec1->numRows * vec1->numCols;
+    const uint16_t vec2Elems = vec2->numRows * vec2->numCols;
+
+    dma_load(result->data, vec1->data, offset);
+    dma_load(result->data + vec1Elems, vec2->data, vec2Elems);
+
+    return result;
+}
+
+
+int32_t vector_exp_sum(struct matrix *vec, const int16_t max, const uint8_t precision) {
+    if (vec->numCols != VECTOR_COLS) {
+        return 0;
+    }
+
+    volatile int32_t sum = 0;
+    volatile int32_t element;
+
+    uint8_t i;
+    for (i = 0; i < vec->numRows; i++) {
+	    element = (int32_t) fp16_sub(vec->data[VECTOR_INDEX(i)], max);
+        sum = fp32_add(sum, fp32_exp(element, precision));
+    }
+
+    return sum;
+}
+
+
+int32_t *vector_softmax(int32_t *result, struct matrix *vec, const uint8_t precision) {
+    const uint8_t maxIdx = vector_argmax(vec);
+    const int16_t max = vec->data[VECTOR_INDEX(maxIdx)];
+    const int32_t sum = vector_exp_sum(vec, max, precision);
+
+    volatile int32_t element;
+    volatile int32_t cumSum = 0;
+
+    const uint16_t n = vec->numRows - 1;
+    uint8_t i;
+    for (i = 0; i < n; i++) {
+	    element = (int32_t) fp16_sub(vec->data[VECTOR_INDEX(i)], max);
+        result[i] = fp32_div(fp32_exp(element, precision), sum, precision);
+	    cumSum = fp32_add(result[i], cumSum);
+    }
+
+    result[n] = fp32_sub((1 << precision), cumSum);
+
+    return result;
+}

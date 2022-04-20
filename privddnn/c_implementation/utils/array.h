@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "fixed_point.h"
+#include "../matrix.h"
 
 #ifndef ARRAY_H_
 #define ARRAY_H_

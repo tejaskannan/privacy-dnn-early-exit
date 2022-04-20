@@ -14,9 +14,12 @@ struct matrix {
     uint8_t numCols;
 };
 
-struct matrix *matrix_vector_prod(struct matrix *result, struct matrix *mat, struct matrix *vec, uint8_t precision);
+struct matrix *matrix_vector_prod(struct matrix *result, struct matrix *mat, struct matrix *vec, const uint8_t precision);
 struct matrix *vector_relu(struct matrix *result, struct matrix *vec);
 struct matrix *vector_add(struct matrix *result, struct matrix *vec1, struct matrix *vec2);
 uint8_t vector_argmax(struct matrix *vec);
+struct matrix *vector_concat(struct matrix *result, struct matrix *vec1, struct matrix *vec2);
+int32_t vector_exp_sum(struct matrix *vec, const int16_t max, const uint8_t precision);
+int32_t *vector_softmax(int32_t *result, struct matrix *vec, const uint8_t precision);
 
 #endif

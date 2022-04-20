@@ -7,6 +7,7 @@ from .base import NeuralNetwork
 from .vgg import VGG
 from .branchynet_cnn import BranchyNetCNN, BranchyNetCNN3, BranchyNetCNN4
 from .branchynet_dnn import BranchyNetDNN, BranchyNetDNN3, BranchyNetDNN4
+from .branchynet_dnn_small import BranchyNetDNNSmall, BranchyNetDNNSmall3, BranchyNetDNNSmall4
 from .branchynet_rnn import BranchyNetRNN
 from .speech_cnn import SpeechCNN, SpeechCNN3, SpeechCNN4
 
@@ -26,6 +27,12 @@ def get_model_class(name: str) -> Type[NeuralNetwork]:
         return BranchyNetDNN3
     elif name == 'branchynet-dnn-4':
         return BranchyNetDNN4
+    elif name == 'branchynet-dnn-small':
+        return BranchyNetDNNSmall
+    elif name == 'branchynet-dnn-small-3':
+        return BranchyNetDNNSmall3
+    elif name == 'branchynet-dnn-small-4':
+        return BranchyNetDNNSmall4
     elif name == 'vgg':
         return VGG
     elif name == 'speech-cnn':

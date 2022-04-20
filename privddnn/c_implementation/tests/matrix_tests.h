@@ -12,6 +12,8 @@ void test_relu_3(void);
 void test_relu_4(void);
 void test_add_3(void);
 void test_add_4(void);
+void test_vector_concat_3(void);
+void test_vector_concat_4_5(void);
 
 uint8_t are_mats_equal(struct matrix *mat1, struct matrix *mat2);
 

@@ -17,6 +17,11 @@ int main(void) {
     test_add_3();
     test_add_4();
     printf("\tPassed.\n");
+
+    printf("Testing Vector Concat.\n");
+    test_vector_concat_3();
+    test_vector_concat_4_5();
+    printf("\tPassed.\n");
 }
 
 
@@ -120,6 +125,42 @@ void test_add_4(void) {
 
     vector_add(&vec1, &vec1, &vec2);
     assert(are_mats_equal(&vec1, &expected));
+}
+
+
+void test_vector_concat_3(void) {
+    int16_t data1[] = { 1024, -1024, -1 };
+    struct matrix vec1 = { data1, 3, 1 };
+
+    int16_t data2[] = { -1024, 512, 2 };
+    struct matrix vec2 = { data2, 3, 1 };
+
+    int16_t expectedData[] = { 1024, -1024, -1, -1024, 512, 2 };
+    struct matrix expected = { expectedData, 6, 1 };
+
+    int16_t resultData[6];
+    struct matrix result = { resultData, 6, 1 };
+
+    vector_concat(&result, &vec1, &vec2);
+    assert(are_mats_equal(&result, &expected));
+}
+
+
+void test_vector_concat_4_5(void) {
+    int16_t data1[] = { 7, 1024, -1024, -1 };
+    struct matrix vec1 = { data1, 4, 1 };
+
+    int16_t data2[] = { -1024, 12, 512, -9, 2 };
+    struct matrix vec2 = { data2, 5, 1 };
+
+    int16_t expectedData[] = { 7, 1024, -1024, -1, -1024, 12, 512, -9, 2 };
+    struct matrix expected = { expectedData, 9, 1 };
+
+    int16_t resultData[9];
+    struct matrix result = { resultData, 9, 1 };
+
+    vector_concat(&result, &vec1, &vec2);
+    assert(are_mats_equal(&result, &expected));
 }
 
 
