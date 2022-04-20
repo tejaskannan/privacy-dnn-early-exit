@@ -148,12 +148,7 @@ def execute(model_path: str,
 
                 message_type = get_message_type(data)
                 assert message_type == MessageType.BUFFERED, 'Message must be of the `buffered` type.'
-
                 buffered_result = decode_buffered_message(data, precision=precision)
-
-                print(data)
-                print(buffered_result.inputs[0])
-                print(buffered_result.hidden[0])
 
                 num_bytes_list.append(int(message_byte_count))
 
