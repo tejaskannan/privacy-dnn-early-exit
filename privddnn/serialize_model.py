@@ -34,6 +34,7 @@ def serialize_dense_layer(weight_mat: np.ndarray, bias: np.ndarray, is_msp: bool
     result.append(weight_var)
 
     vec_cols = 2 if is_msp else 1
+    bias_dims = bias.shape[0]
 
     if is_msp:
         bias = expand_vector(bias)
@@ -46,7 +47,7 @@ def serialize_dense_layer(weight_mat: np.ndarray, bias: np.ndarray, is_msp: bool
 
     result.append(bias_data)
 
-    bias_var = 'static struct matrix {}_B = {{ {}_B_DATA, {}, {} }};'.format(name, name, bias.shape[0], vec_cols)
+    bias_var = 'static struct matrix {}_B = {{ {}_B_DATA, {}, {} }};'.format(name, name, bias_dims, vec_cols)
     result.append(bias_var)
 
     return result
