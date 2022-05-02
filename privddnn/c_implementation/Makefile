@@ -21,5 +21,8 @@ matrix: utils/fixed_point.h matrix.h tests/matrix_tests.h utils/fixed_point.c ma
 lfsr: utils/lfsr.h tests/lfsr_tests.h utils/lfsr.c tests/lfsr_tests.c
 	$(CC) -o lfsr utils/lfsr.c tests/lfsr_tests.c
 
+policy: utils/fixed_point.h utils/array.h utils/lfsr.h policy.h matrix.h tests/policy_tests.h parameters.h data.h utils/fixed_point.c utils/array.c utils/lfsr.c policy.c matrix.c tests/policy_tests.c
+	$(CC) -o policy utils/fixed_point.c utils/array.c utils/lfsr.c utils/message.c policy.c matrix.c tests/policy_tests.c
+
 clean:
-	rm -f *.o ensemble dnn fixedpoint array lfsr matrix *.dSYM
+	rm -f *.o ensemble dnn fixedpoint array lfsr matrix policy *.dSYM

@@ -20,19 +20,44 @@ int main(void) {
     uint16_t i, j;
 
     #ifdef IS_MAX_PROB
-    uint16_t thresholds[] = { THRESHOLD };
+    uint16_t thresholds[NUM_OUTPUTS - 1];
+    for (i = 0; i < NUM_OUTPUTS - 1; i++) {
+        thresholds[i] = THRESHOLDS[i];
+    }
+
     uint16_t lfsrStates[] = { 0 };
     #elif defined(IS_RANDOM)
     uint16_t thresholds[] = { 0 };
     uint16_t lfsrStates[] = { 3798 };
-    #elif defined(IS_LABEL_MAX_PROB)
+    #elif defined(IS_LABEL_MAX_PROB) || defined(IS_ADAPTIVE_RANDOM_MAX_PROB)
     uint16_t thresholds[NUM_LABELS];
 
     for (i = 0; i < NUM_LABELS; i++) {
         thresholds[i] = THRESHOLDS[i];
     }
 
+    #ifdef IS_LABEL_MAX_PROB
     uint16_t lfsrStates[] = { 0 };
+    #else
+    uint16_t lfsrStates[] = { 3918, 6742, 10752 };
+    #endif
+    #endif
+
+    struct adaptive_random_state policyState;
+
+    #ifdef IS_ADAPTIVE_RANDOM_MAX_PROB
+    policyState.windowSize = WINDOW_MIN;
+    policyState.step = 0;
+    policyState.targetExit = 0;
+    policyState.observedExit = 0;
+    policyState.bias = MAX_BIAS;
+    policyState.maxBias = MAX_BIAS;
+    policyState.increaseFactor = INCREASE_FACTOR;
+    policyState.decreaseFactor = DECREASE_FACTOR;
+    policyState.windowMin = WINDOW_MIN;
+    policyState.windowMax = WINDOW_MAX;
+    policyState.windowBits = WINDOW_BITS;
+    policyState.prevPred = NUM_LABELS + 1;
     #endif
 
     int16_t inputFeatures[NUM_FEATURES];
@@ -51,7 +76,7 @@ int main(void) {
         label = DATASET_LABELS[i];
 
         // Run the neural network inference
-        branchynet_dnn(&result, &inputs, PRECISION, &policy);
+        branchynet_dnn(&result, &inputs, PRECISION, &policy, &policyState);
 
         printf("Pred: %d, Label: %d, Decision: %d\n", result.pred, label, result.outputIdx);
 

@@ -6,6 +6,8 @@ static int16_t CONCAT_BUFFER[128];
 static int16_t LOGITS[NUM_LABELS * VECTOR_COLS];
 static int32_t PROBS[NUM_LABELS];
 
+#define UNUSED(X) (void)(X)
+
 
 struct matrix *dnn_layer(struct matrix *result, struct matrix *inputs, struct matrix *weights, struct matrix *bias, uint8_t precision, uint8_t shouldActivate) {
     /**
@@ -23,7 +25,11 @@ struct matrix *dnn_layer(struct matrix *result, struct matrix *inputs, struct ma
 
 
 
-struct inference_result *branchynet_dnn(struct inference_result *result, struct matrix *inputs, uint8_t precision, struct exit_policy *policy) {
+struct inference_result *branchynet_dnn(struct inference_result *result, struct matrix *inputs, uint8_t precision, struct exit_policy *policy, struct adaptive_random_state *policyState) {
+    #ifndef IS_ADAPTIVE_RANDOM_MAX_PROB
+    UNUSED(policyState);
+    #endif
+
     // Apply the first hidden layer
     struct matrix hidden0 = { HIDDEN_BUFFER_0, DENSE_W.numRows, VECTOR_COLS };
     dnn_layer(&hidden0, inputs, &DENSE_W, &DENSE_B, precision, 1);
@@ -46,11 +52,16 @@ struct inference_result *branchynet_dnn(struct inference_result *result, struct 
     shouldExit = max_prob_should_exit(PROBS[result->pred], policy->thresholds[result->pred]);
     #elif defined(IS_RANDOM)
     shouldExit = random_should_exit(EXIT_RATE, policy->lfsrStates);
+    #elif defined(IS_ADAPTIVE_RANDOM_MAX_PROB)
+    vector_softmax(PROBS, &logits, precision);
+    result->pred = vector_argmax(&logits);
+
+    shouldExit = adaptive_random_should_exit(PROBS[result->pred], result->pred, EXIT_RATE, policy->thresholds[result->pred], policy->lfsrStates, policyState, precision);
     #endif
 
     // Exit early if specified
     if (shouldExit) {
-        #if defined(IS_MAX_PROB) || defined(IS_RANDOM)
+        #ifdef IS_RANDOM
         result->pred = vector_argmax(&logits);
         #endif
 
@@ -72,24 +83,24 @@ struct inference_result *branchynet_dnn(struct inference_result *result, struct 
     // Execute the exit policy
     #ifdef IS_MAX_PROB
     vector_softmax(PROBS, &logits, precision);
-    shouldExit = max_prob_should_exit(PROBS, policy->thresholds[0]);
+    result->pred = vector_argmax(&logits);
+
+    shouldExit = max_prob_should_exit(PROBS[result->pred], policy->thresholds[1]);
     #elif defined(IS_LABEL_MAX_PROB)
     vector_softmax(PROBS, &logits, precision);
-    pred = vector_argmax(&logits);
-    shouldExit = label_max_prob_should_exit(PROBS, policy->thresholds[pred]);
+    result->pred = vector_argmax(&logits);
+    shouldExit = label_max_prob_should_exit(PROBS[result->pred], policy->thresholds[result->pred]);
     #elif defined(IS_RANDOM)
     shouldExit = random_should_exit(policy->exitRate, policy->lfsrStates);
     #endif
 
     // Exit early if specified
     if (shouldExit) {
-        #if defined(IS_MAX_PROB) || defined(IS_RANDOM)
-        pred = vector_argmax(&logits);
+        #ifdef IS_RANDOM
+        result->pred = vector_argmax(&logits);
         #endif
 
-        result->pred = pred;
         result->outputIdx = 1;
-
         return result;
     }
     #endif 

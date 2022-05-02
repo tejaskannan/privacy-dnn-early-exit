@@ -61,6 +61,13 @@ class BranchyNetDNNSmall3(EarlyExitNeuralNetwork):
     def num_outputs(self) -> int:
         return 3
 
+    def make_loss_weights(self) -> Dict[str, float]:
+        return {
+            'output0': 0.2,
+            'output1': 0.6,
+            'output2': 1.0
+        }
+
     def make_model(self, inputs: Input, num_labels: int, model_mode: ModelMode) -> List[Layer]:
         dropout_keep_rate = 1.0 if model_mode == ModelMode.TEST else self.hypers[DROPOUT_KEEP_RATE]
         is_train = (model_mode == ModelMode.TRAIN)
@@ -71,7 +78,8 @@ class BranchyNetDNNSmall3(EarlyExitNeuralNetwork):
         hidden0 = Dense(16, activation='relu')(inputs)
         dropout0 = Dropout(rate=1.0 - dropout_keep_rate)(hidden0, training=is_train)
 
-        hidden1 = Dense(16, activation='relu')(dropout0)
+        concat = Concatenate(axis=-1)([inputs, dropout0])
+        hidden1 = Dense(16, activation='relu')(concat)
         dropout1 = Dropout(rate=1.0 - dropout_keep_rate)(hidden1, training=is_train)
 
         hidden2 = Dense(32, activation='relu')(dropout1)

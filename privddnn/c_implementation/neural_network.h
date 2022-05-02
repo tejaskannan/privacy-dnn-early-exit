@@ -8,6 +8,6 @@
 #ifndef NEURAL_NETWORK_H_
 #define NEURAL_NETWORK_H_
 
-struct inference_result *branchynet_dnn(struct inference_result *result, struct matrix *inputs, uint8_t precision, struct exit_policy *policy);
+struct inference_result *branchynet_dnn(struct inference_result *result, struct matrix *inputs, uint8_t precision, struct exit_policy *policy, struct adaptive_random_state *policyState);
 
 #endif

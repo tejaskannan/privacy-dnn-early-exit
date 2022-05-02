@@ -21,6 +21,13 @@ int16_t fp16_max(int16_t x, int16_t y) {
     return comp * x + (1 - comp) * y;
 }
 
+
+int16_t fp16_min(int16_t x, int16_t y) {
+    int16_t comp = (x <= y);
+    return comp * x + (1 - comp) * y;
+}
+
+
 int16_t fp16_sub(int16_t x, int16_t y) {
     return x - y;
 }

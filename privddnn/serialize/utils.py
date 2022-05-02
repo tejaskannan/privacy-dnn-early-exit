@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List
+from typing import List, Union
 
 
 def float_to_fixed_point(x: float, precision: int, width: int) -> int:
@@ -14,7 +14,10 @@ def float_to_fixed_point(x: float, precision: int, width: int) -> int:
         return int(mult)
 
 
-def array_to_fixed_point(x: np.ndarray, precision: int, width: int) -> np.ndarray:
+def array_to_fixed_point(x: Union[np.ndarray, List[float]], precision: int, width: int) -> np.ndarray:
+    if isinstance(x, list):
+        x = np.array(x)
+
     mult = x * (1 << precision)
     max_value = (1 << (width - 1)) - 1
     quantized = np.clip(mult, a_min=-max_value, a_max=max_value)
