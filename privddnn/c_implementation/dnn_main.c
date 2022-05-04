@@ -30,9 +30,9 @@ int main(void) {
     uint16_t thresholds[] = { 0 };
     uint16_t lfsrStates[] = { 3798 };
     #elif defined(IS_LABEL_MAX_PROB) || defined(IS_ADAPTIVE_RANDOM_MAX_PROB)
-    uint16_t thresholds[NUM_LABELS];
+    uint16_t thresholds[NUM_LABELS * (NUM_OUTPUTS - 1)];
 
-    for (i = 0; i < NUM_LABELS; i++) {
+    for (i = 0; i < NUM_LABELS * (NUM_OUTPUTS - 1); i++) {
         thresholds[i] = THRESHOLDS[i];
     }
 
@@ -46,10 +46,13 @@ int main(void) {
     struct adaptive_random_state policyState;
 
     #ifdef IS_ADAPTIVE_RANDOM_MAX_PROB
+    uint16_t targetExit[NUM_OUTPUTS - 1] = { 0 };
+    uint16_t observedExit[NUM_OUTPUTS] = { 0 };
+
     policyState.windowSize = WINDOW_MIN;
     policyState.step = 0;
-    policyState.targetExit = 0;
-    policyState.observedExit = 0;
+    policyState.targetExit = targetExit;
+    policyState.observedExit = observedExit;
     policyState.bias = MAX_BIAS;
     policyState.maxBias = MAX_BIAS;
     policyState.increaseFactor = INCREASE_FACTOR;
@@ -58,6 +61,7 @@ int main(void) {
     policyState.windowMax = WINDOW_MAX;
     policyState.windowBits = WINDOW_BITS;
     policyState.prevPred = NUM_LABELS + 1;
+    policyState.trueExitRate = (int16_t *) EXIT_RATES;
     #endif
 
     int16_t inputFeatures[NUM_FEATURES];

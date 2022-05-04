@@ -102,7 +102,7 @@ if __name__ == '__main__':
                          rates=args.exit_rates,
                          model_path=args.model_path)
 
-    val_probs = clf.validate()
+    val_probs = clf.validate(should_approx=True)
     val_labels = clf.dataset.get_val_labels()
     policy.fit(val_probs, val_labels)
 

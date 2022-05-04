@@ -31,36 +31,41 @@ int16_t get_lower_continue_rate(int16_t continueRate, int16_t bias, uint8_t prec
 }
 
 
-uint8_t adaptive_random_should_exit(uint32_t prob, uint8_t pred, uint16_t exitRate, uint16_t exitThreshold, uint16_t *lfsrState, struct adaptive_random_state *policyState, uint8_t precision) {
+uint8_t adaptive_random_should_exit(uint32_t prob, uint16_t exitRate, uint16_t exitThreshold, uint16_t *lfsrState, struct adaptive_random_state *policyState, uint8_t outputIdx, uint8_t numOutputs, uint8_t precision) {
     const uint16_t adjustedExitRate = exitRate >> (15 - precision);
 
-    if (policyState->step == 0) {
+    if ((policyState->step == 0) && (outputIdx == 0)) {
         // Update the window size (maybe do this every time to avoid timing attacks)
         policyState->windowSize = rand_int(lfsrState[1], policyState->windowBits) + policyState->windowMin;  // Random integer within bounds
-        policyState->observedExit = 0;
         policyState->step = policyState->windowSize;
 
+        // Set the quotas for each output
         const uint16_t windowSizeFp = (policyState->windowSize) << precision;
-        const uint16_t targetExit = fp16_mul(windowSizeFp, adjustedExitRate, precision);
         const uint16_t mask = ~(0xFFFF << precision);
-        const uint16_t remainder = (targetExit & mask) << (15 - precision);
-        const uint16_t adjustment = (uint16_t) (lfsrState[2] < remainder);
 
-        policyState->targetExit = (targetExit >> precision) + adjustment;  // (Window Size * exit Rate) + Random part based on float remainder
+        volatile uint16_t adjustedTrueExitRate;
+        volatile uint16_t remainder;
+        volatile uint16_t adjustment;
+        volatile int16_t targetExit;
+
+        uint8_t i;
+        for (i = 0; i < numOutputs - 1; i++) {
+            adjustedTrueExitRate = policyState->trueExitRate[i] >> (15 - precision);
+            targetExit = fp16_mul(windowSizeFp, adjustedTrueExitRate, precision);
+            remainder = (targetExit & mask) << (15 - precision);
+            adjustment = (uint16_t) (lfsrState[2] < remainder);
+
+            policyState->targetExit[i] = (targetExit >> precision) + adjustment;  // (Window Size * exit Rate) + Random part based on float remainder
+            lfsrState[2] = lfsr_step(lfsrState[2]);
+
+            policyState->observedExit[i] = 0;
+        }
+
         lfsrState[1] = lfsr_step(lfsrState[1]);
-        lfsrState[2] = lfsr_step(lfsrState[2]);
     }
 
     // Get the number of elements remaining in the window
-    const uint16_t remainingToExit = policyState->targetExit - policyState->observedExit;
-
-    // Adjust the probability bias based on the run of predictions
-    if (pred == policyState->prevPred) {
-        policyState->bias = fp16_mul(policyState->bias, policyState->decreaseFactor, precision);
-    } else {
-        policyState->bias = fp16_mul(policyState->bias, policyState->increaseFactor, precision);
-        policyState->bias = fp16_min(policyState->bias, policyState->maxBias);
-    }
+    const uint16_t remainingToExit = policyState->targetExit[outputIdx] - policyState->observedExit[outputIdx];
 
     // Get the bias-adjusted exit rates
     const uint16_t one = 1 << ((uint16_t) precision);
@@ -99,10 +104,21 @@ uint8_t adaptive_random_should_exit(uint32_t prob, uint8_t pred, uint16_t exitRa
         shouldExit = 1;
     }
 
-    // Update the policy parameters
-    policyState->prevPred = pred;
-    policyState->step -= 1;
-
     return shouldExit;
 }
 
+
+void update_adaptive_random(struct adaptive_random_state *policyState, uint8_t pred, uint8_t outputIdx, uint8_t precision) {
+    // Update the probability bias based on the last prediction
+    if (pred == policyState->prevPred) {
+        policyState->bias = fp16_mul(policyState->bias, policyState->decreaseFactor, precision);
+    } else {
+        policyState->bias = fp16_mul(policyState->bias, policyState->increaseFactor, precision);
+        policyState->bias = fp16_min(policyState->bias, policyState->maxBias);
+    }
+
+    // Update the prediction, step and quota
+    policyState->observedExit[outputIdx] += 1;
+    policyState->prevPred = pred;
+    policyState->step -= 1;
+}

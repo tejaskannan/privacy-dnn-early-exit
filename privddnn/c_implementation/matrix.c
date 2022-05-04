@@ -108,12 +108,17 @@ int32_t vector_exp_sum(struct matrix *vec, const int16_t max, const uint8_t prec
     }
 
     volatile int32_t sum = 0;
+    volatile int16_t vecElement;
     volatile int32_t element;
 
     uint8_t i;
     for (i = 0; i < vec->numRows; i++) {
-	    element = (int32_t) fp16_sub(vec->data[VECTOR_INDEX(i)], max);
-        sum = fp32_add(sum, fp32_exp(element, precision));
+        vecElement = vec->data[VECTOR_INDEX(i)];
+
+        if (vecElement >= (INT16_MIN + max)) {
+	        element = (int32_t) fp16_sub(vecElement, max);
+            sum = fp32_add(sum, fp32_exp(element, precision));
+        }
     }
 
     return sum;
@@ -126,14 +131,21 @@ int32_t *vector_softmax(int32_t *result, struct matrix *vec, const uint8_t preci
     const int32_t sum = vector_exp_sum(vec, max, precision);
 
     volatile int32_t element;
+    volatile int16_t vecElement;
     volatile int32_t cumSum = 0;
 
     const uint16_t n = vec->numRows - 1;
     uint8_t i;
     for (i = 0; i < n; i++) {
-	    element = (int32_t) fp16_sub(vec->data[VECTOR_INDEX(i)], max);
-        result[i] = fp32_div(fp32_exp(element, precision), sum, precision);
-	    cumSum = fp32_add(result[i], cumSum);
+        vecElement = vec->data[VECTOR_INDEX(i)];
+
+        if (vecElement >= (INT16_MIN + max)) {
+            element = (int32_t) fp16_sub(vec->data[VECTOR_INDEX(i)], max);
+            result[i] = fp32_div(fp32_exp(element, precision), sum, precision);
+	        cumSum = fp32_add(result[i], cumSum);
+        } else {
+            result[i] = 0;
+        }
     }
 
     result[n] = fp32_sub((1 << precision), cumSum);

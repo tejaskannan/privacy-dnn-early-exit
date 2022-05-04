@@ -417,6 +417,8 @@ class LabelThresholdExiter(EarlyExiter):
             # Compare the thresholds to the metric for this level
             level_metric = self.compute_metric(level_probs)
 
+            print('Level {}. Metric: {}, Threshold: {}, Did Exit: {}'.format(level, level_metric, level_threshold, level_metric >= level_threshold))
+
             if level_metric >= level_threshold:
                 return level
 
@@ -540,11 +542,6 @@ class AdaptiveRandomExit(LabelThresholdExiter):
             num_remaining = self._window - self._step  # Number of remaining elements in this window
             remaining_to_exit = self._level_targets[level] - self._level_counter[level]  # Quota of elements that should continue on
 
-            if level_pred == self._prev_preds[level]:
-                self.decrease_epsilon(level=level)
-            else:
-                self.increase_epsilon(level=level)
-
             min_rate, max_rate = get_adaptive_elevation_bounds(continue_rate=(1.0 - level_rate),
                                                                epsilon=self.get_epsilon(level=level))
 
@@ -569,6 +566,13 @@ class AdaptiveRandomExit(LabelThresholdExiter):
             if (not should_continue):
                 self._level_counter[level] += 1
                 selected_level = level
+
+                # Update the probability bias based on the prediction comparison
+                if level_pred == self._prev_preds[level]:
+                    self.decrease_epsilon(level=level)
+                else:
+                    self.increase_epsilon(level=level)
+
                 break
 
         self._step += 1
