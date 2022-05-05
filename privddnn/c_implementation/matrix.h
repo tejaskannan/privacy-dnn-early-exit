@@ -14,8 +14,18 @@ struct matrix {
     uint8_t numCols;
 };
 
+struct block_matrix {
+    struct matrix **blocks;
+    uint16_t numBlocks;
+    uint8_t numRows;
+    uint8_t numCols;
+    uint8_t *rows;
+    uint8_t *cols;
+};
+
+
 struct matrix *matrix_vector_prod(struct matrix *result, struct matrix *mat, struct matrix *vec, const uint8_t precision);
-struct matrix *block_matrix_vector_prod(struct matrix *result, struct matrix *mat, struct matrix *vec, const uint8_t blockSize, const uint8_t precision);
+struct matrix *block_matrix_vector_prod(struct matrix *result, struct block_matrix *mat, struct matrix *vec, const uint8_t precision);
 struct matrix *vector_relu(struct matrix *result, struct matrix *vec);
 struct matrix *vector_add(struct matrix *result, struct matrix *vec1, struct matrix *vec2);
 uint8_t vector_argmax(struct matrix *vec);

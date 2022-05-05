@@ -1,6 +1,9 @@
 #include "matrix.h"
 
 
+static int16_t RESULT_BUFFER[400];
+
+
 struct matrix *matrix_vector_prod(struct matrix *result, struct matrix *mat, struct matrix *vec, const uint8_t precision) {
     // Check the dimensions
     if ((result->numRows != mat->numRows) || (mat->numCols != vec->numRows) || (vec->numCols != VECTOR_COLS) || (vec->numCols != result->numCols)) {
@@ -33,13 +36,13 @@ uint16_t min(uint16_t x, uint16_t y) {
 }
 
 
-struct matrix *block_matrix_vector_prod(struct matrix *result, struct matrix *mat, struct matrix *vec, const uint8_t blockSize, const uint8_t precision) {
+struct matrix *block_matrix_vector_prod(struct matrix *result, struct block_matrix *mat, struct matrix *vec, const uint8_t precision) {
     // Check the dimensions
     if ((result->numRows != mat->numRows) || (mat->numCols != vec->numRows) || (vec->numCols != VECTOR_COLS) || (vec->numCols != result->numCols)) {
         return result;
     }
 
-    uint16_t r, c, rowBlock, colBlock;
+    uint16_t r, rowBlock, colBlock, blockIdx;
     int16_t sum, prod;
 
     const uint16_t n = mat->numRows;
@@ -53,24 +56,26 @@ struct matrix *block_matrix_vector_prod(struct matrix *result, struct matrix *ma
         result->data[VECTOR_INDEX(r)] = 0;
     }
 
-    for (rowBlock = 0; rowBlock < n; rowBlock += blockSize) {
-        for (colBlock = 0; colBlock < m; colBlock += blockSize) {
-            for (r = rowBlock; r < min(rowBlock + blockSize, n); r++) {
-                sum = 0;
-                for (c = colBlock; c < min(colBlock + blockSize, m); c++) {
-                    matIdx = MATRIX_INDEX(r, c, m);
-                    vecIdx = VECTOR_INDEX(c);
+    struct matrix tempVec;
+    tempVec.numCols = vec->numCols;
 
-                    matElement = mat->data[matIdx];
-                    vecElement = vec->data[vecIdx];
+    struct matrix tempResult;
+    tempResult.data = RESULT_BUFFER;
+    tempResult.numCols = vec->numCols;
 
-                    prod = fp16_mul(matElement, vecElement, precision);
-                    sum = fp16_add(sum, prod);
-                }
+    for (blockIdx = 0; blockIdx < mat->numBlocks; blockIdx++) {
+        rowBlock = mat->rows[blockIdx];
+        colBlock = mat->cols[blockIdx];
 
-                destIdx = VECTOR_INDEX(r);
-                result->data[destIdx] = fp16_add(result->data[destIdx], sum);
-            }
+        tempResult.numRows = mat->blocks[blockIdx]->numRows;
+
+        tempVec.numRows = mat->blocks[blockIdx]->numCols;
+        tempVec.data = vec->data + VECTOR_INDEX(colBlock);
+
+        matrix_vector_prod(&tempResult, mat->blocks[blockIdx], &tempVec, precision);
+
+        for (r = rowBlock; r < rowBlock + mat->blocks[blockIdx]->numRows; r++) {
+            result->data[VECTOR_INDEX(r)] = fp16_add(result->data[VECTOR_INDEX(r)], tempResult.data[VECTOR_INDEX(r - rowBlock)]);
         }
     }
 

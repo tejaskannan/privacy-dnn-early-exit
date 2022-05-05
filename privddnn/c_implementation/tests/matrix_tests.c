@@ -10,6 +10,7 @@ int main(void) {
 
     printf("Testing Block Matrix Vector Products.\n");
     test_block_prod_4_6();
+    test_block_prod_4_5();
     printf("\tPassed.\n");
 
     printf("Testing Vector Relu.\n");
@@ -61,8 +62,25 @@ void test_block_prod_4_6(void) {
     int16_t fourth = 1 << (precision - 2);
     int16_t eighth = 1 << (precision - 3);
 
-    int16_t matData[] = { one, eighth, -1 * eighth, half, fourth, one, 0, -half, -one, one + fourth, -fourth, -one, -one, half + fourth, half, -(half + fourth), one, fourth, 0, half, 0, one, -one, 0 };
-    struct matrix mat = { matData, 4, 6 };
+    // Make the 6 matrix blocks
+    int16_t blk1Data[] = { one, eighth, 0, -half };
+    int16_t blk2Data[] = { -1 * eighth, half, -one, one + fourth };
+    int16_t blk3Data[] = { fourth, one, -fourth, -one };
+    int16_t blk4Data[] = { -one, half + fourth, 0, half };
+    int16_t blk5Data[] = { half, -(half + fourth), 0, one };
+    int16_t blk6Data[] = { one, fourth, -one, 0 };
+
+    struct matrix blk1 = { blk1Data, 2, 2 };
+    struct matrix blk2 = { blk2Data, 2, 2 };
+    struct matrix blk3 = { blk3Data, 2, 2 };
+    struct matrix blk4 = { blk4Data, 2, 2 };
+    struct matrix blk5 = { blk5Data, 2, 2 };
+    struct matrix blk6 = { blk6Data, 2, 2 };
+
+    struct matrix *blocks[] = { &blk1, &blk2, &blk3, &blk4, &blk5, &blk6 };
+    uint8_t rows[] = { 0, 0, 0, 2, 2, 2 };
+    uint8_t cols[] = { 0, 2, 4, 0, 2, 4 };
+    struct block_matrix mat = { blocks, 6, 4, 6, rows, cols };
 
     int16_t vecData[] = { one, two, fourth, -half, half + fourth, fourth };
     struct matrix vec = { vecData, 6, 1 };
@@ -73,9 +91,52 @@ void test_block_prod_4_6(void) {
     int16_t expectedData[] = { 1440, -2368, 1856, -fourth };
     struct matrix expected = { expectedData, 4, 1 };
 
-    block_matrix_vector_prod(&result, &mat, &vec, 2, precision);
+    block_matrix_vector_prod(&result, &mat, &vec, precision);
     assert(are_mats_equal(&result, &expected));
 }
+
+
+void test_block_prod_4_5(void) {
+    uint8_t precision = 10;
+    int16_t two = 1 << (precision + 1);
+    int16_t one = 1 << precision;
+    int16_t half = 1 << (precision - 1);
+    int16_t fourth = 1 << (precision - 2);
+    int16_t eighth = 1 << (precision - 3);
+
+    // Make the 6 matrix blocks
+    int16_t blk1Data[] = { one, eighth, 0, -half };
+    int16_t blk2Data[] = { -1 * eighth, half, -one, one + fourth };
+    int16_t blk3Data[] = { fourth, one };
+    int16_t blk4Data[] = { -one, half + fourth, 0, half };
+    int16_t blk5Data[] = { half, -(half + fourth), 0, one };
+    int16_t blk6Data[] = { one, fourth };
+
+    struct matrix blk1 = { blk1Data, 2, 2 };
+    struct matrix blk2 = { blk2Data, 2, 2 };
+    struct matrix blk3 = { blk3Data, 2, 1 };
+    struct matrix blk4 = { blk4Data, 2, 2 };
+    struct matrix blk5 = { blk5Data, 2, 2 };
+    struct matrix blk6 = { blk6Data, 2, 1 };
+
+    struct matrix *blocks[] = { &blk1, &blk2, &blk3, &blk4, &blk5, &blk6 };
+    uint8_t rows[] = { 0, 0, 0, 2, 2, 2 };
+    uint8_t cols[] = { 0, 2, 4, 0, 2, 4 };
+    struct block_matrix mat = { blocks, 6, 4, 5, rows, cols };
+
+    int16_t vecData[] = { one, two, fourth, -half, half + fourth };
+    struct matrix vec = { vecData, 5, 1 };
+
+    int16_t resultData[4];
+    struct matrix result = { resultData, 4, 1 };
+
+    int16_t expectedData[] = { 1184, -1152, 1792, 704 };
+    struct matrix expected = { expectedData, 4, 1 };
+
+    block_matrix_vector_prod(&result, &mat, &vec, precision);
+    assert(are_mats_equal(&result, &expected));
+}
+
 
 
 void test_prod_3_4(void) {
