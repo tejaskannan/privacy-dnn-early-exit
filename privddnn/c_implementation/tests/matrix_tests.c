@@ -8,6 +8,10 @@ int main(void) {
     test_prod_3_4();
     printf("\tPassed.\n");
 
+    printf("Testing Block Matrix Vector Products.\n");
+    test_block_prod_4_6();
+    printf("\tPassed.\n");
+
     printf("Testing Vector Relu.\n");
     test_relu_3();
     test_relu_4();
@@ -49,6 +53,31 @@ void test_prod_3(void) {
 }
 
 
+void test_block_prod_4_6(void) {
+    uint8_t precision = 10;
+    int16_t two = 1 << (precision + 1);
+    int16_t one = 1 << precision;
+    int16_t half = 1 << (precision - 1);
+    int16_t fourth = 1 << (precision - 2);
+    int16_t eighth = 1 << (precision - 3);
+
+    int16_t matData[] = { one, eighth, -1 * eighth, half, fourth, one, 0, -half, -one, one + fourth, -fourth, -one, -one, half + fourth, half, -(half + fourth), one, fourth, 0, half, 0, one, -one, 0 };
+    struct matrix mat = { matData, 4, 6 };
+
+    int16_t vecData[] = { one, two, fourth, -half, half + fourth, fourth };
+    struct matrix vec = { vecData, 6, 1 };
+
+    int16_t resultData[4];
+    struct matrix result = { resultData, 4, 1 };
+
+    int16_t expectedData[] = { 1440, -2368, 1856, -fourth };
+    struct matrix expected = { expectedData, 4, 1 };
+
+    block_matrix_vector_prod(&result, &mat, &vec, 2, precision);
+    assert(are_mats_equal(&result, &expected));
+}
+
+
 void test_prod_3_4(void) {
     uint8_t precision = 10;
     int16_t two = 1 << (precision + 1);
@@ -72,6 +101,7 @@ void test_prod_3_4(void) {
     matrix_vector_prod(&result, &mat, &vec, precision);
     assert(are_mats_equal(&result, &expected));
 }
+
 
 
 void test_relu_3(void) {

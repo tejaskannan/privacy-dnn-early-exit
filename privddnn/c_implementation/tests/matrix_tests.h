@@ -8,6 +8,7 @@
 
 void test_prod_3(void);
 void test_prod_3_4(void);
+void test_block_prod_4_6(void);
 void test_relu_3(void);
 void test_relu_4(void);
 void test_add_3(void);

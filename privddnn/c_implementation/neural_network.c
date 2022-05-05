@@ -13,7 +13,7 @@ struct matrix *dnn_layer(struct matrix *result, struct matrix *inputs, struct ma
     /**
      *  Executes a single dense layer with the given inputs and parameters.
      */ 
-    matrix_vector_prod(result, weights, inputs, precision);
+    block_matrix_vector_prod(result, weights, inputs, BLOCK_SIZE, precision);
     vector_add(result, result, bias);
 
     if (shouldActivate) {
@@ -27,7 +27,7 @@ struct matrix *dnn_layer(struct matrix *result, struct matrix *inputs, struct ma
 
 struct inference_result *branchynet_dnn(struct inference_result *result, struct matrix *inputs, uint8_t precision, struct exit_policy *policy, struct adaptive_random_state *policyState) {
     #ifndef IS_ADAPTIVE_RANDOM_MAX_PROB
-    UNUSED(policyStates);
+    UNUSED(policyState);
     #endif
 
     // Apply the first hidden layer

@@ -28,6 +28,56 @@ struct matrix *matrix_vector_prod(struct matrix *result, struct matrix *mat, str
 }
 
 
+uint16_t min(uint16_t x, uint16_t y) {
+    return (x > y) ? y : x;
+}
+
+
+struct matrix *block_matrix_vector_prod(struct matrix *result, struct matrix *mat, struct matrix *vec, const uint8_t blockSize, const uint8_t precision) {
+    // Check the dimensions
+    if ((result->numRows != mat->numRows) || (mat->numCols != vec->numRows) || (vec->numCols != VECTOR_COLS) || (vec->numCols != result->numCols)) {
+        return result;
+    }
+
+    uint16_t r, c, rowBlock, colBlock;
+    int16_t sum, prod;
+
+    const uint16_t n = mat->numRows;
+    const uint16_t m = mat->numCols;
+    
+    uint16_t destIdx, matIdx, vecIdx;
+    int16_t matElement, vecElement;
+
+    // Zero out the result vector
+    for (r = 0; r < n; r++) {
+        result->data[VECTOR_INDEX(r)] = 0;
+    }
+
+    for (rowBlock = 0; rowBlock < n; rowBlock += blockSize) {
+        for (colBlock = 0; colBlock < m; colBlock += blockSize) {
+            for (r = rowBlock; r < min(rowBlock + blockSize, n); r++) {
+                sum = 0;
+                for (c = colBlock; c < min(colBlock + blockSize, m); c++) {
+                    matIdx = MATRIX_INDEX(r, c, m);
+                    vecIdx = VECTOR_INDEX(c);
+
+                    matElement = mat->data[matIdx];
+                    vecElement = vec->data[vecIdx];
+
+                    prod = fp16_mul(matElement, vecElement, precision);
+                    sum = fp16_add(sum, prod);
+                }
+
+                destIdx = VECTOR_INDEX(r);
+                result->data[destIdx] = fp16_add(result->data[destIdx], sum);
+            }
+        }
+    }
+
+    return result;
+}
+
+
 struct matrix *vector_relu(struct matrix *result, struct matrix *vec) {
     if ((result->numRows != vec->numRows) || (result->numCols != vec->numCols) || (vec->numCols != VECTOR_COLS)) {
         return result;
