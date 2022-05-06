@@ -32,17 +32,17 @@ class BranchyNetDNNSmall(EarlyExitNeuralNetwork):
         if len(inputs.get_shape()) > 2:
             inputs = tf.keras.backend.reshape(inputs, shape=(-1, np.prod(inputs.get_shape()[1:])))
 
-        hidden0 = Dense(16, activation='relu')(inputs)
+        hidden0 = Dense(32, activation='relu')(inputs)
         dropout0 = Dropout(rate=1.0 - dropout_keep_rate)(hidden0, training=is_train)
 
         concat = Concatenate(axis=-1)([inputs, dropout0])
-        hidden1 = Dense(16, activation='relu')(concat)
+        hidden1 = Dense(32, activation='relu')(concat)
         dropout1 = Dropout(rate=1.0 - dropout_keep_rate)(hidden1, training=is_train)
 
-        hidden2 = Dense(32, activation='relu')(dropout1)
+        hidden2 = Dense(64, activation='relu')(dropout1)
         dropout2 = Dropout(rate=1.0 - dropout_keep_rate)(hidden2, training=is_train)
 
-        hidden3 = Dense(32, activation='relu')(dropout2)
+        hidden3 = Dense(64, activation='relu')(dropout2)
         dropout3 = Dropout(rate=1.0 - dropout_keep_rate)(hidden3, training=is_train)
 
         output0 = Dense(num_labels, activation='softmax', name='output0')(dropout0)
@@ -75,17 +75,17 @@ class BranchyNetDNNSmall3(EarlyExitNeuralNetwork):
         if len(inputs.get_shape()) > 2:
             inputs = tf.keras.backend.reshape(inputs, shape=(-1, np.prod(inputs.get_shape()[1:])))
 
-        hidden0 = Dense(16, activation='relu')(inputs)
+        hidden0 = Dense(32, activation='relu')(inputs)
         dropout0 = Dropout(rate=1.0 - dropout_keep_rate)(hidden0, training=is_train)
 
         concat = Concatenate(axis=-1)([inputs, dropout0])
-        hidden1 = Dense(16, activation='relu')(concat)
+        hidden1 = Dense(32, activation='relu')(concat)
         dropout1 = Dropout(rate=1.0 - dropout_keep_rate)(hidden1, training=is_train)
 
-        hidden2 = Dense(32, activation='relu')(dropout1)
+        hidden2 = Dense(64, activation='relu')(dropout1)
         dropout2 = Dropout(rate=1.0 - dropout_keep_rate)(hidden2, training=is_train)
 
-        hidden3 = Dense(32, activation='relu')(dropout2)
+        hidden3 = Dense(64, activation='relu')(dropout2)
         dropout3 = Dropout(rate=1.0 - dropout_keep_rate)(hidden3, training=is_train)
 
         output0 = Dense(num_labels, activation='softmax', name='output0')(dropout0)

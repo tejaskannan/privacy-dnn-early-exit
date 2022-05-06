@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import Dict, Union, Any, Tuple, List, Iterable
 
 from privddnn.utils.file_utils import make_dir, save_json_gz, read_json_gz, save_pickle_gz
+from privddnn.utils.np_utils import approx_softmax
+from privddnn.utils.constants import SMALL_NUMBER
 from privddnn.classifier import OpName, ModelMode, BaseClassifier
 from .constants import MetaName, NUM_EPOCHS, BATCH_SIZE, LEARNING_RATE, DECAY_PATIENCE, ACTIVATION
 from .constants import LEARNING_RATE_DECAY, GRADIENT_CLIP, EARLY_STOP_PATIENCE, DROPOUT_KEEP_RATE, STOP_RATES
@@ -215,21 +217,21 @@ class NeuralNetwork(BaseClassifier):
         model_params_path = os.path.join(save_folder, '{}_model-params.json.gz'.format(model_name))
         save_json_gz(model_params, model_params_path)
 
-    def test(self) -> np.ndarray:
+    def test(self, should_approx: bool) -> np.ndarray:
         """
         Runs the given operation on the test set.
         """
         test_inputs=self.dataset.get_test_inputs()
-        return self.compute_probs(inputs=test_inputs)
+        return self.compute_probs(inputs=test_inputs, should_approx=should_approx)
 
-    def validate(self) -> np.ndarray:
+    def validate(self, should_approx: bool) -> np.ndarray:
         """
         Computes the output probabilities on the validation set.
         """
         val_inputs = self.dataset.get_val_inputs()
-        return self.compute_probs(inputs=val_inputs)
+        return self.compute_probs(inputs=val_inputs, should_approx=should_approx)
 
-    def compute_probs(self, inputs: np.ndarray) -> np.ndarray:
+    def compute_probs(self, inputs: np.ndarray, should_approx: bool) -> np.ndarray:
         """
         Computes the predicted probabilites on the given dataset.
         """
@@ -238,7 +240,13 @@ class NeuralNetwork(BaseClassifier):
         if len(preds) == 1:
             return preds
 
-        return np.concatenate([np.expand_dims(arr, axis=1) for arr in preds], axis=1)
+        probs = np.concatenate([np.expand_dims(arr, axis=1) for arr in preds], axis=1)
+
+        if should_approx:
+            logits = np.log(probs + SMALL_NUMBER)
+            probs = approx_softmax(logits, axis=-1)
+
+        return probs
 
     @classmethod
     def restore(cls, path: str, model_mode: ModelMode):

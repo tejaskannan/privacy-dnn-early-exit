@@ -10,6 +10,7 @@ from typing import Dict, List, DefaultDict, Tuple
 
 from privddnn.utils.constants import BIG_NUMBER
 from privddnn.utils.metrics import compute_entropy
+from privddnn.utils.file_utils import read_pickle_gz, save_pickle_gz
 
 
 MAJORITY = 'Majority'
@@ -540,6 +541,25 @@ class SklearnClassifier(AttackClassifier):
             AVG_CORRECT_RANK: np.average(correct_rank),
             STD_CORRECT_RANK: np.std(correct_rank)
         }
+
+    def save(self, path: str):
+        model = {
+            'mode': self._mode,
+            'scaler': self._scaler,
+            'clf': self._clf
+        }
+
+        save_pickle_gz(model, path)
+
+    @classmethod
+    def restore(cls, path: str):
+        model_dict = read_pickle_gz(path)
+
+        model = clf(mode=model_dict['mode'])
+        model._scaler = model_dict['scaler']
+        model._clf = model_dict['clf']
+
+        return model
 
 
 class LogisticRegressionCount(SklearnClassifier):

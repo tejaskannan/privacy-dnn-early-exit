@@ -91,6 +91,7 @@ if __name__ == '__main__':
     parser.add_argument('--trials', type=int, default=1, help='The number of independent trials.')
     parser.add_argument('--window-size', type=int, help='The window size used to build the dataset.')
     parser.add_argument('--max-num-samples', type=int, help='Optional maximum number of samples (for testing)')
+    parser.add_argument('--should-approx-softmax', action='store_true', help='Whether to use an approximate softmax function to mimic fixed point arithmetic.')
     args = parser.parse_args()
 
     assert args.reps >= 1, 'Must provide a positive number of dataset repititions'
@@ -99,8 +100,8 @@ if __name__ == '__main__':
     model: BaseClassifier = restore_classifier(model_path=args.model_path, model_mode=ModelMode.TEST)
 
     # Get the predictions from the models
-    val_probs = model.validate()  # [B, L, K]
-    test_probs = model.test()  # [C, L, K]
+    val_probs = model.validate(should_approx=args.should_approx_softmax)  # [B, L, K]
+    test_probs = model.test(should_approx=args.should_approx_softmax)  # [C, L, K]
 
     # Get the validation labels (we use this to fit any policies)
     val_labels = model.dataset.get_val_labels()  # [B]
@@ -111,9 +112,11 @@ if __name__ == '__main__':
     rand = np.random.RandomState(seed=591)
 
     rates = get_exit_rates(single_rates=single_rates, num_outputs=model.num_outputs)
+    #rates = [[0.3, 0.4, 0.3]]
 
     # Execute all early stopping policies
-    strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    #strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
+    strategies = [ExitStrategy.MAX_PROB]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]
