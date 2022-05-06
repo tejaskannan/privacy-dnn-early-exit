@@ -9,11 +9,11 @@ static int32_t PROBS[NUM_LABELS];
 #define UNUSED(X) (void)(X)
 
 
-struct matrix *dnn_layer(struct matrix *result, struct matrix *inputs, struct matrix *weights, struct matrix *bias, uint8_t precision, uint8_t shouldActivate) {
+struct matrix *dnn_layer(struct matrix *result, struct matrix *inputs, struct block_matrix *weights, struct matrix *bias, uint8_t precision, uint8_t shouldActivate) {
     /**
      *  Executes a single dense layer with the given inputs and parameters.
      */ 
-    block_matrix_vector_prod(result, weights, inputs, BLOCK_SIZE, precision);
+    block_matrix_vector_prod(result, weights, inputs, precision);
     vector_add(result, result, bias);
 
     if (shouldActivate) {
