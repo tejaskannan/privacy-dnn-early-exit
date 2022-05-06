@@ -12,10 +12,10 @@ from privddnn.utils.constants import SMALL_NUMBER
 
 
 THRESHOLD = 4.1
-TIME_DELTA = 3.0
-ENERGY_THRESHOLD_0 = 0.2
-ENERGY_THRESHOLD_1 = 0.3
-
+TIME_DELTA = 3.5
+STABLE_THRESHOLD = 0.15
+STABLE_DIST = 1000
+PEAK_HEIGHT = 22
 
 Point = namedtuple('Point', ['time', 'power'])
 
@@ -52,38 +52,75 @@ def filter_windows(start_idx: List[int], end_idx: List[int], time_list: List[flo
     return adjusted_start_idx, adjusted_end_idx
 
 
-def extract_energy_per_sample(time_list: List[int], power_list: List[float], energy_list: List[float], start_time: float, time_delta: float) -> Iterable[Tuple[Point, Point, Point, Point, float]]:
+def is_power_stable_in_range(power_list: List[float], start_idx: int, end_idx: int) -> bool:
+    if start_idx >= len(power_list):
+        return True
+
+    max_value = max(power_list[start_idx:end_idx])
+    return max_value <= STABLE_THRESHOLD
+
+
+def extract_energy_per_sample(time_list: List[float], power_list: List[float], energy_list: List[float], start_time: float, time_delta: float) -> Iterable[Tuple[Point, Point, Point, Point, float]]:
     # Get peaks in the power graph
-    peaks, peak_properties = signal.find_peaks(x=power_list, height=25, distance=100)
-    peak_heights = peak_properties['peak_heights']
+    raw_peaks, peak_properties = signal.find_peaks(x=power_list, height=PEAK_HEIGHT, distance=100)
+    raw_peak_heights = peak_properties['peak_heights']
 
     # Convert the peak indices into peak times
-    peak_times = [time_list[i] for i in peaks]
+    raw_peak_times = [time_list[i] for i in raw_peaks]
 
     # Filter out all peaks before the start times
+    peak_idx = 0
+    while raw_peak_times[peak_idx] < start_time:
+        peak_idx += 1
+
+    # Filter out all peaks that occur in the middle of the Bluetooth procedure. This assumes that the first peak is `perfect`
+    peak_times: List[int] = []
+    peak_heights: List[float] = []
+    peaks: List[int] = []
+    
+    while peak_idx < (len(raw_peak_times) - 1):
+        peak_times.append(raw_peak_times[peak_idx])
+        peak_heights.append(raw_peak_heights[peak_idx])
+        peaks.append(raw_peaks[peak_idx])
+
+        peak_idx += 1
+        peak_times.append(raw_peak_times[peak_idx])
+        peak_heights.append(raw_peak_heights[peak_idx])
+        peaks.append(raw_peaks[peak_idx])
+
+        # Walk forward until we find a time in which the power is stable below 0.13
+        start_idx = raw_peaks[peak_idx]
+        end_idx = start_idx + STABLE_DIST
+
+        while not is_power_stable_in_range(power_list, start_idx, end_idx):
+            start_idx = end_idx
+            end_idx = start_idx + STABLE_DIST
+
+        start_time = time_list[start_idx] if start_idx < len(time_list) else time_list[-1] + 1.0
+
+        while (peak_idx < len(raw_peak_times)) and (raw_peak_times[peak_idx] < start_time):
+            peak_idx += 1
+
     idx = 0
-    while peak_times[idx] < start_time:
-        idx += 1
+    while idx < (len(peak_times) - 1):
+        #period_start = peak_times[idx]
+        #period_end = period_start + time_delta
 
-    while idx < len(peak_times):
-        period_start = peak_times[idx]
-        period_end = period_start + time_delta
-
-        proc_start = peak_heights[idx]
+        proc_start_power = peak_heights[idx]
         proc_start_idx = peaks[idx]
 
-        proc_end = peak_heights[idx + 1]
+        proc_end_power = peak_heights[idx + 1]
         proc_end_idx = peaks[idx + 1]
 
         # Walk the first peak down until below the threshold
-        while proc_start > THRESHOLD:
+        while proc_start_power > THRESHOLD:
             proc_start_idx += 1
-            proc_start = power_list[proc_start_idx]
+            proc_start_power = power_list[proc_start_idx]
 
         # Walk the second peak down until below the threshold
-        while proc_end > THRESHOLD:
+        while proc_end_power > THRESHOLD:
             proc_end_idx -= 1
-            proc_end = power_list[proc_end_idx]
+            proc_end_power = power_list[proc_end_idx]
 
         # Get the energy associated with this processing period
         proc_energy = energy_list[proc_end_idx] - energy_list[proc_start_idx]
@@ -96,17 +133,17 @@ def extract_energy_per_sample(time_list: List[int], power_list: List[float], ene
 
         yield proc_start, proc_end, peak_start, peak_end, proc_energy
 
-        while (idx < len(peak_times)) and (peak_times[idx] < period_end):
-            idx += 1
+        idx += 2
 
 
-def get_energy_per_period(path: str, output_file: Optional[str]) -> List[float]:
+def get_energy_per_period(path: str, output_file: Optional[str], should_plot: bool) -> List[float]:
     """
     Computes the energy from the given EnergyTrace CSV file.
     
     Args:
         path: Path to the EnergyTrace CSV file
         output_file: Optional path to output file for the plotted result
+        should_plot: Whether to plot the result
     Returns:
         A tuple with 2 elements:
             (1) The energy in mJ
@@ -151,35 +188,40 @@ def get_energy_per_period(path: str, output_file: Optional[str]) -> List[float]:
 
         proc_energy.append(energy)
 
-    fig, ax = plt.subplots()
-    ax.plot(time_list, power_list)
+    if should_plot:
+        fig, ax = plt.subplots()
 
-    ax.scatter([p.time for p in start_points], [p.power for p in start_points], color='r')
-    ax.scatter([p.time for p in end_points], [p.power for p in end_points], color='k')
+        subsampled_time = [t for i, t in enumerate(time_list) if i % 10 == 0]
+        subsampled_power = [p for i, p in enumerate(power_list) if i % 10 == 0]
 
-    #for start_peak in start_peaks:
-    #    ax.annotate('Sample', xy=start_peak, xytext=(start_peak.time - 0.3, start_peak.power + 1.0))
+        ax.plot(subsampled_time, subsampled_power)
 
-    #for end_peak in end_peaks:
-    #    ax.annotate('Bluetooth On', xy=end_peak, xytext=(end_peak.time - 0.3, end_peak.power + 1.0))
+        ax.scatter([p.time for p in start_points], [p.power for p in start_points], color='r')
+        ax.scatter([p.time for p in end_points], [p.power for p in end_points], color='k')
 
-    #peak_times = [time_list[i] for i in peaks]
-    #ax.scatter(peak_times, peak_properties['peak_heights'], color='r')
+        #for start_peak in start_peaks:
+        #    ax.annotate('Sample', xy=start_peak, xytext=(start_peak.time - 0.3, start_peak.power + 1.0))
 
-    ax.set_xlabel('Time (sec)')
-    ax.set_ylabel('Power (mW)')
-    ax.set_title('TI MSP430 Power for Early-Exit DNNs')
+        #for end_peak in end_peaks:
+        #    ax.annotate('Bluetooth On', xy=end_peak, xytext=(end_peak.time - 0.3, end_peak.power + 1.0))
 
-    if output_file is None:
-        plt.show()
-    else:
-        plt.savefig(output_file, transparent=True, bbox_inches='tight')
+        #peak_times = [time_list[i] for i in peaks]
+        #ax.scatter(peak_times, peak_properties['peak_heights'], color='r')
+
+        ax.set_xlabel('Time (sec)')
+        ax.set_ylabel('Power (mW)')
+        ax.set_title('TI MSP430 Power for Early-Exit DNNs')
+
+        if output_file is None:
+            plt.show()
+        else:
+            plt.savefig(output_file, transparent=True, bbox_inches='tight')
 
     return proc_energy
 
 
 def get_exit_points(energy: List[float], num_outputs: int) -> List[int]:
-    model = KMeans(n_clusters=num_outputs + 1)
+    model = KMeans(n_clusters=num_outputs)
     preds = model.fit_predict(X=np.reshape(energy, (-1, 1)), y=None)
 
     centers = model.cluster_centers_.reshape(-1)  # [D]
@@ -197,7 +239,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-file', type=str)
     args = parser.parse_args()
 
-    energy_per_period = get_energy_per_period(path=args.csv_file, output_file=args.output_file)[:args.num_samples]
+    energy_per_period = get_energy_per_period(path=args.csv_file, output_file=args.output_file, should_plot=True)[:args.num_samples]
     predicted_decisions = get_exit_points(energy=energy_per_period, num_outputs=args.num_outputs)
 
     print('Energy per period: {}'.format(energy_per_period))

@@ -459,16 +459,30 @@ class SklearnClassifier(AttackClassifier):
         else:
             raise ValueError('Unknown mode: {}'.format(self._mode))
 
-    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
+    def predict_rankings(self, inputs: np.ndarray, top_k: int, num_labels: int) -> List[int]:
         assert len(inputs.shape) == 2, 'Must provide a 2d array of inputs'
         assert self._clf is not None, 'Subclass must set a classifier'
 
-        input_features = self.make_input_features(inputs)  # K
+        input_features = self.make_input_features(inputs)  # [K]
+        input_features = np.expand_dims(input_features, axis=0)  # [1, K]
+
         scaled_inputs = self._scaler.transform(input_features)
-
         probs = self._clf.predict_proba(scaled_inputs)[0]  # [L]
-        rankings = np.argsort(probs)[::-1]
 
+        if probs.shape[-1] < num_labels:
+            class_list = self._clf.classes_.astype(int).tolist()
+            probs_list: List[float] = []
+
+            for label in range(num_labels):
+                if label in class_list:
+                    label_idx = class_list.index(label)
+                    probs_list.append(probs[label_idx])
+                else:
+                    probs_list.append(0.0)
+
+            probs = np.vstack(probs_list).reshape(-1) 
+
+        rankings = np.argsort(probs)[::-1]
         confidence = float(probs[0])
 
         return rankings[0:top_k].astype(int).tolist(), confidence
@@ -483,7 +497,7 @@ class SklearnClassifier(AttackClassifier):
         Returns:
             A dictionary of score metric name -> metric value
         """
-        assert len(inputs.shape) == 3, 'Must provide a 2d array of inputs'
+        assert len(inputs.shape) == 3, 'Must provide a 3d array of inputs'
         assert len(labels.shape) == 1, 'Must provide a 1d array of labels'
         assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
         assert self._clf is not None, 'Subclass must set a classifier'
@@ -555,7 +569,7 @@ class SklearnClassifier(AttackClassifier):
     def restore(cls, path: str):
         model_dict = read_pickle_gz(path)
 
-        model = clf(mode=model_dict['mode'])
+        model = cls(mode=model_dict['mode'])
         model._scaler = model_dict['scaler']
         model._clf = model_dict['clf']
 
@@ -571,6 +585,16 @@ class LogisticRegressionCount(SklearnClassifier):
     @property
     def name(self) -> str:
         return LOGISTIC_REGRESSION_COUNT
+
+    @classmethod
+    def restore(cls, path: str):
+        model_dict = read_pickle_gz(path)
+
+        model = cls()
+        model._scaler = model_dict['scaler']
+        model._clf = model_dict['clf']
+
+        return model
 
 
 class LogisticRegressionNgram(SklearnClassifier):
