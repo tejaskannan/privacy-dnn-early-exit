@@ -3,6 +3,7 @@ import os.path
 import matplotlib.pyplot as plt
 import numpy as np
 from argparse import ArgumentParser
+from scipy.integrate import trapz
 from typing import List
 from privddnn.utils.file_utils import read_json
 
@@ -40,15 +41,29 @@ def get_energy(path: str, num_trials: int):
     start_times: List[int] = []
     end_times: List[int] = []
 
-    for time, power, energy in zip(time_list, power_list, energy_list):
+    window_power: List[float] = []
+    window_times: List[int] = []
+
+    for time, power, _ in zip(time_list, power_list, energy_list):
+        if start_time is not None:
+            window_power.append(power)
+            window_times.append(time)
+
         if (power > THRESHOLD) and (start_time is None):
             start_time = time
-            start_energy = energy
+            #start_energy = energy
             start_times.append(time)
         elif (power < THRESHOLD) and (start_time is not None):
             start_time = None
-            period_energy.append(energy - start_energy)
+
+            energy = trapz(y=window_power, x=window_times)
+            window_power = []
+            window_times = []
+
+            period_energy.append(energy)
             end_times.append(time)
+
+            #print('End Energy: {}, Start Energy: {}'.format(energy, start_energy))
 
     start_times = start_times[0:len(end_times)]
 
@@ -57,6 +72,8 @@ def get_energy(path: str, num_trials: int):
     start_times = [start_times[i] for i in largest_idx]
     end_times = [end_times[i] for i in largest_idx]
     period_energy = [period_energy[i] for i in largest_idx]
+
+    print(period_energy)
 
     fig, ax = plt.subplots()
     ax.plot(time_list, power_list)
