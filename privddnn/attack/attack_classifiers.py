@@ -582,7 +582,9 @@ class SklearnClassifier(AttackClassifier):
         model = {
             'mode': self._mode,
             'scaler': self._scaler,
-            'clf': self._clf
+            'clf': self._clf,
+            'window_size': self.window_size,
+            'num_labels': self.num_labels
         }
 
         save_pickle_gz(model, path)
@@ -615,6 +617,8 @@ class LogisticRegressionCount(SklearnClassifier):
         model = cls()
         model._scaler = model_dict['scaler']
         model._clf = model_dict['clf']
+        model._window_size = model['window_size']
+        model._num_labels = model['num_labels']
 
         return model
 
