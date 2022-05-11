@@ -85,7 +85,10 @@ if __name__ == '__main__':
 
     majority_true_preds = get_majority_preds(true_predictions, args.window_size)
     attack_accuracy = accuracy_score(majority_true_preds, attack_preds)
+    
+    attack_correct = np.sum(np.equal(majority_true_preds, attack_preds).astype(int))
+    total_count = len(attack_preds)
 
     print('Number of outputs: {}, Number of Samples: {}'.format(num_outputs, num_samples))
     print('Recovery Accuracy: {:.4f}'.format(recovery_accuracy))
-    print('Attack Accuracy: {:.4f}'.format(attack_accuracy))
+    print('Attack Accuracy: {:.4f} ({} / {})'.format(attack_accuracy, attack_correct, total_count))
