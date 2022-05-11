@@ -36,10 +36,14 @@ STD_CORRECT_RANK = 'correct_rank_std'
 
 class AttackClassifier:
 
+    @property
+    def num_labels(self) -> int:
+        return self._num_labels
+
     def name(self) -> str:
         raise NotImplementedError()
 
-    def fit(self, inputs: np.ndarray, labels: np.ndarray):
+    def fit(self, inputs: np.ndarray, labels: np.ndarray, num_labels: int):
         raise NotImplementedError()
 
     def predict_rankings(self, inputs: np.ndarray, top_k: int) -> Tuple[List[int], float]:
@@ -48,7 +52,7 @@ class AttackClassifier:
     def predict(self, inputs: np.ndarray) -> int:
         return self.predict_rankings(inputs=inputs, top_k=1)[0][0]
 
-    def score(self, inputs: np.ndarray, labels: np.ndarray, num_labels: int) -> Dict[str, float]:
+    def score(self, inputs: np.ndarray, labels: np.ndarray) -> Dict[str, float]:
         """
         Evaluates the classifier on the given dataset.
 
@@ -76,12 +80,12 @@ class AttackClassifier:
         correct_ranks: List[int] = []
 
         for count, label in zip(inputs, labels):
-            rankings, confidence = self.predict_rankings(count, top_k=num_labels)
+            rankings, confidence = self.predict_rankings(count, top_k=self.num_labels)
 
             top2_count += float(label in rankings[0:2])
             top5_count += float(label in rankings[0:5])
             top10_count += float(label in rankings[0:10])
-            toplast_count += float(label in rankings[0:num_labels-1])
+            toplast_count += float(label in rankings[0:self.num_labels-1])
             correct_count += float(rankings[0] == label)
             weighted_count += confidence * float(rankings[0] == label)
 
@@ -96,8 +100,8 @@ class AttackClassifier:
         rankings_array = np.vstack(rankings_list)  # [N, L]
         labels_array = np.expand_dims(labels, axis=-1)  # [N, 1]
 
-        top_until_90 = num_labels
-        for topk in range(1, num_labels + 1):
+        top_until_90 = self.num_labels
+        for topk in range(1, self.num_labels + 1):
             topk_rankings = rankings_array[:, 0:topk]  # [N, K]
             is_in_topk = np.max(np.equal(topk_rankings, labels_array), axis=-1)  # [N]
             topk_accuracy = np.average(is_in_topk.astype(float))
@@ -130,7 +134,7 @@ class MajorityClassifier(AttackClassifier):
     def name(self) -> str:
         return MAJORITY
 
-    def fit(self, inputs: np.ndarray, labels: np.ndarray):
+    def fit(self, inputs: np.ndarray, labels: np.ndarray, num_labels: int):
         """
         Fits the majority classifier which maps labels to the most
         frequent label for each level count.
@@ -144,26 +148,26 @@ class MajorityClassifier(AttackClassifier):
         assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
 
         label_counts: DefaultDict[int, List[int]] = defaultdict(list)
-        num_labels = np.max(labels) + 1
         input_range = np.max(inputs) + 1
         features_array = np.sum(inputs, axis=1).astype(int)  # [B, D]
+        self._num_labels = num_labels
 
         for input_features, label in zip(features_array, labels):
             exit_counts = tuple(input_features)  # D
             label_counts[exit_counts].append(label)
 
-        max_dist = np.ones(shape=(num_labels, )).astype(float) / num_labels
+        max_dist = np.ones(shape=(self.num_labels, )).astype(float) / self.num_labels
         max_entropy = compute_entropy(max_dist, axis=-1)
 
         for key, count_labels in sorted(label_counts.items()):
-            bincounts = np.bincount(count_labels, minlength=num_labels)
+            bincounts = np.bincount(count_labels, minlength=self.num_labels)
             freq = bincounts / np.sum(bincounts)
 
             most_freq = np.argsort(freq)[::-1]
             self._clf[key] = most_freq
             self._confidence[key] = 1.0 - max(compute_entropy(freq, axis=-1), 0.0) / max_entropy
 
-        label_counts = np.bincount(labels, minlength=num_labels)
+        label_counts = np.bincount(labels, minlength=self.num_labels)
         self._most_freq = np.argsort(label_counts)[::-1]
 
     def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
@@ -208,7 +212,7 @@ class NgramClassifier(AttackClassifier):
     def num_neighbors(self) -> int:
         return self._num_neighbors
 
-    def fit(self, inputs: np.ndarray, labels: np.ndarray):
+    def fit(self, inputs: np.ndarray, labels: np.ndarray, num_labels: int):
         """
         Fits the majority classifier which maps labels to the most
         frequent label for each level count.
@@ -222,11 +226,11 @@ class NgramClassifier(AttackClassifier):
         assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
 
         label_counts: DefaultDict[Tuple[int, ...], List[int]] = defaultdict(list)
-        num_labels = np.max(labels) + 1
 
         # Make the nearest neighbor index
         _, window_size, num_exits = inputs.shape
         index_features = num_exits * window_size
+        self._num_labels = num_labels
 
         self._nn_index = AnnoyIndex(index_features, metric='euclidean')
 
@@ -254,7 +258,7 @@ class NgramClassifier(AttackClassifier):
         # Build the nearest neighbor index
         self._nn_index.build(32)
 
-        label_counts = np.bincount(labels, minlength=num_labels)
+        label_counts = np.bincount(labels, minlength=self.num_labels)
         self._most_freq = int(np.argmax(label_counts))
 
     def predict_rankings(self, inputs: np.ndarray, top_k: int) -> Tuple[List[int], float]:
@@ -297,7 +301,7 @@ class WindowNgramClassifier(AttackClassifier):
     def window_size(self) -> int:
         return self._window_size
 
-    def fit(self, inputs: np.ndarray, labels: np.ndarray):
+    def fit(self, inputs: np.ndarray, labels: np.ndarray, num_labels: int):
         """
         Fits the majority classifier which maps labels to the most
         frequent label for each level count.
@@ -311,12 +315,12 @@ class WindowNgramClassifier(AttackClassifier):
         assert inputs.shape[0] == labels.shape[0], 'Inputs and Labels are misaligned'
 
         label_counts: DefaultDict[Tuple[int, ...], List[int]] = defaultdict(list)
-        num_labels = np.max(labels) + 1
 
         # Make the nearest neighbor index
         _, seq_size, num_exits = inputs.shape
         index_features = num_exits * self.window_size
         self._nn_indices = [AnnoyIndex(index_features, metric='euclidean') for _ in range(0, seq_size - self.window_size + 1, self.window_size)]
+        self._num_labels = num_labels
 
         # Make the reverse index for predictions and add all features to the nearest
         # neighbor index
@@ -349,7 +353,7 @@ class WindowNgramClassifier(AttackClassifier):
         for nn_index in self._nn_indices:
             nn_index.build(32)
 
-        label_counts = np.bincount(labels, minlength=num_labels)
+        label_counts = np.bincount(labels, minlength=self.num_labels)
         self._most_freq = int(np.argmax(label_counts))
 
     def predict_rankings(self, inputs: np.ndarray, top_k: int) -> Tuple[List[int], float]:
@@ -433,11 +437,27 @@ class SklearnClassifier(AttackClassifier):
         self._clf = None
         self._mode = mode
 
-    def fit(self, inputs: np.ndarray, labels: np.ndarray):
+        self._window_size = -1
+        self._num_labels = -1
+
+    @property
+    def window_size(self) -> int:
+        return self._window_size
+
+    @property
+    def num_labels(self) -> int:
+        return self._num_labels
+
+    def fit(self, inputs: np.ndarray, labels: np.ndarray, num_labels: int):
         """
         Fits a classifier for the given dataset.
         """
         assert self._clf is not None, 'Subclass must set a classifier'
+        assert len(inputs.shape) == 3, 'Must provide a 3d array of inputs'
+
+        self._window_size = inputs.shape[1]
+        self._num_labels = num_labels
+
         input_features = self.make_input_features(inputs)
         scaled_inputs = self._scaler.fit_transform(input_features)
         self._clf.fit(scaled_inputs, labels)
@@ -459,7 +479,7 @@ class SklearnClassifier(AttackClassifier):
         else:
             raise ValueError('Unknown mode: {}'.format(self._mode))
 
-    def predict_rankings(self, inputs: np.ndarray, top_k: int, num_labels: int) -> List[int]:
+    def predict_rankings(self, inputs: np.ndarray, top_k: int) -> List[int]:
         assert len(inputs.shape) == 2, 'Must provide a 2d array of inputs'
         assert self._clf is not None, 'Subclass must set a classifier'
 
@@ -469,11 +489,11 @@ class SklearnClassifier(AttackClassifier):
         scaled_inputs = self._scaler.transform(input_features)
         probs = self._clf.predict_proba(scaled_inputs)[0]  # [L]
 
-        if probs.shape[-1] < num_labels:
+        if probs.shape[-1] < self.num_labels:
             class_list = self._clf.classes_.astype(int).tolist()
             probs_list: List[float] = []
 
-            for label in range(num_labels):
+            for label in range(self.num_labels):
                 if label in class_list:
                     label_idx = class_list.index(label)
                     probs_list.append(probs[label_idx])
@@ -487,7 +507,7 @@ class SklearnClassifier(AttackClassifier):
 
         return rankings[0:top_k].astype(int).tolist(), confidence
 
-    def score(self, inputs: np.ndarray, labels: np.ndarray, num_labels: int) -> Dict[str, float]:
+    def score(self, inputs: np.ndarray, labels: np.ndarray) -> Dict[str, float]:
         """
         Evaluates the classifier on the given dataset.
 
@@ -508,10 +528,10 @@ class SklearnClassifier(AttackClassifier):
         preds = np.argmax(probs, axis=-1)
         confidence = probs[:, 0]  # [B]
 
-        label_space = list(range(num_labels))
+        label_space = list(range(self.num_labels))
 
         # If needed, remap the lists of labels into the full space
-        if probs.shape[-1] < num_labels:
+        if probs.shape[-1] < self.num_labels:
             probs_list: List[np.ndarray] = []  # List of [B, 1] arrays
             num_samples = probs.shape[0]
             class_list = self._clf.classes_.astype(int).tolist()
@@ -529,13 +549,13 @@ class SklearnClassifier(AttackClassifier):
 
         accuracy = accuracy_score(y_true=labels, y_pred=preds)
         top2 = top_k_accuracy_score(y_true=labels, y_score=probs, k=2, labels=label_space)
-        top5 = top_k_accuracy_score(y_true=labels, y_score=probs, k=5, labels=label_space) if num_labels > 5 else 1.0
-        top10 = top_k_accuracy_score(y_true=labels, y_score=probs, k=10, labels=label_space) if num_labels > 10 else 1.0
-        top_last = top_k_accuracy_score(y_true=labels, y_score=probs, k=num_labels - 1, labels=label_space)
+        top5 = top_k_accuracy_score(y_true=labels, y_score=probs, k=5, labels=label_space) if self.num_labels > 5 else 1.0
+        top10 = top_k_accuracy_score(y_true=labels, y_score=probs, k=10, labels=label_space) if self.num_labels > 10 else 1.0
+        top_last = top_k_accuracy_score(y_true=labels, y_score=probs, k=self.num_labels - 1, labels=label_space)
         weighted_accuracy = accuracy_score(y_true=labels, y_pred=preds, sample_weight=confidence)
 
-        top_until_90 = num_labels
-        for topk in range(1, num_labels):
+        top_until_90 = self.num_labels
+        for topk in range(1, self.num_labels):
             top_accuracy = top_k_accuracy_score(y_true=labels, y_score=probs, k=topk, labels=label_space)
             if top_accuracy >= 0.9:
                 top_until_90 = topk
@@ -543,6 +563,8 @@ class SklearnClassifier(AttackClassifier):
 
         rankings = np.argsort(probs, axis=-1)  # [B, K]
         correct_rank = np.argmax(np.equal(rankings, np.expand_dims(labels, axis=-1)), axis=-1) + 1  # [B]
+
+        print('First 100 accuracy: {:.4f}'.format(accuracy_score(y_true=labels[0:100], y_pred=preds[0:100])))
 
         return {
             ACCURACY: float(accuracy),

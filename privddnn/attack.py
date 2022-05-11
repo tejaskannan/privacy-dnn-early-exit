@@ -83,14 +83,14 @@ if __name__ == '__main__':
                 rate_str = ' '.join('{:.2f}'.format(round(float(r), 2)) for r in rate.split(' '))
 
                 if args.should_print:
-                    print('Starting {} on {}. # Train: {}, # Test: {}'.format(policy_name, rate_str, len(train_attack_inputs), len(test_attack_inputs)), end='\r')
+                    print('Starting {} on {}. # Train: {}, # Test: {}'.format(policy_name, rate_str, len(train_attack_inputs), len(test_attack_inputs)), end='\n')
 
                 # Fit and evaluate the majority attack classifier
                 majority_clf = MajorityClassifier()
-                majority_clf.fit(train_attack_inputs, train_attack_outputs)
+                majority_clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
 
-                train_acc = majority_clf.score(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
-                test_acc = majority_clf.score(test_attack_inputs, test_attack_outputs, num_labels=num_labels)
+                train_acc = majority_clf.score(train_attack_inputs, train_attack_outputs)
+                test_acc = majority_clf.score(test_attack_inputs, test_attack_outputs)
 
                 #print('Majority: Train Accuracy: {:.5f}, Test Accuracy: {:.5f}'.format(train_acc['accuracy'], test_acc['accuracy']))
                 #print('Majority Avg Correct Rank: Train Accuracy: {:.5f}, Test Accuracy: {:.5f}'.format(train_acc['correct_rank'], test_acc['correct_rank']))
@@ -99,10 +99,10 @@ if __name__ == '__main__':
                 test_attack_results[majority_clf.name][rate_str] = test_acc
 
                 wngram_clf = WindowNgramClassifier(window_size=5, num_neighbors=5)
-                wngram_clf.fit(train_attack_inputs, train_attack_outputs)
+                wngram_clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
 
-                train_acc = wngram_clf.score(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
-                test_acc = wngram_clf.score(test_attack_inputs, test_attack_outputs, num_labels=num_labels)
+                train_acc = wngram_clf.score(train_attack_inputs, train_attack_outputs)
+                test_acc = wngram_clf.score(test_attack_inputs, test_attack_outputs)
 
                 #print('WNgram: Train Accuracy: {:.5f}, Test Accuracy: {:.5f}'.format(train_acc['accuracy'], test_acc['accuracy']))
 
@@ -111,10 +111,10 @@ if __name__ == '__main__':
 
                 # Fit and evaluate the NGram classifier
                 ngram_clf = NgramClassifier(num_neighbors=1)
-                ngram_clf.fit(train_attack_inputs, train_attack_outputs)
+                ngram_clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
 
-                train_acc = ngram_clf.score(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
-                test_acc = ngram_clf.score(test_attack_inputs, test_attack_outputs, num_labels=num_labels)
+                train_acc = ngram_clf.score(train_attack_inputs, train_attack_outputs)
+                test_acc = ngram_clf.score(test_attack_inputs, test_attack_outputs)
 
                 #print('NGram: Train Accuracy: {:.5f}, Test Accuracy: {:.5f}'.format(train_acc['accuracy'], test_acc['accuracy']))
 
@@ -123,19 +123,24 @@ if __name__ == '__main__':
 
                 # Fit and evaluate the logistic regression classifiers
                 lr_clf = LogisticRegressionCount()
-                lr_clf.fit(train_attack_inputs, train_attack_outputs)
+                lr_clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
 
-                train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
-                test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs, num_labels=num_labels)
+                print('\nLogistic Regression Count')
+                train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
+                test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
+                print('==========')
 
                 train_attack_results[lr_clf.name][rate_str] = train_acc
                 test_attack_results[lr_clf.name][rate_str] = test_acc
 
-                lrn_clf = LogisticRegressionNgram()
-                lrn_clf.fit(train_attack_inputs, train_attack_outputs)
+                lr_path = 'jetson_attack_models/{}_{}.pkl.gz'.format(policy_name, rate_str.replace('.', '-').replace(' ', '_'))
+                lr_clf.save(lr_path)
 
-                train_acc = lrn_clf.score(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
-                test_acc = lrn_clf.score(test_attack_inputs, test_attack_outputs, num_labels=num_labels)
+                lrn_clf = LogisticRegressionNgram()
+                lrn_clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
+
+                train_acc = lrn_clf.score(train_attack_inputs, train_attack_outputs)
+                test_acc = lrn_clf.score(test_attack_inputs, test_attack_outputs)
 
                 train_attack_results[lrn_clf.name][rate_str] = train_acc
                 test_attack_results[lrn_clf.name][rate_str] = test_acc
