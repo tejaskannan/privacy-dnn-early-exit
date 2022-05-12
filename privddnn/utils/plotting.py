@@ -12,20 +12,12 @@ LEGEND_FONT = 12
 COLORS = {
     'max_prob': '#c7e9b4',
     'label_max_prob': '#51b6c4',
-    'hybrid_max_prob': '#225ea8',
+    'cgr_max_prob': '#2c7fb8',
     'random': 'black',
-    'fixed': '#8856a7',
     'entropy': '#9ebcda',
     'label_entropy': '#8c96c6',
-    'hybrid_entropy': '#810f7c',
-    'greedy_even': '#969696',
-    'even_max_prob': '#2c7fb8',
-    'even_label_max_prob': '#253494',
-    'buffered_max_prob': '#2c7fb8',
-    'delayed_max_prob': '#2c7fb8',
-    'adaptive_random_max_prob': '#2c7fb8',
-    'rolling_max_prob': 'gray',
-    'linear': '#2c7fb8'
+    'cgr_entropy': '#810f7c',
+    'adaptive_random_max_prob': '#2c7fb8'
 }
 
 
@@ -36,8 +28,9 @@ DATASET_LABELS = {
     'uci_har': 'Activity',
     'cifar10': 'Cifar10',
     'cifar100': 'Cifar100',
-    'wisdm_real': 'WISDM'
+    'wisdm_real': 'WISDM',
 }
+
 
 def to_label(name: str) -> str:
     tokens = name.split('_')

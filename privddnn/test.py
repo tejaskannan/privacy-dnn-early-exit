@@ -11,6 +11,7 @@ from privddnn.dataset import Dataset
 from privddnn.dataset.data_iterators import make_data_iterator
 from privddnn.classifier import BaseClassifier, ModelMode, OpName
 from privddnn.exiting import ExitStrategy, EarlyExiter, make_policy, EarlyExitResult
+from privddnn.exiting import POLICY_HAS_RANDOMNESS
 from privddnn.restore import restore_classifier
 from privddnn.utils.file_utils import save_json_gz, make_dir, read_json_gz
 from privddnn.utils.exit_utils import get_exit_rates
@@ -95,6 +96,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     assert args.reps >= 1, 'Must provide a positive number of dataset repititions'
+    assert args.trials >= 1, 'Must provide a positive number of trials'
 
     # Restore the model
     model: BaseClassifier = restore_classifier(model_path=args.model_path, model_mode=ModelMode.TEST)
@@ -112,19 +114,21 @@ if __name__ == '__main__':
     rand = np.random.RandomState(seed=591)
 
     rates = get_exit_rates(single_rates=single_rates, num_outputs=model.num_outputs)
-    #rates = [[0.3, 0.4, 0.3]]
+    rates = [[0.5, 0.5]]
 
     # Execute all early stopping policies
-    #strategies = [ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB, ExitStrategy.LABEL_MAX_PROB, ExitStrategy.MAX_PROB, ExitStrategy.RANDOM]
-    strategies = [ExitStrategy.MAX_PROB]
+    #strategies = list(ExitStrategy)
+    strategies = [ExitStrategy.CGR_MAX_PROB]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]
     output_folder_path = os.path.join(os.path.dirname(args.model_path), '{}_test-logs'.format(file_name))
     make_dir(output_folder_path)
     
-    for trial in range(args.trials):
-        for strategy in strategies:
+    for strategy in strategies:
+        num_trials = args.trials if POLICY_HAS_RANDOMNESS[strategy] else 1
+
+        for trial in range(num_trials):
             strategy_name = strategy.name.lower()
 
             # Read in the old log (if it exists)

@@ -24,10 +24,25 @@ class ExitStrategy(Enum):
     MAX_PROB = auto()
     LABEL_ENTROPY = auto()
     LABEL_MAX_PROB = auto()
-    BUFFERED_MAX_PROB = auto()
-    BUFFERED_ENTROPY = auto()
-    ADAPTIVE_RANDOM_MAX_PROB = auto()
-    ADAPTIVE_RANDOM_ENTROPY = auto()
+    CGR_MAX_PROB = auto()
+    CGR_ENTROPY = auto()
+
+
+# A hard coded dictionary about whether each policy has randomness associated with it.
+# We use this to avoid running multiple trials on policies which don't need it.
+POLICY_HAS_RANDOMNESS = {
+    ExitStrategy.RANDOM: True,
+    ExitStrategy.ENTROPY: False,
+    ExitStrategy.MAX_PROB: False,
+    ExitStrategy.LABEL_ENTROPY: False,
+    ExitStrategy.LABEL_MAX_PROB: False,
+    ExitStrategy.CGR_MAX_PROB: True,
+    ExitStrategy.CGR_ENTROPY: True
+}
+
+
+# A list of all policy names for consistency
+ALL_POLICY_NAMES = [strategy.name.lower() for strategy in ExitStrategy]
 
 
 class EarlyExiter:
@@ -119,7 +134,7 @@ class RandomExit(EarlyExiter):
 
     @property
     def name(self) -> str:
-        return 'random'
+        return ExitStrategy.RANDOM.name.lower()
 
     def select_output(self, probs: np.ndarray) -> int:
         level = self._random_choice.get()
@@ -186,148 +201,22 @@ class ThresholdExiter(EarlyExiter):
 
 class EntropyExit(ThresholdExiter):
 
+    @property
+    def name(self) -> str:
+        return ExitStrategy.ENTROPY.name.lower()
+
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_entropy_metric(probs=probs)
 
 
 class MaxProbExit(ThresholdExiter):
 
-    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
-        return compute_max_prob_metric(probs=probs)
-
-
-class BufferedExiter(ThresholdExiter):
-
-    def __init__(self, rates: List[float], window_size: int):
-        super().__init__(rates=rates)
-        self._window_size = window_size
-
     @property
-    def window_size(self) -> int:
-        return self._window_size
-
-    def get_exit_quotas(self, window_size: int) -> List[int]:
-        result: List[int] = []
-
-        for rate in self.rates:
-            if np.isclose(rate, 0.0):
-                exit_quota = 0
-            elif np.isclose(rate, 1.0):
-                exit_quota = window_size
-            else:
-                int_part = int(rate * window_size)
-                frac_part = (rate * window_size) - int_part
-                rand_add = int(np.random.uniform() < frac_part)
-                exit_quota = int_part + rand_add
-
-            result.append(exit_quota)
-
-        return result
-
-    def process_window(self, window_probs: [np.ndarray], window_labels: List[int]) -> BufferedResult:
-        window_size = len(window_probs)
-        exit_quotas = self.get_exit_quotas(window_size=window_size)
-
-        probs = np.vstack([np.expand_dims(arr, axis=0) for arr in window_probs])  # [W, L, C]
-
-        exit_decisions = np.zeros(shape=(window_size, ))  # [W]
-        preds = np.zeros(shape=(window_size, ))  # [W]
-        labels = np.zeros(shape=(window_size, ))  # [W]
-
-        used_indices: Set[int] = set()
-
-        for level in range(len(self.rates)):
-            # Compute all of the metrics for this level
-            level_probs = probs[:, level, :]
-            level_preds = np.argmax(level_probs, axis=-1)
-            level_metrics = self.compute_metric(level_probs)  # [W]
-
-            # Get the quota for this exit point
-            level_quota = exit_quotas[level]
-            if level_quota == 0:
-                continue
-
-            # Get the elements with the highest confidence metric values (filter out used entries)
-            sorted_indices = np.argsort(level_metrics)[::-1]  # [W] sorted indices from highest to lowest
-            selected_indices = list(filter(lambda idx: (idx not in used_indices), sorted_indices))[0:level_quota]
-            used_indices.update(selected_indices)
-
-            for idx in selected_indices:
-                exit_decisions[idx] = level
-                preds[idx] = level_preds[idx]
-                labels[idx] = window_labels[idx]
-
-        # Shuffle the result
-        sample_idx = np.arange(window_size)
-        np.random.shuffle(sample_idx)
-
-        return BufferedResult(exit_decisions=exit_decisions[sample_idx].astype(int).tolist(),
-                              preds=preds[sample_idx].astype(int).tolist(),
-                              labels=labels[sample_idx].astype(int).tolist())
-
-    def test(self, data_iterator: DataIterator, max_num_samples: Optional[int]) -> EarlyExitResult:
-        predictions: List[int] = []
-        output_levels: List[int] = []
-        labels: List[int] = []
-
-        window_probs: List[np.ndarray] = []
-        window_labels: List[int] = []
-
-        self.reset()
-
-        elev_count = int(self.window_size * self.rates[1])
-        elev_remainder = (self.window_size * self.rates[1]) - elev_count
-
-        num_samples = 0
-        for _, sample_probs, label in data_iterator:
-            if (max_num_samples is not None) and (num_samples >= max_num_samples):
-                break
-
-            # Add the entry to the current window
-            window_probs.append(sample_probs)
-            window_labels.append(label)
-
-            if len(window_probs) == self.window_size:
-                buffered_result = self.process_window(window_probs=window_probs,
-                                                      window_labels=window_labels)
-
-                predictions.extend(buffered_result.preds)
-                output_levels.extend(buffered_result.exit_decisions)
-                labels.extend(buffered_result.labels)
-
-                window_probs = []
-                window_labels = []
-
-            num_samples += 1
-
-        if len(window_probs) > 0:
-            buffered_result = self.process_window(window_probs=window_probs,
-                                                  window_labels=window_labels)
-
-            predictions.extend(buffered_result.preds)
-            output_levels.extend(buffered_result.exit_decisions)
-            labels.extend(buffered_result.labels)
-
-        output_counts = np.bincount(output_levels, minlength=self.num_outputs)
-        observed_rates = output_counts / num_samples
-
-        return EarlyExitResult(predictions=np.vstack(predictions).reshape(-1),
-                               output_levels=np.vstack(output_levels).reshape(-1),
-                               labels=np.vstack(labels).reshape(-1),
-                               observed_rates=observed_rates,
-                               monitor_stats=dict())
-
-
-class BufferedMaxProb(BufferedExiter):
+    def name(self) -> str:
+        return ExitStrategy.MAX_PROB.name.lower()
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_max_prob_metric(probs=probs)
-
-
-class BufferedEntropy(BufferedExiter):
-
-    def compute_metric(self, probs: np.ndarray) -> np.ndarray:
-        return compute_entropy_metric(probs=probs)
 
 
 class LabelThresholdExiter(EarlyExiter):
@@ -425,17 +314,25 @@ class LabelThresholdExiter(EarlyExiter):
 
 class LabelMaxProbExit(LabelThresholdExiter):
 
+    @property
+    def name(self) -> str:
+        return ExitStrategy.LABEL_MAX_PROB.name.lower()
+
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_max_prob_metric(probs=probs)
 
 
 class LabelEntropyExit(LabelThresholdExiter):
 
+    @property
+    def name(self) -> str:
+        return ExitStrategy.LABEL_ENTROPY.name.lower()
+
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_entropy_metric(probs=probs)
 
 
-class AdaptiveRandomExit(LabelThresholdExiter):
+class ConfidenceGuidedRandomExit(LabelThresholdExiter):
 
     def __init__(self, rates: List[float]):
         super().__init__(rates=rates)
@@ -578,13 +475,21 @@ class AdaptiveRandomExit(LabelThresholdExiter):
         return level
 
 
-class AdaptiveRandomMaxProb(AdaptiveRandomExit):
+class ConfidenceGuidedRandomMaxProb(ConfidenceGuidedRandomExit):
+
+    @property
+    def name(self) -> str:
+        return ExitStrategy.CGR_MAX_PROB.name.lower()
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_max_prob_metric(probs=probs)
 
 
-class AdaptiveRandomEntropy(AdaptiveRandomExit):
+class ConfidenceGuidedRandomEntropy(ConfidenceGuidedRandomExit):
+
+    @property
+    def name(self) -> str:
+        return ExitStrategy.CGR_ENTROPY.name.lower()
 
     def compute_metric(self, probs: np.ndarray) -> np.ndarray:
         return compute_entropy_metric(probs=probs)
@@ -601,13 +506,9 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
         return LabelMaxProbExit(rates=rates)
     elif strategy == ExitStrategy.LABEL_ENTROPY:
         return LabelEntropyExit(rates=rates)
-    elif strategy == ExitStrategy.BUFFERED_MAX_PROB:
-        return BufferedMaxProb(rates=rates, window_size=10)
-    elif strategy == ExitStrategy.BUFFERED_ENTROPY:
-        return BufferedEntropy(rates=rates, window_size=10)
-    elif strategy == ExitStrategy.ADAPTIVE_RANDOM_MAX_PROB:
+    elif strategy == ExitStrategy.CGR_MAX_PROB:
         return AdaptiveRandomMaxProb(rates=rates)
-    elif strategy == ExitStrategy.ADAPTIVE_RANDOM_ENTROPY:
+    elif strategy == ExitStrategy.CGR_ENTROPY:
         return AdaptiveRandomEntropy(rates=rates)
     else:
         raise ValueError('No policy {}'.format(strategy))

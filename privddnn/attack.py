@@ -9,6 +9,7 @@ from privddnn.attack.attack_dataset import make_similar_dataset, make_noisy_data
 from privddnn.attack.attack_classifiers import MostFrequentClassifier, MajorityClassifier, LogisticRegressionCount, LogisticRegressionNgram, NgramClassifier
 from privddnn.attack.attack_classifiers import WindowNgramClassifier
 from privddnn.classifier import BaseClassifier, ModelMode, OpName
+from privddnn.exiting import ALL_POLICY_NAMES
 from privddnn.restore import restore_classifier
 from privddnn.utils.file_utils import read_json_gz, save_json_gz
 
@@ -41,20 +42,33 @@ if __name__ == '__main__':
     train_log_name = train_log_path_tokens[-1] if len(train_log_path_tokens[-1]) > 0 else train_log_path_tokens[-2]
     attack_key = '{}_{}'.format(train_log_name.replace('_test-logs', ''), train_policy_name)
 
+    policy_names = args.policy_names if ('all' not in args.policy_names) else ALL_POLICY_NAMES
+
     for trial in range(args.trials):
-        for policy_name in args.policy_names:
+        for policy_name in policy_names:
             # Initialize the result dictionaries for this policy
             train_attack_results: DefaultDict[str, Dict[str, float]] = defaultdict(dict)
             test_attack_results: DefaultDict[str, Dict[str, float]] = defaultdict(dict)
 
-            # Get the exit decisions and predictions based on the test logs. For now, we always use trial 0.
+            # Get the exit decisions and predictions based on the test logs
             train_policy_name = policy_name if args.train_policy is None else args.train_policy
             train_log_path = os.path.join(train_log_folder_path, '{}-trial{}.json.gz'.format(train_policy_name, trial))
-            train_log = read_json_gz(train_log_path)['val']
-
             eval_log_path = os.path.join(eval_log_folder_path, '{}-trial{}.json.gz'.format(policy_name, trial))
+
+            if not os.path.exists(train_log_path):
+                if args.should_print:
+                    print('No file named {}. Skipping...')
+                continue
+
+            if not os.path.exists(eval_log_path):
+                if args.should_print:
+                    print('No file named {}. Skipping...')
+                continue
+
+            train_log = read_json_gz(train_log_path)['val']
             eval_log = read_json_gz(eval_log_path)['test']
 
+            # Read in the existing output path (if possible) to append to any existing results
             output_path = os.path.join(eval_log_folder_path, '{}-attack-trial{}.json.gz'.format(policy_name, trial))
             if os.path.exists(output_path):
                 output_log = read_json_gz(output_path)
