@@ -575,7 +575,7 @@ class AdaptiveRandomExit(LabelThresholdExiter):
             self._level_targets = self.make_level_targets()
             self._step = 0
 
-        return level
+        return selected_level
 
 
 class AdaptiveRandomMaxProb(AdaptiveRandomExit):
