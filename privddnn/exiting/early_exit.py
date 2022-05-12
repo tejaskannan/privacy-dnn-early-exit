@@ -472,7 +472,7 @@ class ConfidenceGuidedRandomExit(LabelThresholdExiter):
             self._level_targets = self.make_level_targets()
             self._step = 0
 
-        return level
+        return selected_level
 
 
 class ConfidenceGuidedRandomMaxProb(ConfidenceGuidedRandomExit):
