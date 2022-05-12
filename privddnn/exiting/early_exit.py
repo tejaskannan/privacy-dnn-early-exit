@@ -417,8 +417,6 @@ class LabelThresholdExiter(EarlyExiter):
             # Compare the thresholds to the metric for this level
             level_metric = self.compute_metric(level_probs)
 
-            print('Level {}. Metric: {}, Threshold: {}, Did Exit: {}'.format(level, level_metric, level_threshold, level_metric >= level_threshold))
-
             if level_metric >= level_threshold:
                 return level
 
@@ -474,31 +472,23 @@ class AdaptiveRandomExit(LabelThresholdExiter):
 
     def make_level_targets(self) -> List[int]:
         level_targets = [int(self.rates[level] * self._window) for level in range(self.num_outputs)]
-        frac_parts = np.array([(self.rates[level] * self._window) - level_targets[level] for level in range(self.num_outputs)])
-        sample_probs = frac_parts / max(np.sum(frac_parts), SMALL_NUMBER)
+        frac_parts = [(self.rates[level] * self._window) - level_targets[level] for level in range(self.num_outputs)]
 
-        level_idx = np.arange(self.num_outputs)
-        np.random.shuffle(level_idx)
+        adjusted_targets = [t + (np.random.uniform() < frac) for t, frac in zip(level_targets, frac_parts)]
+        total_exits = sum(adjusted_targets)
 
-        for level in level_idx:
-            if sum(level_targets) == self._window:
-                break
+        idx = 0
+        while total_exits < self._window:
+            adjusted_targets[idx] += 1
+            idx = (idx + 1) % self.num_outputs
+            total_exits += 1
 
-            frac_part = (self.rates[level] * self._window) - level_targets[level]
-            if self._rand_uniform.get() < frac_part:
-                level_targets[level] += 1
-
-        for _ in range(self._window - sum(level_targets)):
-            rand_level = int(self._rand_choice.get())
-            level_targets[rand_level] += 1
-
-        assert sum(level_targets) == self._window, 'Found an allocation of {}, Expected {}'.format(sum(level_targets), self._window)
-        return level_targets
+        return adjusted_targets
 
     def reset(self):
         self._window = np.random.randint(low=self._window_min, high=self._window_max + 1)
-        self._epsilon = self._max_epsilon
-        self._prev_preds: List[int] = [-1 for _ in range(self.num_labels)]
+        self._epsilons = [self._max_epsilon for _ in range(self.num_outputs)]
+        self._prev_preds: List[int] = [-1 for _ in range(self.num_outputs)]
 
         self._level_counter: Counter = Counter()
         self._level_targets = self.make_level_targets()
@@ -522,6 +512,9 @@ class AdaptiveRandomExit(LabelThresholdExiter):
             probs: A [L, K] array where L is the number of exit points and K
                 is the number of classes.
         """
+        assert len(probs.shape) == 2, 'Must have a 2d probs matrix.'
+        assert probs.shape[0] <= self.num_outputs, 'The number of provided probability vectors must be at most the number of outputs.'
+
         metrics = self.compute_metric(probs)
         preds = np.argmax(probs, axis=-1)  # [L]
 
@@ -541,6 +534,12 @@ class AdaptiveRandomExit(LabelThresholdExiter):
             # Get the remaining number of elements to stop at this level
             num_remaining = self._window - self._step  # Number of remaining elements in this window
             remaining_to_exit = self._level_targets[level] - self._level_counter[level]  # Quota of elements that should continue on
+
+            # Update the probability bias based on the prediction comparison
+            if level_pred == self._prev_preds[level]:
+                self.decrease_epsilon(level=level)
+            else:
+                self.increase_epsilon(level=level)
 
             min_rate, max_rate = get_adaptive_elevation_bounds(continue_rate=(1.0 - level_rate),
                                                                epsilon=self.get_epsilon(level=level))
@@ -564,16 +563,10 @@ class AdaptiveRandomExit(LabelThresholdExiter):
             self._prev_preds[level] = level_pred
 
             if (not should_continue):
-                self._level_counter[level] += 1
                 selected_level = level
-
-                # Update the probability bias based on the prediction comparison
-                if level_pred == self._prev_preds[level]:
-                    self.decrease_epsilon(level=level)
-                else:
-                    self.increase_epsilon(level=level)
-
                 break
+
+        self._level_counter[selected_level] += 1
 
         self._step += 1
         if self._step == self._window:

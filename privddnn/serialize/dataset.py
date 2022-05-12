@@ -18,6 +18,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-inputs', type=int, required=True, help='The maximum number of inputs to include.')
     parser.add_argument('--window', type=int, help='The window size to use for the `nearest` order.')
     parser.add_argument('--is-msp', action='store_true', help='Whether to prepare the dataset for the MSP430 device.')
+    parser.add_argument('--offset', type=int, help='The dataset offset.')
     args = parser.parse_args()
 
     assert (args.precision >= 0) and (args.precision <= 15), 'The precision must be in [0, 16).'
@@ -38,12 +39,17 @@ if __name__ == '__main__':
     input_list: List[np.ndarray] = []
     label_list: List[np.ndarray] = []
 
+    data_idx = 0
     for idx, (features, _, label) in enumerate(data_iterator):
-        if idx >= args.num_inputs:
+        if data_idx >= args.num_inputs:
             break
+
+        if (args.offset is not None) and (idx < args.offset):
+            continue
 
         input_list.append(np.expand_dims(features, axis=0))
         label_list.append(label)
+        data_idx += 1
 
     inputs = np.vstack(input_list)
     labels = np.vstack(label_list).reshape(-1)
