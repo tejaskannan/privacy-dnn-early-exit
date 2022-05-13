@@ -60,7 +60,7 @@ class VGG(EarlyExitNeuralNetwork):
 
         return weights_dict
 
-    def compute_probs(self, inputs: np.ndarray) -> np.ndarray:
+    def compute_probs(self, inputs: np.ndarray, should_approx: bool) -> np.ndarray:
         """
         Computes the predicted probabilites on the given dataset.
         """

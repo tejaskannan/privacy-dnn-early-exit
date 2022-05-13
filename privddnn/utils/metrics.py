@@ -158,11 +158,6 @@ def linear_step(x: float, width: float, clip: float) -> float:
         return -1 * clip
     else:
         return 0.0
-    #elif (x >= -1 * (width / 4.0)) and (x <= (width / 4.0)):
-    #    return 0.0
-    #else:
-    #    slope = (4.0 * clip) / width
-    #    return slope * x
 
 
 def compute_max_prob_metric(probs: np.ndarray) -> np.ndarray:

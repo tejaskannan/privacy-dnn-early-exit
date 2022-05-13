@@ -1,6 +1,6 @@
 import numpy as np
 
-from privddnn.exiting.early_exit import EarlyExiter, MaxProbExit, RandomExit, LabelMaxProbExit, AdaptiveRandomExit
+from privddnn.exiting.early_exit import EarlyExiter, MaxProbExit, RandomExit, LabelMaxProbExit, ConfidenceGuidedRandomExit
 from privddnn.serialize.utils import float_to_fixed_point, array_to_fixed_point
 
 
@@ -37,8 +37,8 @@ def serialize_policy(policy: EarlyExiter, precision: int) -> str:
         lines.append('#define IS_LABEL_MAX_PROB')
     elif isinstance(policy, RandomExit):
         lines.append('#define IS_RANDOM')
-    elif isinstance(policy, AdaptiveRandomExit):
-        lines.append('#define IS_ADAPTIVE_RANDOM_MAX_PROB')
+    elif isinstance(policy, ConfidenceGuidedRandomExit):
+        lines.append('#define IS_CGR_MAX_PROB')
         lines.append('#define MAX_BIAS {}'.format(float_to_fixed_point(policy._max_epsilon, precision, 16)))
         lines.append('#define INCREASE_FACTOR {}'.format(float_to_fixed_point(policy._increase_factor, precision, 16)))
         lines.append('#define DECREASE_FACTOR {}'.format(float_to_fixed_point(policy._decrease_factor, precision, 16)))

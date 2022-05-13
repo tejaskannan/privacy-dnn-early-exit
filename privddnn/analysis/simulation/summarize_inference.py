@@ -4,13 +4,10 @@ import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 from typing import List
 
-from privddnn.dataset.dataset import Dataset
-from privddnn.utils.file_utils import read_json_gz
-from privddnn.utils.metrics import compute_accuracy, compute_mutual_info, compute_geometric_mean
-from privddnn.utils.ngrams import create_ngrams, create_ngram_counts
 from privddnn.utils.plotting import to_label, COLORS, MARKER, MARKER_SIZE, LINE_WIDTH, CAPSIZE
 from privddnn.utils.plotting import AXIS_FONT, TITLE_FONT, LABEL_FONT, LEGEND_FONT
-from privddnn.analysis.read_logs import get_test_results
+from privddnn.utils.inference_metrics import InferenceMetric
+from privddnn.analysis.utils.read_logs import get_summary_results
 
 
 if __name__ == '__main__':
@@ -22,39 +19,21 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Read the test results
-    accuracy_results = get_test_results(folder_path=args.test_log_folder,
-                                        fold='test',
-                                        dataset_order=args.dataset_order,
-                                        metric='accuracy',
-                                        trials=args.trials)
+    window_size = int(args.dataset_order.split('-')[-1])
+    test_results = get_summary_results(folder_path=args.test_log_folder,
+                                       fold='test',
+                                       dataset_order=args.dataset_order,
+                                       trials=args.trials)
 
-    mut_info_results = get_test_results(folder_path=args.test_log_folder,
-                                        fold='test',
-                                        dataset_order=args.dataset_order,
-                                        metric='mutual_information',
-                                        trials=args.trials)
-
-    exit_deviation_results = get_test_results(folder_path=args.test_log_folder,
-                                              fold='test',
-                                              dataset_order=args.dataset_order,
-                                              metric='exit_rate_deviation',
-                                              trials=args.trials)
-
-    avg_exit_results = get_test_results(folder_path=args.test_log_folder,
-                                        fold='test',
-                                        dataset_order=args.dataset_order,
-                                        metric='avg_exit',
-                                        trials=args.trials)
-
-    ngram_size = 3
-    ngram_results = get_test_results(folder_path=args.test_log_folder,
-                                     fold='test',
-                                     dataset_order=args.dataset_order,
-                                     metric='ngram_{}'.format(ngram_size),
-                                     trials=args.trials)
+    accuracy_results = test_results[InferenceMetric.ACCURACY]
+    mut_info_results = test_results[InferenceMetric.MUTUAL_INFORMATION]
+    avg_exit_results = test_results[InferenceMetric.AVG_EXIT]
+    ngram_results = test_results[InferenceMetric.COUNT_NGRAM_MI]
 
     with plt.style.context('seaborn-ticks'):
         fig, (ax1, ax2, ax3) = plt.subplots(nrows=1, ncols=3, figsize=(12, 6))
+
+        print('Policy & Avg (Std) Acc & Max Acc & Avg (Std) MI & Max MI & Avg (Std) {0}-Gram MI & Max {0}-Gram MI \\\\'.format(window_size))
 
         for policy_name in sorted(accuracy_results.keys()):
 
@@ -125,7 +104,7 @@ if __name__ == '__main__':
             max_ngram = np.max(ngram_mut_info_list)
             std_ngram = np.std(avg_ngram_list)
 
-            print('{} & {:.4f} ({:.4f}) & {:.4f} & {:.4f} ({:.4f}) & {:.4f} & {:.4f} ({:.4f}) & {:.4f} \\\\'.format(policy_name, avg_acc, std_acc, max_acc, avg_mi, std_mi, max_mi, avg_ngram, std_ngram, max_ngram))
+            print('{} & {:.2f} ({:.4f}) & {:.2f} & {:.4f} ({:.4f}) & {:.4f} & {:.4f} ({:.4f}) & {:.4f} \\\\'.format(policy_name, avg_acc, std_acc, max_acc, avg_mi, std_mi, max_mi, avg_ngram, std_ngram, max_ngram))
 
             # Plot the results
             ax1.errorbar(rates, accuracy_list, yerr=accuracy_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
@@ -145,7 +124,7 @@ if __name__ == '__main__':
 
         ax3.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
         ax3.set_ylabel('Empirical Mutual Information (bits)', fontsize=AXIS_FONT)
-        ax3.set_title('{}-gram Mut Info: Label vs Exit'.format(ngram_size), fontsize=TITLE_FONT)
+        ax3.set_title('{}-gram Mut Info: Label vs Exit'.format(window_size), fontsize=TITLE_FONT)
         ax3.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
         plt.tight_layout()

@@ -10,7 +10,6 @@ from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metr
 from privddnn.utils.constants import BIG_NUMBER, SMALL_NUMBER
 from privddnn.utils.exit_utils import get_adaptive_elevation_bounds, normalize_exit_rates
 from privddnn.utils.random import RandomUniformGenerator, RandomChoiceGenerator, RandomIntGenerator
-from .linear_optimizer import GeneticLinearOptimizer
 
 
 EarlyExitResult = namedtuple('EarlyExitResult', ['predictions', 'output_levels', 'labels', 'observed_rates', 'monitor_stats'])
@@ -507,8 +506,8 @@ def make_policy(strategy: ExitStrategy, rates: List[float], model_path: str) -> 
     elif strategy == ExitStrategy.LABEL_ENTROPY:
         return LabelEntropyExit(rates=rates)
     elif strategy == ExitStrategy.CGR_MAX_PROB:
-        return AdaptiveRandomMaxProb(rates=rates)
+        return ConfidenceGuidedRandomMaxProb(rates=rates)
     elif strategy == ExitStrategy.CGR_ENTROPY:
-        return AdaptiveRandomEntropy(rates=rates)
+        return ConfidenceGuidedRandomEntropy(rates=rates)
     else:
         raise ValueError('No policy {}'.format(strategy))

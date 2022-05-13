@@ -15,6 +15,7 @@ from privddnn.exiting import POLICY_HAS_RANDOMNESS
 from privddnn.restore import restore_classifier
 from privddnn.utils.file_utils import save_json_gz, make_dir, read_json_gz
 from privddnn.utils.exit_utils import get_exit_rates
+from privddnn.utils.inference_metrics import compute_metric, InferenceMetric
 
 
 TARGET_BOUNDS = {
@@ -59,6 +60,7 @@ def execute_for_rate(dataset: Dataset,
                               max_num_samples=max_num_samples)
 
     result = dict(val=dict(), test=dict())
+    summary = dict(val=dict(), test=dict())
 
     val_dict = {
         'preds': val_result.predictions.tolist(),
@@ -81,7 +83,27 @@ def execute_for_rate(dataset: Dataset,
     result['val'][val_iterator.name] = val_dict
     result['test'][test_iterator.name] = test_dict
 
-    return result
+    val_summary: Dict[str, float] = dict()
+    test_summary: Dict[str, float] = dict()
+
+    for metric in InferenceMetric:
+        val_summary[metric.name.lower()] = compute_metric(preds=val_result.predictions,
+                                                          exit_decisions=val_result.output_levels,
+                                                          labels=val_result.labels,
+                                                          metric=metric,
+                                                          window_size=window_size,
+                                                          num_outputs=len(rates))
+        test_summary[metric.name.lower()] = compute_metric(preds=test_result.predictions,
+                                                           exit_decisions=test_result.output_levels,
+                                                           labels=test_result.labels,
+                                                           metric=metric,
+                                                           window_size=window_size,
+                                                           num_outputs=len(rates))
+
+    summary['val'][val_iterator.name] = val_summary
+    summary['test'][test_iterator.name] = test_summary
+
+    return result, summary
 
 
 if __name__ == '__main__':
@@ -114,11 +136,11 @@ if __name__ == '__main__':
     rand = np.random.RandomState(seed=591)
 
     rates = get_exit_rates(single_rates=single_rates, num_outputs=model.num_outputs)
-    rates = [[0.5, 0.5]]
+    #rates = [[0.5, 0.5]]
 
     # Execute all early stopping policies
-    #strategies = list(ExitStrategy)
-    strategies = [ExitStrategy.CGR_MAX_PROB]
+    strategies = list(ExitStrategy)
+    #strategies = [ExitStrategy.CGR_MAX_PROB]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]
@@ -132,10 +154,18 @@ if __name__ == '__main__':
             strategy_name = strategy.name.lower()
 
             # Read in the old log (if it exists)
-            test_log_name = '{}_trial{}.json.gz'.format(strategy_name, trial)
+            test_log_name = '{}-trial{}.json.gz'.format(strategy_name, trial)
             test_log_path = os.path.join(output_folder_path, test_log_name)
 
+            summary_log_name = '{}-trial{}-summary.json.gz'.format(strategy_name, trial)
+            summary_log_path = os.path.join(output_folder_path, summary_log_name)
+
             results: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {
+                'val': dict(),
+                'test': dict()
+            }
+
+            result_summary: Dict[str, Dict[str, Dict[str, Dict[str, float]]]] = {
                 'val': dict(),
                 'test': dict()
             }
@@ -143,26 +173,26 @@ if __name__ == '__main__':
             if os.path.exists(test_log_path):
                 results = read_json_gz(test_log_path)
 
+            if os.path.exists(summary_log_path):
+                result_summary = read_json_gz(summary_log_path)
+
             for rate_list in rates:
                 rate_key = ' '.join('{:.2f}'.format(round(r, 2)) for r in rate_list)
-                print('Testing {} on {}'.format(strategy_name.capitalize(), rate_key), end='\r')
+                print('Testing {} on {} for trial {}'.format(strategy_name.capitalize(), rate_key, trial + 1), end='\r')
 
-                rate_result = execute_for_rate(dataset=model.dataset,
-                                               val_probs=val_probs,
-                                               val_labels=val_labels,
-                                               test_probs=test_probs,
-                                               rates=rate_list,
-                                               model_path=args.model_path,
-                                               strategy=strategy,
-                                               data_iterator_name=args.dataset_order,
-                                               window_size=args.window_size,
-                                               num_reps=args.reps,
-                                               max_num_samples=args.max_num_samples)
+                rate_result, rate_summary = execute_for_rate(dataset=model.dataset,
+                                                             val_probs=val_probs,
+                                                             val_labels=val_labels,
+                                                             test_probs=test_probs,
+                                                             rates=rate_list,
+                                                             model_path=args.model_path,
+                                                             strategy=strategy,
+                                                             data_iterator_name=args.dataset_order,
+                                                             window_size=args.window_size,
+                                                             num_reps=args.reps,
+                                                             max_num_samples=args.max_num_samples)
 
                 # Log the results
-                if len(rate_list) == 2:
-                    rate_key = str(round(rate_list[0], 2))
-
                 for fold in ['val', 'test']:
                     if rate_key not in results[fold]:
                         results[fold][rate_key] = dict()
@@ -170,10 +200,14 @@ if __name__ == '__main__':
                     for dataset_order in rate_result[fold].keys():
                         results[fold][rate_key][dataset_order] = rate_result[fold][dataset_order]
 
+                    if rate_key not in result_summary[fold]:
+                        result_summary[fold][rate_key] = dict()
+
+                    for dataset_order in rate_summary[fold].keys():
+                        result_summary[fold][rate_key][dataset_order] = rate_summary[fold][dataset_order]
+
             print()
 
-            # Save the results into the test log
-            test_log_name = '{}-trial{}.json.gz'.format(strategy_name, trial)
-            test_log_path = os.path.join(output_folder_path, test_log_name)
-
+            # Save the results into the test logs
             save_json_gz(results, test_log_path)
+            save_json_gz(result_summary, summary_log_path)

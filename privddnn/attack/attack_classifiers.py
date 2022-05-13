@@ -4,7 +4,7 @@ from collections import defaultdict, Counter
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import accuracy_score, top_k_accuracy_score
+from sklearn.metrics import accuracy_score, top_k_accuracy_score, ndcg_score
 from sklearn.preprocessing import StandardScaler
 from typing import Dict, List, DefaultDict, Tuple
 
@@ -563,8 +563,6 @@ class SklearnClassifier(AttackClassifier):
 
         rankings = np.argsort(probs, axis=-1)  # [B, K]
         correct_rank = np.argmax(np.equal(rankings, np.expand_dims(labels, axis=-1)), axis=-1) + 1  # [B]
-
-        print('First 100 accuracy: {:.4f}'.format(accuracy_score(y_true=labels[0:100], y_pred=preds[0:100])))
 
         return {
             ACCURACY: float(accuracy),

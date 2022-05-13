@@ -20,7 +20,7 @@ def create_ngrams(levels: List[int], preds: List[int], n: int, num_outputs: int)
     ngram_outputs: List[int] = []
     base = num_outputs
 
-    for idx in range(0, len(levels)):
+    for idx in range(0, len(levels) - n, n):
         sample_levels = levels[idx:idx+n]
 
         if len(sample_levels) < n:
@@ -59,7 +59,7 @@ def create_ngram_counts(levels: List[int], preds: List[int], n: int, num_outputs
 
     base = n + 1
 
-    for idx in range(0, len(levels)):
+    for idx in range(0, len(levels) - n, n):
         sample_levels = levels[idx:idx+n]
 
         if len(sample_levels) < n:
