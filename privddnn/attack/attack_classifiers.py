@@ -615,8 +615,8 @@ class LogisticRegressionCount(SklearnClassifier):
         model = cls()
         model._scaler = model_dict['scaler']
         model._clf = model_dict['clf']
-        model._window_size = model['window_size']
-        model._num_labels = model['num_labels']
+        model._window_size = model_dict['window_size']
+        model._num_labels = model_dict['num_labels']
 
         return model
 

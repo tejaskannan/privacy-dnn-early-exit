@@ -76,7 +76,7 @@ def run_server(num_samples: int, labels: List[int], output_path: str):
         prediction = plaintext[0]
         exit_decision = plaintext[1]
 
-        print('Recv Sample {}. Prediction {}, Exit Decision {}'.format(prediction, exit_decision, idx), end='\r')
+        print('Recv Sample {:02d}. Prediction {:02d}, Exit Decision {:02d}'.format(idx, prediction, exit_decision), end='\r')
 
         ble_manager.send(value=ACK_BYTE)
 
@@ -102,6 +102,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-samples', type=int, required=True)
     parser.add_argument('--output-path', type=str, required=True)
     parser.add_argument('--data-fold', type=str, default='test', choices=['train', 'val', 'test'])
+    parser.add_argument('--offset', type=int)
     args = parser.parse_args()
 
     if os.path.exists(args.output_path):
@@ -123,11 +124,17 @@ if __name__ == '__main__':
                                           fold=args.data_fold)
 
     labels: List[int] = []
+    data_idx = 0
+
     for idx, (_, _, label) in enumerate(dataset_iterator):
-        if idx >= args.num_samples:
+        if data_idx >= args.num_samples:
             break
 
+        if (args.offset is not None) and (idx < args.offset):
+            continue
+
         labels.append(int(label))
+        data_idx += 1
 
     print('Starting Server...')
     run_server(labels=labels,
