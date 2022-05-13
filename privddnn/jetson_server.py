@@ -11,6 +11,7 @@ from privddnn.jetson_nano_dnns.branchynet_dnn import JetsonNanoBranchyNetDNN
 from privddnn.utils.file_utils import append_jsonl_gz
 
 
+ACK_BYTE = b'\xAA'
 PACKET_SIZE = 1024
 INT_SIZE = 4
 ENCRYPTION_KEY = bytes.fromhex('434e8fad2818f1fe02b48593584a3da424adf501decbe6b470542317e5561210')
@@ -41,10 +42,11 @@ if __name__ == '__main__':
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         # Set up the socket
-        sock.bind((args.host, args.port))
+        server_addr = (args.host, args.port)
+        sock.bind(server_addr)
         sock.listen()
 
-        print('Started Server.')
+        print('Started Server at {}'.format(server_addr))
 
         conn, addr = sock.accept()
         with conn:
@@ -63,6 +65,9 @@ if __name__ == '__main__':
                 while len(message_buffer) < length_bytes:
                     data = conn.recv(PACKET_SIZE)
                     message_buffer.extend(data)
+
+                # Acknowledge the transmission
+                #conn.sendall(ACK_BYTE)
 
                 # Decode the result
                 try:
