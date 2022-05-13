@@ -137,16 +137,11 @@ class NearestNeighborIterator(DataIterator):
         if self._idx >= (self.num_samples * self._num_reps):
             raise StopIteration
 
-        # Create a new nearest-neighbor window
+        # Create a new nearest-neighbor window in the order of the nearest neighbors.
         if (self._window_idx >= self.window_size) or (self._idx == 0):
             base_idx = self._rand.randint(low=0, high=self.num_samples)
             self._current_window = self._knn_index.get_nns_by_item(base_idx, n=self.window_size)
             self._window_idx = 0
-
-            window_indices = list(range(self.window_size))
-            self._rand.shuffle(window_indices)
-            shuffled_window = [self._current_window[i] for i in window_indices]
-            self._current_window = shuffled_window
 
         data_idx = self._current_window[self._window_idx]
 
