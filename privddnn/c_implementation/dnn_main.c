@@ -7,8 +7,7 @@
 #include "policy.h"
 #include "parameters.h"
 #include "data.h"
-#include "utils/lfsr.h"
-
+#include "utils/prand.h"
 
 
 int main(void) {
@@ -24,50 +23,50 @@ int main(void) {
     for (i = 0; i < NUM_OUTPUTS - 1; i++) {
         thresholds[i] = THRESHOLDS[i];
     }
-
-    uint16_t lfsrStates[] = { 0 };
     #elif defined(IS_RANDOM)
     uint16_t thresholds[] = { 0 };
-    uint16_t lfsrStates[] = { 3798 };
-    #elif defined(IS_LABEL_MAX_PROB) || defined(IS_ADAPTIVE_RANDOM_MAX_PROB)
+    #elif defined(IS_LABEL_MAX_PROB) || defined(IS_CGR_MAX_PROB)
     uint16_t thresholds[NUM_LABELS * (NUM_OUTPUTS - 1)];
 
     for (i = 0; i < NUM_LABELS * (NUM_OUTPUTS - 1); i++) {
         thresholds[i] = THRESHOLDS[i];
     }
-
-    #ifdef IS_LABEL_MAX_PROB
-    uint16_t lfsrStates[] = { 0 };
-    #else
-    uint16_t lfsrStates[] = { 3918, 6742, 10752 };
-    #endif
     #endif
 
-    struct adaptive_random_state policyState;
+    struct cgr_state policyState;
 
-    #ifdef IS_ADAPTIVE_RANDOM_MAX_PROB
-    uint16_t targetExit[NUM_OUTPUTS - 1] = { 0 };
-    uint16_t observedExit[NUM_OUTPUTS] = { 0 };
+    #ifdef IS_CGR_MAX_PROB
+    uint16_t targetExit[NUM_OUTPUTS];
+    uint16_t observedExit[NUM_OUTPUTS];
+    int16_t biases[NUM_OUTPUTS];
+    uint8_t prevPreds[NUM_OUTPUTS];
+
+    for (i = 0; i < NUM_OUTPUTS; i++) {
+        biases[i] = MAX_BIAS;
+        prevPreds[i] = NUM_LABELS + 1;
+        targetExit[i] = 0;
+        observedExit[i] = 0;
+    }
 
     policyState.windowSize = WINDOW_MIN;
     policyState.step = 0;
     policyState.targetExit = targetExit;
     policyState.observedExit = observedExit;
-    policyState.bias = MAX_BIAS;
+    policyState.biases = biases;
     policyState.maxBias = MAX_BIAS;
     policyState.increaseFactor = INCREASE_FACTOR;
     policyState.decreaseFactor = DECREASE_FACTOR;
     policyState.windowMin = WINDOW_MIN;
     policyState.windowMax = WINDOW_MAX;
     policyState.windowBits = WINDOW_BITS;
-    policyState.prevPred = NUM_LABELS + 1;
+    policyState.prevPreds = prevPreds;
     policyState.trueExitRate = (int16_t *) EXIT_RATES;
     #endif
 
     int16_t inputFeatures[NUM_FEATURES];
     struct matrix inputs = { inputFeatures, NUM_FEATURES, 1 };
 
-    struct exit_policy policy = { thresholds, lfsrStates };
+    struct exit_policy policy = { thresholds, 62078 };
 
     struct inference_result result;
     uint8_t pred;
