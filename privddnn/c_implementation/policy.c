@@ -10,9 +10,9 @@ uint8_t max_prob_should_exit(uint32_t prob, uint16_t exitThreshold) {
 }
 
 
-uint8_t random_should_exit(uint16_t exitRate, uint16_t *randState) {
-    *randState = pseudo_rand(*randState);
-    uint8_t shouldExit = (uint8_t) ((*randState & 0x7FFF) <= exitRate);
+uint8_t random_should_exit(uint16_t exitRate, struct rand_state *randState) {
+    uint16_t rand = pseudo_rand(randState);
+    uint8_t shouldExit = (uint8_t) ((rand & 0x7FFF) <= exitRate);
     return shouldExit;
 }
 
@@ -31,13 +31,14 @@ int16_t get_lower_continue_rate(int16_t continueRate, int16_t bias, uint8_t prec
 }
 
 
-uint8_t cgr_should_exit(uint32_t prob, uint8_t pred, uint16_t exitRate, uint16_t exitThreshold, uint16_t *randState, struct cgr_state *policyState, uint8_t outputIdx, uint8_t numOutputs, uint8_t precision) {
+uint8_t cgr_should_exit(uint32_t prob, uint8_t pred, uint16_t exitRate, uint16_t exitThreshold, struct rand_state *randState, struct cgr_state *policyState, uint8_t outputIdx, uint8_t numOutputs, uint8_t precision) {
     const uint16_t adjustedExitRate = exitRate >> (15 - precision);
-    *randState = pseudo_rand(*randState);
-
+    volatile uint8_t i;
+    volatile uint16_t rand;
+    
     if ((policyState->step == 0) && (outputIdx == 0)) {
         // Update the window size (maybe do this every time to avoid timing attacks)
-        policyState->windowSize = rand_int(*randState, policyState->windowBits) + policyState->windowMin;  // Random integer within bounds
+        policyState->windowSize = rand_int(randState, policyState->windowBits) + policyState->windowMin;  // Random integer within bounds
         policyState->step = policyState->windowSize;
 
         // Set the quotas for each output
@@ -50,15 +51,13 @@ uint8_t cgr_should_exit(uint32_t prob, uint8_t pred, uint16_t exitRate, uint16_t
         volatile int16_t targetExit;
 
         volatile uint16_t quotaCount = 0;
-
-        volatile uint8_t i;
         for (i = 0; i < numOutputs; i++) {
-            *randState = pseudo_rand(*randState);
+            rand = pseudo_rand(randState);
 
             adjustedTrueExitRate = policyState->trueExitRate[i] >> (15 - precision);
             targetExit = fp16_mul(windowSizeFp, adjustedTrueExitRate, precision);
             remainder = (targetExit & mask) << (15 - precision);
-            adjustment = (uint8_t) ((*randState & 0x7FFF) < remainder);
+            adjustment = (uint8_t) ((rand & 0x7FFF) < remainder);
 
             policyState->targetExit[i] = (targetExit >> precision) + adjustment;  // (Window Size * exit Rate) + Random part based on float remainder
             policyState->observedExit[i] = 0;
@@ -75,8 +74,6 @@ uint8_t cgr_should_exit(uint32_t prob, uint8_t pred, uint16_t exitRate, uint16_t
                 i = 0;
             }
         }
-
-        *randState = pseudo_rand(*randState);
     }
 
     // Update the probability bias based on the last prediction
@@ -117,13 +114,24 @@ uint8_t cgr_should_exit(uint32_t prob, uint8_t pred, uint16_t exitRate, uint16_t
     }
 
     // Set the exit decision
-    volatile uint8_t shouldExit = (uint8_t) ((*randState & 0x7FFF) > continueProb);
+    rand = pseudo_rand(randState);
+    volatile uint8_t shouldExit = (uint8_t) ((rand & 0x7FFF) > continueProb);
 
     // Set hard boundaries if we have reached to quota (on either side)
     if (remainingToExit == 0) {
         shouldExit = 0;
-    } else if (remainingToExit == policyState->step) {
+    } else if (remainingToExit >= policyState->step) {
         shouldExit = 1;
+    } else if (!shouldExit) {
+        // If all outputs above this one are exhausted, then we should exit here.
+        shouldExit = 1;
+
+        for (i = outputIdx + 1; i < numOutputs; i++) {
+            if ((policyState->targetExit[i] - policyState->observedExit[i]) > 0) {
+                shouldExit = 0;
+                break;
+            }
+        }
     }
 
     policyState->prevPreds[outputIdx] = pred;

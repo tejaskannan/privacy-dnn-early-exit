@@ -50,12 +50,12 @@ struct inference_result *branchynet_dnn(struct inference_result *result, struct 
     result->pred = vector_argmax(&logits);
     shouldExit = max_prob_should_exit(PROBS[result->pred], policy->thresholds[result->pred]);
     #elif defined(IS_RANDOM)
-    shouldExit = random_should_exit(SCALED_EXIT_RATES[0], &policy->randState);
+    shouldExit = random_should_exit(SCALED_EXIT_RATES[0], policy->randState);
     #elif defined(IS_CGR_MAX_PROB)
     vector_softmax(PROBS, &logits, precision);
     result->pred = vector_argmax(&logits);
 
-    shouldExit = cgr_should_exit(PROBS[result->pred], result->pred, SCALED_EXIT_RATES[0], policy->thresholds[result->pred], &policy->randState, policyState, 0, NUM_OUTPUTS, precision);
+    shouldExit = cgr_should_exit(PROBS[result->pred], result->pred, SCALED_EXIT_RATES[0], policy->thresholds[result->pred], policy->randState, policyState, 0, NUM_OUTPUTS, precision);
     #endif
 
     // Exit early if specified
@@ -92,12 +92,12 @@ struct inference_result *branchynet_dnn(struct inference_result *result, struct 
     result->pred = vector_argmax(&logits);
     shouldExit = max_prob_should_exit(PROBS[result->pred], policy->thresholds[NUM_LABELS + result->pred]);
     #elif defined(IS_RANDOM)
-    shouldExit = random_should_exit(SCALED_EXIT_RATES[1], &policy->randState);
+    shouldExit = random_should_exit(SCALED_EXIT_RATES[1], policy->randState);
     #elif defined(IS_CGR_MAX_PROB)
     vector_softmax(PROBS, &logits, precision);
     result->pred = vector_argmax(&logits);
 
-    shouldExit = cgr_should_exit(PROBS[result->pred], result->pred, SCALED_EXIT_RATES[1], policy->thresholds[NUM_LABELS + result->pred], &policy->randState, policyState, 1, NUM_OUTPUTS, precision);
+    shouldExit = cgr_should_exit(PROBS[result->pred], result->pred, SCALED_EXIT_RATES[1], policy->thresholds[NUM_LABELS + result->pred], policy->randState, policyState, 1, NUM_OUTPUTS, precision);
     #endif
 
     // Exit early if specified

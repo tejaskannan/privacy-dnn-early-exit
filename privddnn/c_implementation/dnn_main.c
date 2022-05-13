@@ -66,7 +66,8 @@ int main(void) {
     int16_t inputFeatures[NUM_FEATURES];
     struct matrix inputs = { inputFeatures, NUM_FEATURES, 1 };
 
-    struct exit_policy policy = { thresholds, 62078 };
+    struct rand_state randState = { 62078 };
+    struct exit_policy policy = { thresholds, &randState };
 
     struct inference_result result;
     uint8_t pred;
