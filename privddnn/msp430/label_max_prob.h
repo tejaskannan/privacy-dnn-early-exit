@@ -22,6 +22,7 @@ static uint8_t DENSE_W_ROWS[] = { 0,0 };
 static uint8_t DENSE_W_COLS[] = { 0,32 };
 static struct block_matrix DENSE_W = { DENSE_W_BLOCKS, 2, 32, 64, DENSE_W_ROWS, DENSE_W_COLS };
 static int16_t DENSE_B_DATA[64] = { -459,0,-353,0,-231,0,-527,0,-419,0,-268,0,-247,0,-391,0,-579,0,-749,0,-474,0,248,0,-69,0,-462,0,-127,0,-246,0,-181,0,35,0,312,0,-88,0,-249,0,-357,0,-986,0,-547,0,-383,0,-368,0,-391,0,6,0,-149,0,-200,0,-333,0,376,0 };
+#pragma PERSISTENT(DENSE_B_DATA)
 static struct matrix DENSE_B = { DENSE_B_DATA, 32, 2 };
 
 
@@ -39,6 +40,7 @@ static uint8_t DENSE_1_W_ROWS[] = { 0,0,0 };
 static uint8_t DENSE_1_W_COLS[] = { 0,32,64 };
 static struct block_matrix DENSE_1_W = { DENSE_1_W_BLOCKS, 3, 32, 96, DENSE_1_W_ROWS, DENSE_1_W_COLS };
 static int16_t DENSE_1_B_DATA[64] = { 179,0,-710,0,365,0,514,0,167,0,-436,0,-392,0,-425,0,-296,0,105,0,-391,0,-107,0,-538,0,-245,0,146,0,931,0,135,0,-483,0,-72,0,205,0,-294,0,-568,0,72,0,-403,0,-469,0,-394,0,-481,0,-140,0,831,0,84,0,129,0,86,0 };
+#pragma PERSISTENT(DENSE_1_B_DATA)
 static struct matrix DENSE_1_B = { DENSE_1_B_DATA, 32, 2 };
 
 
@@ -53,6 +55,7 @@ static uint8_t DENSE_2_W_ROWS[] = { 0,32 };
 static uint8_t DENSE_2_W_COLS[] = { 0,0 };
 static struct block_matrix DENSE_2_W = { DENSE_2_W_BLOCKS, 2, 64, 32, DENSE_2_W_ROWS, DENSE_2_W_COLS };
 static int16_t DENSE_2_B_DATA[128] = { -298,0,-3,0,49,0,-287,0,-145,0,-272,0,-18,0,184,0,-48,0,-171,0,-281,0,25,0,-456,0,14,0,179,0,-97,0,-264,0,-195,0,-295,0,149,0,223,0,-338,0,37,0,61,0,-2,0,372,0,-126,0,-165,0,-194,0,-74,0,168,0,67,0,8,0,-222,0,-251,0,-98,0,27,0,11,0,-270,0,253,0,-98,0,58,0,-26,0,-183,0,406,0,22,0,-116,0,256,0,-33,0,214,0,-185,0,-200,0,345,0,-144,0,-391,0,160,0,312,0,-90,0,-306,0,-92,0,-15,0,-186,0,-101,0,-432,0 };
+#pragma PERSISTENT(DENSE_2_B_DATA)
 static struct matrix DENSE_2_B = { DENSE_2_B_DATA, 64, 2 };
 
 
@@ -73,6 +76,7 @@ static uint8_t DENSE_3_W_ROWS[] = { 0,0,32,32 };
 static uint8_t DENSE_3_W_COLS[] = { 0,32,0,32 };
 static struct block_matrix DENSE_3_W = { DENSE_3_W_BLOCKS, 4, 64, 64, DENSE_3_W_ROWS, DENSE_3_W_COLS };
 static int16_t DENSE_3_B_DATA[128] = { 115,0,-94,0,-114,0,75,0,498,0,333,0,-134,0,384,0,383,0,83,0,203,0,83,0,-7,0,401,0,110,0,545,0,-61,0,360,0,77,0,759,0,58,0,-194,0,194,0,-57,0,15,0,593,0,111,0,0,0,159,0,-111,0,-200,0,287,0,-217,0,643,0,213,0,-150,0,131,0,454,0,-138,0,336,0,258,0,43,0,-190,0,101,0,-98,0,-171,0,45,0,-10,0,66,0,117,0,493,0,-262,0,82,0,400,0,-79,0,373,0,496,0,-177,0,428,0,-341,0,48,0,-40,0,225,0,522,0 };
+#pragma PERSISTENT(DENSE_3_B_DATA)
 static struct matrix DENSE_3_B = { DENSE_3_B_DATA, 64, 2 };
 
 
@@ -84,6 +88,7 @@ static uint8_t OUTPUT0_W_ROWS[] = { 0 };
 static uint8_t OUTPUT0_W_COLS[] = { 0 };
 static struct block_matrix OUTPUT0_W = { OUTPUT0_W_BLOCKS, 1, 12, 32, OUTPUT0_W_ROWS, OUTPUT0_W_COLS };
 static int16_t OUTPUT0_B_DATA[24] = { 2733,0,-940,0,1649,0,-865,0,-1368,0,924,0,-1106,0,-1217,0,-1239,0,-463,0,-1829,0,-394,0 };
+#pragma PERSISTENT(OUTPUT0_B_DATA)
 static struct matrix OUTPUT0_B = { OUTPUT0_B_DATA, 12, 2 };
 
 
@@ -95,6 +100,7 @@ static uint8_t OUTPUT1_W_ROWS[] = { 0 };
 static uint8_t OUTPUT1_W_COLS[] = { 0 };
 static struct block_matrix OUTPUT1_W = { OUTPUT1_W_BLOCKS, 1, 12, 32, OUTPUT1_W_ROWS, OUTPUT1_W_COLS };
 static int16_t OUTPUT1_B_DATA[24] = { 1742,0,-474,0,1300,0,-420,0,-1167,0,-249,0,-578,0,-942,0,-809,0,0,0,-1419,0,-124,0 };
+#pragma PERSISTENT(OUTPUT1_B_DATA)
 static struct matrix OUTPUT1_B = { OUTPUT1_B_DATA, 12, 2 };
 
 
@@ -109,6 +115,7 @@ static uint8_t OUTPUT2_W_ROWS[] = { 0,0 };
 static uint8_t OUTPUT2_W_COLS[] = { 0,32 };
 static struct block_matrix OUTPUT2_W = { OUTPUT2_W_BLOCKS, 2, 12, 64, OUTPUT2_W_ROWS, OUTPUT2_W_COLS };
 static int16_t OUTPUT2_B_DATA[24] = { 255,0,116,0,269,0,65,0,-579,0,-6,0,-415,0,-434,0,-371,0,210,0,-504,0,341,0 };
+#pragma PERSISTENT(OUTPUT2_B_DATA)
 static struct matrix OUTPUT2_B = { OUTPUT2_B_DATA, 12, 2 };
 
 

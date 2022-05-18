@@ -28,20 +28,6 @@ def serialize_dense_layer(weight_mat: np.ndarray, bias: np.ndarray, is_msp: bool
                                                 is_msp=is_msp)
     result.append(serialized_weights)
 
-    #weight_data = serialize_float_array(var_name='{}_W_DATA'.format(name),
-    #                                    array=weight_mat.reshape(-1),
-    #                                    width=16,
-    #                                    precision=precision,
-    #                                    dtype='int16_t')
-
-    #if is_msp:
-    #    result.append('#pragma PERSISTENT({}_W_DATA)'.format(name))
-
-    #result.append(weight_data)
-
-    #weight_var = 'static struct matrix {}_W = {{ {}_W_DATA, {}, {} }};'.format(name, name, weight_mat_shape[0], weight_mat_shape[1])
-    #result.append(weight_var)
-
     vec_cols = 2 if is_msp else 1
     bias_dims = bias.shape[0]
 
@@ -55,6 +41,9 @@ def serialize_dense_layer(weight_mat: np.ndarray, bias: np.ndarray, is_msp: bool
                                       dtype='int16_t')
 
     result.append(bias_data)
+
+    if is_msp:
+        result.append('#pragma PERSISTENT({}_B_DATA)'.format(name))
 
     bias_var = 'static struct matrix {}_B = {{ {}_B_DATA, {}, {} }};'.format(name, name, bias_dims, vec_cols)
     result.append(bias_var)
