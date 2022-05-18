@@ -66,7 +66,9 @@ int main(void) {
     int16_t inputFeatures[NUM_FEATURES];
     struct matrix inputs = { inputFeatures, NUM_FEATURES, 1 };
 
-    struct rand_state randState = { 62078 };
+    //uint32_t randVals[16] = { 13739, 1784, 12551, 13261, 29481, 18551, 24115, 643, 4136, 24125, 31906, 9173, 27431, 21844, 15768, 12087 };
+    uint32_t randVals[8] = { 13739, 1784, 12551, 13261, 29481, 18551, 24115, 643 };
+    struct rand_state randState = { randVals, 0, 8 };
     struct exit_policy policy = { thresholds, &randState };
 
     struct inference_result result;
@@ -83,6 +85,9 @@ int main(void) {
         branchynet_dnn(&result, &inputs, PRECISION, &policy, &policyState);
 
         printf("Pred: %d, Label: %d, Decision: %d\n", result.pred, label, result.outputIdx);
+
+        // Generate random values for the next batch
+        generate_pseudo_rand(&randState);
 
 	    isCorrect += (result.pred == label);
         exitDecision += result.outputIdx;

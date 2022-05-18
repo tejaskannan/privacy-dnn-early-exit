@@ -1,14 +1,29 @@
 #include "prand.h"
 
+
+void generate_pseudo_rand(struct rand_state *state) {
+    uint16_t i;
+
+    uint32_t seed = 0;
+    for (i = 0; i < state->numVals; i++) {
+        seed ^= state->vals[i];
+    }
+
+    for (i = 0; i < state->numVals; i++) {
+        seed ^= (seed << 13);
+        seed ^= (seed >> 17);
+        seed ^= (seed << 5);
+        state->vals[i] = seed;
+    }
+
+    state->index = 0;
+}
+
+
 uint16_t pseudo_rand(struct rand_state *state) {
-    uint32_t x = state->val;
-    x ^= (x << 13);
-    x ^= (x >> 17);
-    x ^= (x << 5);
-    state->val = x;
-    return (uint16_t) ((x >> 16) & 0xFFFF);
-    //uint16_t bit = ((state) ^ (state >> 2) ^ (state >> 3) ^ (state >> 5)) & 1u;
-    //return (state >> 1) | (bit << 15);
+    const uint32_t val = state->vals[state->index];
+    state->index += 1;
+    return (uint16_t) ((val >> 16) & 0xFFFF);
 }
 
 
