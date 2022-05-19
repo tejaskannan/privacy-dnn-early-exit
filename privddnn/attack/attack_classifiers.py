@@ -609,14 +609,14 @@ class LogisticRegressionCount(SklearnClassifier):
         return LOGISTIC_REGRESSION_COUNT
 
     @classmethod
-    def restore(cls, path: str):
+    def restore(cls, path: str, window_size: int, num_labels: int):
         model_dict = read_pickle_gz(path)
 
         model = cls()
         model._scaler = model_dict['scaler']
         model._clf = model_dict['clf']
-        model._window_size = model_dict['window_size']
-        model._num_labels = model_dict['num_labels']
+        model._window_size = model_dict.get('window_size', window_size)
+        model._num_labels = model_dict.get('num_labels', num_labels)
 
         return model
 

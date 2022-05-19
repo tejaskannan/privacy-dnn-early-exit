@@ -23,7 +23,7 @@ def attack(predicted_decisions: List[int], attack_model: LogisticRegressionCount
             features.append(np.expand_dims(feature_vector, axis=0))
 
         input_features = np.vstack(features)  # [W, D]
-        predictions, _ = attack_model.predict_rankings(inputs=input_features, top_k=1, num_labels=num_labels)
+        predictions, _ = attack_model.predict_rankings(inputs=input_features, top_k=1)
         attack_preds.append(predictions[0])
 
     return attack_preds
@@ -60,10 +60,16 @@ if __name__ == '__main__':
     true_decisions: List[int] = []
     true_predictions: List[int] = []
 
+    num_correct = 0
+    total_count = 0
+
     for record in read_jsonl_gz(args.preds_file):
         true_decisions.append(int(record['exit_decision']))
         true_predictions.append(int(record['prediction']))
+        num_correct += int(int(record['prediction']) == int(record['label']))
+        total_count += 1
 
+    # TODO: Remove dependence on the number of samples
     num_outputs = max(true_decisions) + 1
     num_samples = len(true_decisions)
 
@@ -74,8 +80,17 @@ if __name__ == '__main__':
     # Compute the recovery accuracy on the exit decisions
     recovery_accuracy = accuracy_score(true_decisions, predicted_decisions)
 
+    # Compute the true exit rates
+    true_exit_rates = np.bincount(true_decisions, minlength=num_outputs).astype(float)
+    true_exit_rates /= float(total_count)
+
+    print('Number of outputs: {}, Number of Samples: {}'.format(num_outputs, num_samples))
+    print('Recovery Accuracy: {:.4f}'.format(recovery_accuracy))
+    print('Inference Accuracy: {:.4f} ({} / {})'.format(num_correct / total_count, num_correct, total_count))
+    print('True Exit Decisions: {}'.format(true_exit_rates))
+
     # Add the attack accuracy by loading a serialized attack model
-    attack_model = LogisticRegressionCount.restore(args.attack_model_file)
+    attack_model = LogisticRegressionCount.restore(args.attack_model_file, window_size=args.window_size, num_labels=args.num_labels)
 
     attack_preds = attack(predicted_decisions=predicted_decisions,
                           attack_model=attack_model,
@@ -89,6 +104,4 @@ if __name__ == '__main__':
     attack_correct = np.sum(np.equal(majority_true_preds, attack_preds).astype(int))
     total_count = len(attack_preds)
 
-    print('Number of outputs: {}, Number of Samples: {}'.format(num_outputs, num_samples))
-    print('Recovery Accuracy: {:.4f}'.format(recovery_accuracy))
     print('Attack Accuracy: {:.4f} ({} / {})'.format(attack_accuracy, attack_correct, total_count))

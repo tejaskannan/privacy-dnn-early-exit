@@ -11,7 +11,7 @@ from privddnn.utils.file_utils import read_json
 THRESHOLD = 0.13
 
 
-def get_energy(path: str, num_trials: int):
+def get_energy(path: str, num_trials: int, should_plot: bool):
     time_list: List[float] = []
     power_list: List[float] = []
     energy_list: List[float] = []
@@ -43,48 +43,54 @@ def get_energy(path: str, num_trials: int):
 
     window_power: List[float] = []
     window_times: List[int] = []
+    baseline_power = np.min([p for p in power_list if p > 0])
 
-    for time, power, _ in zip(time_list, power_list, energy_list):
+    for time, power, energy in zip(time_list, power_list, energy_list):
         if start_time is not None:
             window_power.append(power)
             window_times.append(time)
 
         if (power > THRESHOLD) and (start_time is None):
             start_time = time
-            #start_energy = energy
+            start_energy = energy
             start_times.append(time)
         elif (power < THRESHOLD) and (start_time is not None):
-            start_time = None
+            step_energy = energy - start_energy
 
-            energy = trapz(y=window_power, x=window_times)
+            start_time = None
+            start_energy = None
+
+            #energy = trapz(y=window_power, x=window_times)
+            #baseline_energy = trapz(y=[baseline_power for _ in window_power],
+            #                        x=window_times)
+
+            #energy = energy - baseline_energy
+
             window_power = []
             window_times = []
 
-            period_energy.append(energy)
+            period_energy.append(step_energy)
             end_times.append(time)
 
-            #print('End Energy: {}, Start Energy: {}'.format(energy, start_energy))
-
     start_times = start_times[0:len(end_times)]
-
     largest_idx = np.argsort(period_energy)[::-1][0:num_trials]
 
     start_times = [start_times[i] for i in largest_idx]
     end_times = [end_times[i] for i in largest_idx]
     period_energy = [period_energy[i] for i in largest_idx]
 
-    print(period_energy)
+    if should_plot:
+        fig, ax = plt.subplots()
+        ax.plot(time_list, power_list)
 
-    fig, ax = plt.subplots()
-    ax.plot(time_list, power_list)
+        for t in start_times:
+            ax.axvline(t, color='orange')
 
-    for t in start_times:
-        ax.axvline(t, color='orange')
+        for t in end_times:
+            ax.axvline(t, color='red')
 
-    for t in end_times:
-        ax.axvline(t, color='red')
-
-    plt.show()
+        ax.axhline(baseline_power, color='black')
+        plt.show()
 
     return period_energy
 
@@ -99,9 +105,10 @@ if __name__ == '__main__':
     ops_per_trial = parameters['ops_per_trial']
     num_trials = parameters['num_trials']
 
-    result = get_energy(path=args.path, num_trials=num_trials)
+    result = get_energy(path=args.path, num_trials=num_trials, should_plot=True)
     energy_per_op = [energy / ops_per_trial for energy in result]
-    avg_energy_per_op = sum(energy_per_op) / len(energy_per_op)
+    avg_energy_per_op = np.average(energy_per_op)
+    std_energy_per_op = np.std(energy_per_op)
 
-    print('Approx Energy / Op: {:.7f}mJ'.format(avg_energy_per_op))
+    print('Approx Energy / Op: {:.7f}mJ ({:7f})'.format(avg_energy_per_op, std_energy_per_op))
 
