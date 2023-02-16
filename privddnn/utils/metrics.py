@@ -35,7 +35,7 @@ def compute_entropy(probs: np.ndarray, axis: int) -> np.ndarray:
     """
     Computes the (empirical) entropy of the given distributions along the given axis.
     """
-    log_probs = np.log2(probs + SMALL_NUMBER)
+    log_probs = np.log2(np.maximum(probs, SMALL_NUMBER))
     return -1 * np.sum(probs * log_probs, axis=axis)
 
 
@@ -100,15 +100,19 @@ def compute_joint_entropy(joint_distribution: np.ndarray) -> np.ndarray:
     assert len(joint_distribution.shape) == 2, 'Must provide a 2d joint distribution'
 
     joint_entropy = 0.0
+    num_nonzero_bins = 0
+
     for i in range(joint_distribution.shape[0]):
         for j in range(joint_distribution.shape[1]):
             joint_prob = joint_distribution[i, j]
-            joint_entropy -= joint_prob * np.log2(joint_prob + SMALL_NUMBER)
+            joint_entropy -= joint_prob * np.log2(max(joint_prob, SMALL_NUMBER))
+
+            if joint_prob > SMALL_NUMBER:
+                num_nonzero_bins += 1
 
     return joint_entropy
 
-
-def compute_mutual_info(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+def compute_mutual_info(X: np.ndarray, Y: np.ndarray, should_normalize: bool, should_bias_correct: bool) -> np.ndarray:
     """
     Computes the mutual information between the samples X and Y
     """
@@ -119,23 +123,67 @@ def compute_mutual_info(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
     bins_y = np.max(Y) + 1
 
     joint_counts = np.histogram2d(X, Y, bins=[bins_x, bins_y])[0]
+    joint_dist = joint_counts.astype(float) / float(np.sum(joint_counts))
+    entropy_XY = compute_joint_entropy(joint_dist)
+    
+    if should_bias_correct:
+        num_nonzero_bins = 0
+        for i in range(joint_counts.shape[0]):
+            for j in range(joint_counts.shape[1]):
+                if joint_counts[i, j] > SMALL_NUMBER:
+                    num_nonzero_bins += 1
 
-    mutual_info_nits = mutual_info_score(None, None, contingency=joint_counts)
-    mutual_info_bits = mutual_info_nits / np.log(2)
+        bias_correction = (num_nonzero_bins - 1) / (2 * np.sum(joint_counts))
+        entropy_XY += bias_correction
 
-    return mutual_info_bits
+    X_counts = np.sum(joint_counts, axis=-1)
+    X_dist = X_counts.astype(float) / float(np.sum(X_counts))
+    entropy_X = compute_entropy(X_dist, axis=-1)
 
-    #joint_probs = get_joint_distribution(X=X, Y=Y)
-    #probs_x = np.sum(joint_probs, axis=1)
-    #probs_y = np.sum(joint_probs, axis=0)
+    if should_bias_correct:
+        num_nonzero_bins = 0
+        for i in range(X_counts.shape[0]):
+            if X_counts[i] > SMALL_NUMBER:
+                num_nonzero_bins += 1
 
-    #entropy_x = compute_entropy(probs_x, axis=0)
-    #entropy_y = compute_entropy(probs_y, axis=0)
-    #entropy_xy = compute_joint_entropy(joint_probs)
+        bias_correction = (num_nonzero_bins - 1) / (2 * np.sum(X_counts))
+        entropy_X += bias_correction
 
-    #mut_info = entropy_x + entropy_y - entropy_xy
+    Y_counts = np.sum(joint_counts, axis=0)
+    Y_dist = Y_counts.astype(float) / float(np.sum(Y_counts))
+    entropy_Y = compute_entropy(Y_dist, axis=-1)
 
-    #return (mut_info) / max(entropy_x, entropy_y) if should_normalize else mut_info
+    if should_bias_correct:
+        num_nonzero_bins = 0
+        for i in range(Y_counts.shape[0]):
+            if Y_counts[i] > SMALL_NUMBER:
+                num_nonzero_bins += 1
+
+        bias_correction = (num_nonzero_bins - 1) / (2 * np.sum(Y_counts))
+        entropy_Y += bias_correction
+
+    mutual_info_bits = max(entropy_X + entropy_Y - entropy_XY, 0.0)
+
+    if should_normalize:
+        return (2 * mutual_info_bits) / (entropy_X + entropy_Y)
+    else:
+        return mutual_info_bits
+
+    #mutual_info_nits = mutual_info_score(None, None, contingency=joint_counts)
+    #mutual_info_bits = mutual_info_nits / np.log(2)
+
+    #if not should_normalize:
+    #    return mutual_info_bits
+
+    #X_counts = np.sum(joint_counts, axis=-1)
+    #X_dist = X_counts.astype(float) / float(np.sum(X_counts))
+    #entropy_X = compute_entropy(X_dist, axis=-1)
+
+    #Y_counts = np.sum(joint_counts, axis=0)
+    #Y_dist = Y_counts.astype(float) / float(np.sum(Y_counts))
+    #entropy_Y = compute_entropy(Y_dist, axis=-1)
+
+    #return (2 * mutual_info_bits) / (entropy_X + entropy_Y)
 
 
 def softmax(logits: np.ndarray, axis: int) -> np.ndarray:
@@ -158,6 +206,23 @@ def linear_step(x: float, width: float, clip: float) -> float:
         return -1 * clip
     else:
         return 0.0
+
+
+def compute_avg_correct_rank(ranked_preds: np.ndarray, labels: np.ndarray) -> float:
+    assert len(ranked_preds.shape) == 2, 'Must provide a 2d array of ranked predictions'
+    assert len(labels.shape) == 1, 'Must provide a 1d array of labels'
+    assert labels.shape[0] == ranked_preds.shape[0], 'Preds and labels must align'
+
+    labels = np.expand_dims(labels, axis=-1)
+    ranks = np.argmax(np.equal(ranked_preds.astype(int), labels.astype(int)).astype(int), axis=-1)
+    return np.average(ranks.astype(float)) + 1.0
+
+
+def compute_avg_correct_rank_from_probs(probs: np.ndarray, labels: np.ndarray) -> float:
+    assert len(probs.shape) == 2, 'Must provide a 2d array of predicted probabilities'
+
+    ranked_preds = np.argsort(probs, axis=-1)[:, ::-1]
+    return compute_avg_correct_rank(ranked_preds, labels)
 
 
 def compute_max_prob_metric(probs: np.ndarray) -> np.ndarray:

@@ -1,14 +1,14 @@
 import os
 import numpy as np
 from argparse import ArgumentParser
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 from privddnn.analysis.utils.read_logs import get_summary_results
 from privddnn.utils.inference_metrics import InferenceMetric
 from privddnn.utils.constants import SMALL_NUMBER
 
 
-def compare_policies(target_policies: List[str], baseline_policy: str, test_log_folder: str, dataset_order: str, should_print_counts: bool):
+def compare_policies(target_policies: List[str], baseline_policy: str, test_log_folder: str, dataset_order: str, should_print_counts: bool) -> List[Tuple[int, int, float]]:
     comparison: List[Tuple[int, int, float]] = []
 
     path_tokens = test_log_folder.split(os.sep)
@@ -17,7 +17,7 @@ def compare_policies(target_policies: List[str], baseline_policy: str, test_log_
     test_results = get_summary_results(folder_path=test_log_folder,
                                        dataset_order=dataset_order,
                                        fold='test',
-                                       trials=None)
+                                       trials=1)
     accuracy_results = test_results[InferenceMetric.ACCURACY]
 
     for policy_name in target_policies:
@@ -32,10 +32,10 @@ def compare_policies(target_policies: List[str], baseline_policy: str, test_log_
                 continue
 
             target_accuracy_list = accuracy_results[policy_name][rate]
-            target_accuracy = np.median(target_accuracy_list)
+            target_accuracy = np.average(target_accuracy_list)
 
             baseline_accuracy_list = accuracy_results[baseline_policy][rate]
-            baseline_accuracy = np.median(baseline_accuracy_list)
+            baseline_accuracy = np.average(baseline_accuracy_list)
 
             num_greater += int(target_accuracy > baseline_accuracy)
             total_rates += 1
@@ -49,6 +49,8 @@ def compare_policies(target_policies: List[str], baseline_policy: str, test_log_
 
     print('{} & {} \\\\'.format(dataset_name, comparison_str))
 
+    return comparison
+
 
 if __name__ == '__main__':
     parser = ArgumentParser()
@@ -61,9 +63,23 @@ if __name__ == '__main__':
 
     print('Dataset & {} \\\\'.format(' & '.join(args.target_policies)))
 
+    aggregate = [(0, 0) for _ in args.target_policies]
+
     for test_log_folder in args.test_log_folders:
-        compare_policies(target_policies=args.target_policies,
-                         baseline_policy=args.baseline_policy,
-                         test_log_folder=test_log_folder,
-                         dataset_order=args.dataset_order,
-                         should_print_counts=args.should_print_counts)
+        comparison = compare_policies(target_policies=args.target_policies,
+                                      baseline_policy=args.baseline_policy,
+                                      test_log_folder=test_log_folder,
+                                      dataset_order=args.dataset_order,
+                                      should_print_counts=args.should_print_counts)
+
+        for idx in range(len(aggregate)):
+            curr = aggregate[idx]
+            aggregate[idx] = (curr[0] + comparison[idx][0], curr[1] + comparison[idx][1])
+    
+    if args.should_print_counts:
+        comparison_str = ' & '.join(map(lambda t: '{} / {} ({:.2f})'.format(t[0], t[1], t[0] / t[1]), aggregate))
+    else:
+        comparison_str = ' & '.join(map(lambda t: '{:.2f}'.format(t[0] / t[1]), comparison))
+
+    print('Aggregate & {}'.format(comparison_str))
+

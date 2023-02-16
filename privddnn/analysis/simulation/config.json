@@ -1,0 +1,36 @@
+{
+    "num_outputs": [2, 3, 4],
+    "dataset_order": "same-label-10",
+    "metric": "accuracy",
+    "attack_model": "LogisticRegressionCount",
+    "model_configs": [
+        {
+            "dataset_name": "Activity",
+            "num_labels": 12,
+            "2": "../../saved_models/uci_har/14-02-2022/branchynet-dnn_14-02-2022-11-13-49_test-logs",
+            "3": "../../saved_models/uci_har/24-05-2022/branchynet-dnn-3_24-05-2022-13-34-01_test-logs",
+            "4": "../../saved_models/uci_har/24-05-2022/branchynet-dnn-4_24-05-2022-13-35-07_test-logs"
+        },
+        {
+            "dataset_name": "Cifar10",
+            "num_labels": 10,
+            "2": "../../saved_models/cifar10/27-03-2022/vgg_27-03-2022-14-56-52_test-logs",
+            "3": "../../saved_models/cifar10/08-03-2022/vgg_08-03-2022-18-10-22_test-logs",
+            "4": "../../saved_models/cifar10/08-03-2022/vgg_08-03-2022-19-45-20_test-logs"
+        },
+        {
+            "dataset_name": "EMNIST",
+            "num_labels": 47,
+            "2": "../../saved_models/emnist/10-03-2022/branchynet-cnn_10-03-2022-10-53-38_test-logs",
+            "3": "../../saved_models/emnist/10-03-2022/branchynet-cnn-3_10-03-2022-11-36-03_test-logs",
+            "4": "../../saved_models/emnist/17-03-2022/branchynet-cnn-4_17-03-2022-23-10-14_test-logs"
+        },
+        { 
+            "dataset_name": "Speech Cmds",
+            "num_labels": 11,
+            "2": "../../saved_models/speech/19-05-2022/speech-cnn_19-05-2022-15-15-12_test-logs",
+            "3": "../../saved_models/speech/24-05-2022/speech-cnn-3_24-05-2022-13-38-31_test-logs",
+            "4": "../../saved_models/speech/25-05-2022/speech-cnn-4_25-05-2022-14-15-01_test-logs"
+        }
+    ]
+}

@@ -4,12 +4,12 @@ from collections import defaultdict, Counter
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import accuracy_score, top_k_accuracy_score, ndcg_score
+from sklearn.metrics import accuracy_score, top_k_accuracy_score, ndcg_score, confusion_matrix
 from sklearn.preprocessing import StandardScaler
 from typing import Dict, List, DefaultDict, Tuple
 
 from privddnn.utils.constants import BIG_NUMBER
-from privddnn.utils.metrics import compute_entropy
+from privddnn.utils.metrics import compute_entropy, compute_avg_correct_rank_from_probs
 from privddnn.utils.file_utils import read_pickle_gz, save_pickle_gz
 
 
@@ -17,7 +17,8 @@ MAJORITY = 'Majority'
 MOST_FREQ = 'MostFrequent'
 LOGISTIC_REGRESSION_COUNT = 'LogisticRegressionCount'
 LOGISTIC_REGRESSION_NGRAM = 'LogisticRegressionNgram'
-DECISION_TREE = 'DecisionTree'
+DECISION_TREE_COUNT = 'DecisionTreeCount'
+DECISION_TREE_NGRAM = 'DecisionTreeNgram'
 NGRAM = 'Ngram'
 WINDOW_NGRAM = 'WindowNgram'
 RATE = 'Rate'
@@ -32,6 +33,7 @@ TOP_ALL_BUT_ONE = 'top(k-1)'
 WEIGHTED_ACCURACY = 'weighted_accuracy'
 AVG_CORRECT_RANK = 'correct_rank'
 STD_CORRECT_RANK = 'correct_rank_std'
+CONFUSION_MATRIX = 'confusion_matrix'
 
 
 class AttackClassifier:
@@ -89,7 +91,7 @@ class AttackClassifier:
             correct_count += float(rankings[0] == label)
             weighted_count += confidence * float(rankings[0] == label)
 
-            rank = np.argmax(np.equal(rankings, label)) + 1
+            rank = np.argmax(np.equal(rankings, label)) + 1.0
             correct_ranks.append(rank)
 
             total_count += 1.0
@@ -99,6 +101,9 @@ class AttackClassifier:
 
         rankings_array = np.vstack(rankings_list)  # [N, L]
         labels_array = np.expand_dims(labels, axis=-1)  # [N, 1]
+
+        # Compute the confusion matrix
+        confusion_mat = confusion_matrix(y_true=labels, y_pred=rankings[: 0]).astype(int).tolist()  # [L, L]
 
         top_until_90 = self.num_labels
         for topk in range(1, self.num_labels + 1):
@@ -119,7 +124,8 @@ class AttackClassifier:
             TOP_UNTIL_90: int(top_until_90),
             WEIGHTED_ACCURACY: weighted_count / max(weight_sum, 1.0),
             AVG_CORRECT_RANK: np.average(correct_ranks),
-            STD_CORRECT_RANK: np.std(correct_ranks)
+            STD_CORRECT_RANK: np.std(correct_ranks),
+            CONFUSION_MATRIX: confusion_mat
         }
 
 
@@ -553,6 +559,7 @@ class SklearnClassifier(AttackClassifier):
         top10 = top_k_accuracy_score(y_true=labels, y_score=probs, k=10, labels=label_space) if self.num_labels > 10 else 1.0
         top_last = top_k_accuracy_score(y_true=labels, y_score=probs, k=self.num_labels - 1, labels=label_space)
         weighted_accuracy = accuracy_score(y_true=labels, y_pred=preds, sample_weight=confidence)
+        confusion_mat = confusion_matrix(y_true=labels, y_pred=preds).astype(int).tolist()  # [L, L]
 
         top_until_90 = self.num_labels
         for topk in range(1, self.num_labels):
@@ -561,8 +568,7 @@ class SklearnClassifier(AttackClassifier):
                 top_until_90 = topk
                 break
 
-        rankings = np.argsort(probs, axis=-1)  # [B, K]
-        correct_rank = np.argmax(np.equal(rankings, np.expand_dims(labels, axis=-1)), axis=-1) + 1  # [B]
+        correct_rank = compute_avg_correct_rank_from_probs(probs=probs, labels=labels)
 
         return {
             ACCURACY: float(accuracy),
@@ -573,7 +579,8 @@ class SklearnClassifier(AttackClassifier):
             TOP_UNTIL_90: int(top_until_90),
             WEIGHTED_ACCURACY: float(weighted_accuracy),
             AVG_CORRECT_RANK: np.average(correct_rank),
-            STD_CORRECT_RANK: np.std(correct_rank)
+            STD_CORRECT_RANK: np.std(correct_rank),
+            CONFUSION_MATRIX: confusion_mat
         }
 
     def save(self, path: str):
@@ -632,7 +639,20 @@ class LogisticRegressionNgram(SklearnClassifier):
         return LOGISTIC_REGRESSION_NGRAM
 
 
-class DecisionTreeEnsemble(SklearnClassifier):
+class DecisionTreeEnsembleCount(SklearnClassifier):
+
+    def __init__(self):
+        super().__init__(mode='count')
+        self._clf = AdaBoostClassifier(base_estimator=DecisionTreeClassifier(max_depth=3),
+                                       n_estimators=100,
+                                       random_state=90423)
+
+    @property
+    def name(self) -> str:
+        return DECISION_TREE_COUNT
+
+
+class DecisionTreeEnsembleNgram(SklearnClassifier):
 
     def __init__(self):
         super().__init__(mode='ngram')
@@ -642,4 +662,4 @@ class DecisionTreeEnsemble(SklearnClassifier):
 
     @property
     def name(self) -> str:
-        return DECISION_TREE
+        return DECISION_TREE_NGRAM

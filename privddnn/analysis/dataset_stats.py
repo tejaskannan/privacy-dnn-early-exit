@@ -68,7 +68,7 @@ if __name__ == '__main__':
     for window_size in args.window_sizes:
         print('======== {} ========'.format(window_size))
 
-        val_iterator = make_data_iterator(name='same-label',
+        val_iterator = make_data_iterator(name='nearest',
                                           dataset=dataset,
                                           window_size=window_size,
                                           pred_probs=None,
@@ -76,7 +76,7 @@ if __name__ == '__main__':
                                           fold='val')
         val_stats = get_label_stats(iterator=val_iterator, window_size=window_size)
 
-        test_iterator = make_data_iterator(name='same-label',
+        test_iterator = make_data_iterator(name='nearest',
                                            dataset=dataset,
                                            window_size=window_size,
                                            pred_probs=None,

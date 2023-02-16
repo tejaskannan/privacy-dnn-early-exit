@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.cluster import KMeans
+from sklearn.cluster import MiniBatchKMeans
 from collections import Counter
 from typing import List, Tuple, Set
 
@@ -59,8 +59,8 @@ def create_ngrams(levels: List[int], preds: List[int], n: int, num_outputs: int,
         return np.vstack(ngram_inputs).reshape(-1), ngram_outputs
 
     ngram_features = np.vstack(ngram_features_list)
-    kmeans = KMeans(n_clusters=num_clusters,
-                    random_state=43289)
+    kmeans = MiniBatchKMeans(n_clusters=num_clusters,
+                             random_state=43289)
 
     ngram_inputs = kmeans.fit_predict(ngram_features).astype(int)
 

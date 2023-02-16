@@ -4,8 +4,8 @@ import numpy as np
 from argparse import ArgumentParser
 from typing import List
 
-from privddnn.analysis.read_logs import get_attack_results
-from privddnn.attack.attack_classifiers import MOST_FREQ, MAJORITY, LOGISTIC_REGRESSION_COUNT, NGRAM
+from privddnn.analysis.utils.read_logs import get_attack_results
+from privddnn.attack.attack_classifiers import DECISION_TREE_COUNT, DECISION_TREE_NGRAM, LOGISTIC_REGRESSION_COUNT, LOGISTIC_REGRESSION_NGRAM
 from privddnn.utils.constants import BIG_NUMBER
 from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.plotting import to_label, COLORS, AXIS_FONT, TITLE_FONT, LEGEND_FONT
@@ -16,11 +16,12 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--test-log-folder', type=str, required=True)
     parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2', 'top5', 'top10', 'top(k-1)', 'topUntil90', 'correct_rank'])
-    parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION_COUNT, MOST_FREQ, NGRAM, 'best'])
+    parser.add_argument('--attack-model', type=str, required=True, choices=[DECISION_TREE_COUNT, DECISION_TREE_NGRAM, LOGISTIC_REGRESSION_COUNT, LOGISTIC_REGRESSION_NGRAM])
     parser.add_argument('--dataset-order', type=str, required=True)
     parser.add_argument('--attack-log-folder', type=str)
     parser.add_argument('--train-policy', type=str, default='same')
     parser.add_argument('--fold', type=str, default='test', choices=['train', 'test'])
+    parser.add_argument('--target-pred', type=int)
     parser.add_argument('--should-plot', action='store_true')
     parser.add_argument('--trials', type=int)
     parser.add_argument('--output-file', type=str)
@@ -36,6 +37,7 @@ if __name__ == '__main__':
                                         attack_policy=args.train_policy,
                                         metric=args.metric,
                                         attack_model=args.attack_model,
+                                        target_pred=args.target_pred,
                                         trials=args.trials)
 
     # Print out the aggregate results in a table format
@@ -60,12 +62,7 @@ if __name__ == '__main__':
 
             num_rates += 1
 
-        if args.metric == 'correct_rank':
-            metrics = [metric / num_rates for metric in metric_sums]
-        else:
-            metrics = [100.0 * (metric / num_rates) for metric in metric_sums]
-            max_metric *= 100.0
-            min_metric *= 100.0
+        metrics = [metric / num_rates for metric in metric_sums]
 
         avg_metric = np.average(metrics)
         std_metric = np.std(metrics)

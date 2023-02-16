@@ -2,6 +2,7 @@ import unittest
 import numpy as np
 
 from privddnn.utils.metrics import compute_max_prob_metric, compute_entropy_metric
+from privddnn.utils.metrics import compute_avg_correct_rank, compute_avg_correct_rank_from_probs
 
 
 class MaxProbTests(unittest.TestCase):
@@ -39,6 +40,22 @@ class EntropyTests(unittest.TestCase):
         for m, e in zip(metrics, expected):
             self.assertAlmostEqual(m, e)
 
+
+class AvgCorrectRank(unittest.TestCase):
+
+    def test_avg_correct_rank(self):
+        pred_ranks = np.array([[1, 0, 2], [0, 2, 1]])
+        labels = np.array([1, 2])
+
+        avg_rank = compute_avg_correct_rank(pred_ranks, labels)
+        self.assertAlmostEqual(avg_rank, 1.5)
+
+    def test_avg_correct_rank_probs(self):
+        probs = np.array([[0.35, 0.4, 0.25], [0.5, 0.1, 0.4]])
+        labels = np.array([1, 2])
+
+        avg_rank = compute_avg_correct_rank_from_probs(probs, labels)
+        self.assertAlmostEqual(avg_rank, 1.5)
 
 
 if __name__ == '__main__':

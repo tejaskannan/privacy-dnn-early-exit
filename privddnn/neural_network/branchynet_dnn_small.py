@@ -130,3 +130,40 @@ class BranchyNetDNNSmall4(EarlyExitNeuralNetwork):
         output3 = Dense(num_labels, activation='softmax', name='output3')(dropout3)
 
         return [output0, output1, output2, output3]
+
+
+class BranchyNetDNNSmallAlt(EarlyExitNeuralNetwork):
+
+    @property
+    def name(self) -> str:
+        return 'branchynet-dnn-small-alt'
+
+    @property
+    def num_outputs(self) -> int:
+        return 2
+
+    def make_loss_weights(self) -> Dict[str, float]:
+        return {
+            'output0': 0.1,
+            'output1': 0.9
+        }
+
+    def make_model(self, inputs: Input, num_labels: int, model_mode: ModelMode) -> List[Layer]:
+        dropout_keep_rate = 1.0 if model_mode == ModelMode.TEST else self.hypers[DROPOUT_KEEP_RATE]
+        is_train = (model_mode == ModelMode.TRAIN)
+
+        if len(inputs.get_shape()) > 2:
+            inputs = tf.keras.backend.reshape(inputs, shape=(-1, np.prod(inputs.get_shape()[1:])))
+
+        hidden0 = Dense(64, activation='relu')(inputs)
+        dropout0 = Dropout(rate=1.0 - dropout_keep_rate)(hidden0, training=is_train)
+
+        hidden1 = Dense(128, activation='relu')(dropout0)
+        hidden2 = Dense(128, activation='relu')(hidden1)
+        hidden3 = Dense(128, activation='relu')(hidden2)
+
+        output0 = Dense(num_labels, activation='softmax', name='output0')(hidden0)
+        output1 = Dense(num_labels, activation='softmax', name='output1')(hidden3)
+
+        return [output0, output1]
+

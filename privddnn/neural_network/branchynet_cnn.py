@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.layers import Input, Conv2D, Dense, Flatten, MaxPool2D, Dropout, Layer
-from tensorflow.keras.layers import BatchNormalization, GlobalMaxPooling2D
+from tensorflow.keras.layers import BatchNormalization, GlobalMaxPooling2D, LeakyReLU
 from tensorflow.keras.metrics import Metric
 from typing import List, Dict
 
@@ -137,3 +137,51 @@ class BranchyNetCNN4(EarlyExitNeuralNetwork):
         output3 = Dense(num_labels, activation='softmax', name='output3')(output3_dropout)
 
         return [output0, output1, output2, output3]
+
+
+class BranchyNetCNNAlt(EarlyExitNeuralNetwork):
+
+    @property
+    def name(self) -> str:
+        return 'branchynet-cnn-alt'
+
+    @property
+    def num_outputs(self) -> int:
+        return 2
+
+    def make_model(self, inputs: Input, num_labels: int, model_mode: ModelMode) -> List[Layer]:
+        dropout_keep_rate = 1.0 if model_mode == ModelMode.TEST else self.hypers[DROPOUT_KEEP_RATE]
+
+        conv0 = Conv2D(filters=8, kernel_size=5, strides=(1, 1), activation='linear')(inputs)
+        conv0 = LeakyReLU()(conv0)
+        batchnorm0 = BatchNormalization()(conv0)
+
+        conv1 = Conv2D(filters=12, kernel_size=3, strides=(1, 1), activation='linear')(batchnorm0)
+        conv1 = LeakyReLU()(conv1)
+        batchnorm1 = BatchNormalization()(conv1)
+
+        conv2 = Conv2D(filters=32, kernel_size=3, strides=(1, 1), activation='linear')(batchnorm1)
+        conv2 = LeakyReLU()(conv2)
+        batchnorm2 = BatchNormalization()(conv2)
+        pooled2 = MaxPool2D(pool_size=(2, 2), strides=(2, 2))(batchnorm2)
+
+        conv3 = Conv2D(filters=48, kernel_size=3, strides=(1, 1), activation='linear')(pooled2)
+        conv3 = LeakyReLU()(conv3)
+        batchnorm3 = BatchNormalization()(conv3)
+
+        conv4 = Conv2D(filters=48, kernel_size=3, strides=(1, 1), activation='linear')(batchnorm3)
+        conv4 = LeakyReLU()(conv4)
+        batchnorm4 = BatchNormalization()(conv4)
+        pooled4 = MaxPool2D(pool_size=(2, 2), strides=(2, 2))(batchnorm4)
+
+        output0_pooled = MaxPool2D(pool_size=(4, 4), strides=(4, 4))(batchnorm1)
+        flattened0 = Flatten()(output0_pooled)
+        output0 = Dense(num_labels, activation='softmax', name='output0')(flattened0)
+
+        flattened2 = Flatten()(pooled4)
+        output1_hidden = Dense(128, activation='linear')(flattened2)
+        output1_hidden = LeakyReLU()(output1_hidden)
+        output1_dropout = Dropout(rate=1.0 - dropout_keep_rate)(output1_hidden)
+        output1 = Dense(num_labels, activation='softmax', name='output1')(output1_dropout)
+
+        return [output0, output1]

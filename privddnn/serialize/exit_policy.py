@@ -37,6 +37,7 @@ def serialize_policy(policy: EarlyExiter, precision: int) -> str:
         lines.append('#define IS_LABEL_MAX_PROB')
     elif isinstance(policy, RandomExit):
         lines.append('#define IS_RANDOM')
+        lines.append('static const int16_t THRESHOLDS[] = { 0 };')
     elif isinstance(policy, ConfidenceGuidedRandomExit):
         lines.append('#define IS_CGR_MAX_PROB')
         lines.append('#define MAX_BIAS {}'.format(float_to_fixed_point(policy._max_epsilon, precision, 16)))
