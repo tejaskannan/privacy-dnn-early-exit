@@ -161,8 +161,16 @@ class ThresholdExiter(EarlyExiter):
         self._thresholds[level] = t
 
     def select_output(self, probs: np.ndarray) -> int:
+        assert probs.shape[0] in (self.num_outputs - 1, self.num_outputs), 'Wrong number of provided probabilities.'
+
+        thresholds = self.thresholds if (probs.shape[0] == self.num_outputs) else self.thresholds[0:-1]
+
         metric = self.compute_metric(probs)
-        comp = np.greater(metric, self.thresholds).astype(int)  # [L]
+        comp = np.greater(metric, thresholds).astype(int)  # [L]
+
+        if np.all(np.equal(comp, 0)):
+            return self.num_outputs - 1
+
         return np.argmax(comp)  # Breaks ties by selecting the first value
 
     def fit(self, val_probs: np.ndarray, val_labels: np.ndarray):
@@ -396,8 +404,9 @@ class ConfidenceGuidedRandomExit(LabelThresholdExiter):
         }
 
     def record_monitor_step(self) -> Dict[str, Any]:
+        biases = [bias for bias in self.epsilons]
         return {
-            'prob_bias': self.epsilons
+            'prob_bias': biases
         }
 
     def select_output(self, probs: np.ndarray) -> int:
@@ -455,6 +464,14 @@ class ConfidenceGuidedRandomExit(LabelThresholdExiter):
                 should_continue = True
             elif remaining_to_exit == num_remaining:
                 should_continue = False
+            elif (not should_continue):
+                # Exit at this point if all higher points are already
+                # exhausted.
+                should_continue = True
+                for idx in range(level + 1, self.num_outputs):
+                    if (self._level_targets[idx] - self._level_counter[idx]) > 0:
+                        should_continue = False
+                        break
 
             self._prev_preds[level] = level_pred
 

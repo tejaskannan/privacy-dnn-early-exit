@@ -6,8 +6,7 @@ from collections import defaultdict
 from typing import DefaultDict, List, Tuple, Dict
 
 from privddnn.attack.attack_dataset import make_similar_dataset, make_noisy_dataset, make_sequential_dataset
-from privddnn.attack.attack_classifiers import MostFrequentClassifier, MajorityClassifier, LogisticRegressionCount, LogisticRegressionNgram, NgramClassifier
-from privddnn.attack.attack_classifiers import WindowNgramClassifier
+from privddnn.attack.attack_classifiers import DecisionTreeEnsembleCount, DecisionTreeEnsembleNgram
 from privddnn.classifier import BaseClassifier, ModelMode, OpName
 from privddnn.exiting import ALL_POLICY_NAMES
 from privddnn.restore import restore_classifier
@@ -16,13 +15,14 @@ from privddnn.utils.file_utils import read_json_gz, save_json_gz
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--train-model-path', type=str, required=True)
-    parser.add_argument('--eval-log-folder', type=str)
-    parser.add_argument('--dataset-order', type=str, required=True)
-    parser.add_argument('--policy-names', type=str, required=True, nargs='+')
-    parser.add_argument('--train-policy', type=str, choices=['max_prob', 'entropy'])
-    parser.add_argument('--trials', type=int, default=1, required=True)
-    parser.add_argument('--should-print', action='store_true')
+    parser.add_argument('--train-model-path', type=str, required=True, help='Path to the neural network (h5 file) which will be used to train this attack model.')
+    parser.add_argument('--eval-log-folder', type=str, help='Path to the test logs which we will evaluate the attack model on. If not included, defauls to that of the training neural network.')
+    parser.add_argument('--dataset-order', type=str, required=True, help='The dataset order used to train / evaluate the attack model. Should include the window size (e.g., same-label-10)')
+    parser.add_argument('--policy-names', type=str, required=True, nargs='+', help='The names of the policies to evaluate. Can be `all`.')
+    parser.add_argument('--train-policy', type=str, choices=['max_prob', 'entropy'], help='The policy used to train the attack model. If none, will default to using the same policies for training and evaluation.')
+    parser.add_argument('--trials', type=int, default=1, required=True, help='The number of trials to fit attack models for.')
+    parser.add_argument('--window-size', type=int, help='Optional override of the window size. If not included, defaults to the window size of the dataset order.')
+    parser.add_argument('--should-print', action='store_true', help='Whether to print debugging information.')
     args = parser.parse_args()
 
     # Get the path to the training log (default to eval log if needed)
@@ -55,8 +55,6 @@ if __name__ == '__main__':
             train_log_path = os.path.join(train_log_folder_path, '{}-trial{}.json.gz'.format(train_policy_name, trial))
             eval_log_path = os.path.join(eval_log_folder_path, '{}-trial{}.json.gz'.format(policy_name, trial))
 
-            print(train_log_path)
-
             if not os.path.exists(train_log_path):
                 if args.should_print:
                     print('No file named {}. Skipping...'.format(train_log_path))
@@ -78,18 +76,18 @@ if __name__ == '__main__':
                 output_log = dict()
 
             for rate in train_log.keys():
-                window_size = train_log[rate][args.dataset_order]['window_size']
+                window_size = train_log[rate][args.dataset_order]['window_size'] if args.window_size is None else args.window_size
 
                 # Get the results from training and validation
-                val_levels = train_log[rate][args.dataset_order]['output_levels']
-                val_preds = train_log[rate][args.dataset_order]['preds']
+                train_levels = train_log[rate][args.dataset_order]['output_levels']
+                train_preds = train_log[rate][args.dataset_order]['preds']
 
                 test_levels = eval_log[rate][args.dataset_order]['output_levels']
                 test_preds = eval_log[rate][args.dataset_order]['preds']
 
                 # Build the attack datasets
-                train_attack_inputs, train_attack_outputs = make_sequential_dataset(levels=val_levels,
-                                                                                    preds=val_preds,
+                train_attack_inputs, train_attack_outputs = make_sequential_dataset(levels=train_levels,
+                                                                                    preds=train_preds,
                                                                                     window_size=window_size)
 
                 test_attack_inputs, test_attack_outputs = make_sequential_dataset(levels=test_levels,
@@ -99,58 +97,19 @@ if __name__ == '__main__':
                 rate_str = ' '.join('{:.2f}'.format(round(float(r), 2)) for r in rate.split(' '))
 
                 if args.should_print:
-                    print('Starting {} on {}. # Train: {}, # Test: {}'.format(policy_name, rate_str, len(train_attack_inputs), len(test_attack_inputs)), end='\n')
+                    print('Starting {} on {}. # Train: {}, # Test: {}'.format(policy_name, rate_str, len(train_attack_inputs), len(test_attack_inputs)), end='\r')
 
-                # Fit and evaluate the majority attack classifier
-                majority_clf = MajorityClassifier()
-                majority_clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
+                # Fit and evaluate the classifiers
+                classifiers = [DecisionTreeEnsembleCount(), DecisionTreeEnsembleNgram()]
 
-                train_acc = majority_clf.score(train_attack_inputs, train_attack_outputs)
-                test_acc = majority_clf.score(test_attack_inputs, test_attack_outputs)
+                for clf in classifiers:
+                    clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
+                
+                    train_acc = clf.score(train_attack_inputs, train_attack_outputs)
+                    test_acc = clf.score(test_attack_inputs, test_attack_outputs)
 
-                train_attack_results[majority_clf.name][rate_str] = train_acc
-                test_attack_results[majority_clf.name][rate_str] = test_acc
-
-                wngram_clf = WindowNgramClassifier(window_size=5, num_neighbors=5)
-                wngram_clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
-
-                train_acc = wngram_clf.score(train_attack_inputs, train_attack_outputs)
-                test_acc = wngram_clf.score(test_attack_inputs, test_attack_outputs)
-
-                train_attack_results[wngram_clf.name][rate_str] = train_acc
-                test_attack_results[wngram_clf.name][rate_str] = test_acc
-
-                # Fit and evaluate the NGram classifier
-                ngram_clf = NgramClassifier(num_neighbors=1)
-                ngram_clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
-
-                train_acc = ngram_clf.score(train_attack_inputs, train_attack_outputs)
-                test_acc = ngram_clf.score(test_attack_inputs, test_attack_outputs)
-
-                train_attack_results[ngram_clf.name][rate_str] = train_acc
-                test_attack_results[ngram_clf.name][rate_str] = test_acc
-
-                # Fit and evaluate the logistic regression classifiers
-                lr_clf = LogisticRegressionCount()
-                lr_clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
-
-                train_acc = lr_clf.score(train_attack_inputs, train_attack_outputs)
-                test_acc = lr_clf.score(test_attack_inputs, test_attack_outputs)
-
-                train_attack_results[lr_clf.name][rate_str] = train_acc
-                test_attack_results[lr_clf.name][rate_str] = test_acc
-
-                #lr_path = 'jetson_attack_models/{}_{}.pkl.gz'.format(policy_name, rate_str.replace('.', '-').replace(' ', '_'))
-                #lr_clf.save(lr_path)
-
-                lrn_clf = LogisticRegressionNgram()
-                lrn_clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
-
-                train_acc = lrn_clf.score(train_attack_inputs, train_attack_outputs)
-                test_acc = lrn_clf.score(test_attack_inputs, test_attack_outputs)
-
-                train_attack_results[lrn_clf.name][rate_str] = train_acc
-                test_attack_results[lrn_clf.name][rate_str] = test_acc
+                    train_attack_results[clf.name][rate_str] = train_acc
+                    test_attack_results[clf.name][rate_str] = test_acc
 
             print()
 

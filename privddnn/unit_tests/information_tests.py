@@ -131,22 +131,68 @@ class MutualInformationTests(unittest.TestCase):
         X = np.array([0, 1, 0, 1])
         Y = np.array([1, 1, 0, 0])
 
-        mutual_info = compute_mutual_info(X=X, Y=Y)
+        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=False, should_bias_correct=False)
         self.assertAlmostEqual(mutual_info, 0.0, places=7)
 
     def test_mutual_information_2_2_max(self):
         X = np.array([1, 1, 0, 0])
         Y = np.array([1, 1, 0, 0])
 
-        mutual_info = compute_mutual_info(X=X, Y=Y)
+        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=False, should_bias_correct=False)
         self.assertAlmostEqual(mutual_info, 1.0, places=7)
 
     def test_mutual_information_2_3_uneven(self):
         X = np.array([0, 1, 0, 1, 0, 0, 1, 0])
         Y = np.array([1, 1, 1, 0, 2, 2, 2, 2])
 
-        mutual_info = compute_mutual_info(X=X, Y=Y)
+        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=False, should_bias_correct=False)
         self.assertAlmostEqual(mutual_info, 0.2044340029, places=7)
+
+    def test_norm_mutual_information_2_2_zero(self):
+        X = np.array([0, 1, 0, 1])
+        Y = np.array([1, 1, 0, 0])
+
+        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=True, should_bias_correct=False)
+        self.assertAlmostEqual(mutual_info, 0.0, places=7)
+
+    def test_norm_mutual_information_2_2_max(self):
+        X = np.array([1, 1, 0, 0])
+        Y = np.array([1, 1, 0, 0])
+
+        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=True, should_bias_correct=False)
+        self.assertAlmostEqual(mutual_info, 1.0, places=7)
+
+    def test_norm_mutual_information_2_3_uneven(self):
+        X = np.array([0, 1, 0, 1, 0, 0, 1, 0])
+        Y = np.array([1, 1, 1, 0, 2, 2, 2, 2])
+
+        expected = (2.0 * 0.2044340029) / (0.95443440 + 1.40563906)
+        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=True, should_bias_correct=False)
+        self.assertAlmostEqual(mutual_info, expected, places=7)
+
+    def test_norm_mutual_information_2_2_zero_bias(self):
+        X = np.array([0, 1, 0, 1])
+        Y = np.array([1, 1, 0, 0])
+
+        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=True, should_bias_correct=True)
+        self.assertAlmostEqual(mutual_info, 0.0, places=7)
+
+    def test_norm_mutual_information_2_2_max_bias(self):
+        X = np.array([1, 1, 0, 0])
+        Y = np.array([1, 1, 0, 0])
+
+        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=True, should_bias_correct=True)
+        self.assertAlmostEqual(mutual_info, 1.0, places=7)
+
+    def test_norm_mutual_information_2_3_uneven_bias(self):
+        X = np.array([0, 1, 0, 1, 0, 0, 1, 0])
+        Y = np.array([1, 1, 1, 0, 2, 2, 2, 2])
+
+        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=False, should_bias_correct=True)
+        self.assertAlmostEqual(mutual_info, 0.141934398, places=6)
+
+        mutual_info = compute_mutual_info(X=X, Y=Y, should_normalize=True, should_bias_correct=True)
+        self.assertAlmostEqual(mutual_info, 0.11142712877845, places=6)
 
 
 class OneHotTests(unittest.TestCase):

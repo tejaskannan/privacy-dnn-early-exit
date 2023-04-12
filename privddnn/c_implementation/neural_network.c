@@ -23,6 +23,34 @@ struct matrix *dnn_layer(struct matrix *result, struct matrix *inputs, struct bl
     return result;
 }
 
+struct inference_result *dnn(struct inference_result *result, struct matrix *inputs, uint8_t precision) {
+    // Apply the first hidden layer
+    struct matrix hidden0 = { HIDDEN_BUFFER_0, DENSE_W.numRows, VECTOR_COLS };
+    dnn_layer(&hidden0, inputs, &DENSE_W, &DENSE_B, precision, 1);
+
+    // Concatenate the inputs with the initial hidden state
+    struct matrix concat = { CONCAT_BUFFER, inputs->numRows + hidden0.numRows, VECTOR_COLS };
+    vector_concat(&concat, inputs, &hidden0);
+
+    // Apply the other hidden layers
+    struct matrix hidden1 = { HIDDEN_BUFFER_1, DENSE_1_W.numRows, VECTOR_COLS };
+    dnn_layer(&hidden1, &concat, &DENSE_1_W, &DENSE_1_B, precision, 1);
+
+    struct matrix hidden2 = { HIDDEN_BUFFER_0, DENSE_2_W.numRows, VECTOR_COLS };
+    dnn_layer(&hidden2, &hidden1, &DENSE_2_W, &DENSE_2_B, precision, 1);
+
+    struct matrix hidden3 = { HIDDEN_BUFFER_1, DENSE_3_W.numRows, VECTOR_COLS };
+    dnn_layer(&hidden3, &hidden2, &DENSE_3_W, &DENSE_3_B, precision, 1);
+
+    // Compute the logits
+    struct matrix logits = { LOGITS, NUM_LABELS, VECTOR_COLS };
+    dnn_layer(&logits, &hidden3, &OUTPUT2_W, &OUTPUT2_B, precision, 0);
+
+    result->pred = vector_argmax(&logits);
+    result->outputIdx = 2;
+    return result;
+}
+
 
 struct inference_result *branchynet_dnn(struct inference_result *result, struct matrix *inputs, uint8_t precision, struct exit_policy *policy, struct cgr_state *policyState) {
     #ifndef IS_CGR_MAX_PROB

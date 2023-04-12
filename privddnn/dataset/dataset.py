@@ -10,7 +10,8 @@ from privddnn.utils.constants import SMALL_NUMBER
 
 
 MODULUS = 2**16
-DATASET_NOISE = 0.25
+DATASET_NOISE = 0.1
+OFFSET = 2147
 
 
 class DataFold(Enum):
@@ -19,14 +20,16 @@ class DataFold(Enum):
     TEST = auto()
 
 
-def get_split_indices(num_samples: int, frac: float) -> Tuple[List[int], List[int]]:
+def get_split_indices(num_samples: int, frac: float, is_noisy: bool) -> Tuple[List[int], List[int]]:
     split_point = int(frac * MODULUS)
     one_indices: List[int] = []
     two_indices: List[int] = []
 
+    offset = int(is_noisy) * OFFSET
+
     for sample_idx in range(num_samples):
         h = hashlib.md5()
-        h.update(sample_idx.to_bytes(length=8, byteorder='big'))
+        h.update((sample_idx + offset).to_bytes(length=8, byteorder='big'))
         digest = h.hexdigest()
 
         hash_result = int(digest, 16) % MODULUS
@@ -73,12 +76,12 @@ class Dataset:
             dataset_name = 'cifar100'
             tf_dataset = tf2.keras.datasets.cifar100
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
-        elif dataset_name == 'traffic_signs':
-            X_train, y_train = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'train.h5'))
-            X_val, y_val = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'val.h5'))
-            X_test, y_test = load_h5_dataset(path=os.path.join('/local', 'traffic_signs', 'test.h5'))
+        elif dataset_name in ('traffic_signs', 'speech', 'mnist_corrupted', 'pen_digits', 'spoken_digit', 'speech_noisy', 'cifar10_corrupted', 'food_quality'):
+            X_train, y_train = load_h5_dataset(path=os.path.join('/local', dataset_name, 'train.h5'))
+            X_val, y_val = load_h5_dataset(path=os.path.join('/local', dataset_name, 'val.h5'))
+            X_test, y_test = load_h5_dataset(path=os.path.join('/local', dataset_name, 'test.h5'))
             has_val_split = True
-        elif dataset_name in ('uci_har', 'speech_commands', 'wisdm', 'emnist', 'wisdm_real', 'wisdm_full', 'fashion_mnist_max_prob', 'fashion_mnist_label_max_prob', 'uci_har_64'):
+        elif dataset_name in ('uci_har', 'wisdm_sim', 'emnist', 'wisdm_real', 'fashion_mnist_label_max_prob', 'uci_har_64'):
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'train.h5'))
             X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'test.h5'))
@@ -93,10 +96,22 @@ class Dataset:
         y_test = y_test.reshape(-1)
 
         # Split the training set into a train and validation folds
+        train_frac = 0.8
+
         if has_val_split:
-            y_val = y_val.reshape(-1)
+            if self._is_noisy:
+                y_val = y_val.reshape(-1)
+
+                X_merged = np.concatenate([X_train, X_val], axis=0)
+                y_merged = np.concatenate([y_train, y_val], axis=0)
+
+                train_idx, val_idx = get_split_indices(num_samples=X_merged.shape[0], frac=train_frac, is_noisy=self._is_noisy)
+                X_val, y_val = X_merged[val_idx], y_merged[val_idx]
+                X_train, y_train = X_merged[train_idx], y_merged[train_idx]
+            else:
+                y_val = y_val.reshape(-1)
         else:
-            train_idx, val_idx = get_split_indices(num_samples=X_train.shape[0], frac=0.8)
+            train_idx, val_idx = get_split_indices(num_samples=X_train.shape[0], frac=train_frac, is_noisy=self._is_noisy)
             X_val, y_val = X_train[val_idx], y_train[val_idx]
             X_train, y_train = X_train[train_idx], y_train[train_idx]
 
@@ -213,15 +228,14 @@ class Dataset:
         self._val_inputs = (self._val_inputs - self._mean) / (self._std + SMALL_NUMBER)
         self._test_inputs = (self._test_inputs - self._mean) / (self._std + SMALL_NUMBER)
 
-        # Apply noise after normalization (standardizes across datasets)
+        # Apply noise after normalization (standardizes across datasets), we leave the test set untouched
+        # as the noisy version should only apply to training data
         if self._is_noisy:
             train_noise = self._rand.normal(loc=0.0, scale=DATASET_NOISE, size=self._train_inputs.shape)
             val_noise = self._rand.normal(loc=0.0, scale=DATASET_NOISE, size=self._val_inputs.shape)
-            test_noise = self._rand.normal(loc=0.0, scale=DATASET_NOISE, size=self._test_inputs.shape)
 
             self._train_inputs += train_noise
             self._val_inputs += val_noise
-            self._test_inputs += test_noise
 
         self._is_normalized = True
 

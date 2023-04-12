@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <time.h>
 #include "neural_network.h"
 #include "matrix.h"
 #include "policy.h"
@@ -23,14 +24,14 @@ int main(void) {
     for (i = 0; i < NUM_OUTPUTS - 1; i++) {
         thresholds[i] = THRESHOLDS[i];
     }
-    #elif defined(IS_RANDOM)
-    uint16_t thresholds[] = { 0 };
     #elif defined(IS_LABEL_MAX_PROB) || defined(IS_CGR_MAX_PROB)
     uint16_t thresholds[NUM_LABELS * (NUM_OUTPUTS - 1)];
 
     for (i = 0; i < NUM_LABELS * (NUM_OUTPUTS - 1); i++) {
         thresholds[i] = THRESHOLDS[i];
     }
+    #else
+    uint16_t thresholds[] = { 0 };
     #endif
 
     struct cgr_state policyState;
@@ -74,6 +75,8 @@ int main(void) {
     struct inference_result result;
     uint8_t pred;
 
+    double elapsed = 0.0;
+
     for (i = 0; i < NUM_INPUTS; i++) {
        for (j = 0; j < NUM_FEATURES; j++) {
             inputs.data[j] = DATASET_INPUTS[i * NUM_FEATURES + j];
@@ -81,14 +84,23 @@ int main(void) {
 
         label = DATASET_LABELS[i];
 
-        // Run the neural network inference
-        branchynet_dnn(&result, &inputs, PRECISION, &policy, &policyState);
+        clock_t start = clock();
 
-        printf("Pred: %d, Label: %d, Decision: %d\n", result.pred, label, result.outputIdx);
+        // Run the neural network inference
+        #ifdef IS_FULL
+        dnn(&result, &inputs, PRECISION);
+        #else
+        branchynet_dnn(&result, &inputs, PRECISION, &policy, &policyState);
 
         // Generate random values for the next batch
         generate_pseudo_rand(&randState);
+        #endif
 
+        clock_t end = clock();
+
+        //printf("Pred: %d, Label: %d, Decision: %d\n", result.pred, label, result.outputIdx);
+
+        elapsed = (double) (end - start) / CLOCKS_PER_SEC;
 	    isCorrect += (result.pred == label);
         exitDecision += result.outputIdx;
 	    totalCount += 1;
@@ -96,5 +108,6 @@ int main(void) {
 
     printf("Accuracy: %d / %d\n", isCorrect, totalCount);
     printf("Avg Output: %d / %d\n", exitDecision, totalCount);
+    printf("Total Time: %f sec\n", elapsed);
     return 0;
 }

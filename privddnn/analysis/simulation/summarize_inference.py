@@ -1,13 +1,23 @@
 import os
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
-from typing import List
+from collections import defaultdict
+from typing import List, DefaultDict
 
-from privddnn.utils.plotting import to_label, COLORS, MARKER, MARKER_SIZE, LINE_WIDTH, CAPSIZE
-from privddnn.utils.plotting import AXIS_FONT, TITLE_FONT, LABEL_FONT, LEGEND_FONT
+from privddnn.utils.plotting import COLORS, MARKER, MARKER_SIZE, LINE_WIDTH, CAPSIZE, PLOT_STYLE
+from privddnn.utils.plotting import AXIS_FONT, TITLE_FONT, LABEL_FONT, LEGEND_FONT, POLICY_LABELS
 from privddnn.utils.inference_metrics import InferenceMetric
 from privddnn.analysis.utils.read_logs import get_summary_results
+
+
+POLICIES = ['random', 'entropy', 'label_entropy', 'cgr_entropy', 'max_prob', 'label_max_prob', 'cgr_max_prob']
+ADJUSTMENT = 3
+
+
+matplotlib.rc('pdf', fonttype=42)
+plt.rcParams['pdf.fonttype'] = 42
 
 
 if __name__ == '__main__':
@@ -28,14 +38,29 @@ if __name__ == '__main__':
     accuracy_results = test_results[InferenceMetric.ACCURACY]
     mut_info_results = test_results[InferenceMetric.MUTUAL_INFORMATION]
     avg_exit_results = test_results[InferenceMetric.AVG_EXIT]
-    ngram_results = test_results[InferenceMetric.COUNT_NGRAM_MI]
+    ngram_results = test_results[InferenceMetric.NGRAM_MI]
 
-    with plt.style.context('seaborn-ticks'):
-        fig, (ax1, ax2, ax3) = plt.subplots(nrows=1, ncols=3, figsize=(12, 6))
+    accuracy_agg: List[float] = []
+    accuracy_std_agg: List[float] = []
 
-        print('Policy & Avg (Std) Acc & Max Acc & Avg (Std) MI & Max MI & Avg (Std) {0}-Gram MI & Max {0}-Gram MI \\\\'.format(window_size))
+    mut_info_agg: List[float] = []
+    mut_info_std_agg: List[float] = []
+    mut_info_max_agg: List[float] = []
 
-        for policy_name in sorted(accuracy_results.keys()):
+    ngram_mut_info_agg: List[float] = []
+    ngram_mut_info_std_agg: List[float] = []
+    ngram_mut_info_max_agg: List[float] = []
+
+    with plt.style.context(PLOT_STYLE):
+        #fig, (ax1, ax2, ax3) = plt.subplots(nrows=1, ncols=3, figsize=(12, 6))
+        fig, ax = plt.subplots(figsize=(6, 4))
+
+        policy_names = [policy_name for policy_name in POLICIES if policy_name in accuracy_results]
+
+        print('Metric & {} \\\\'.format(' & '.join(policy_names)))
+        #print('Policy & Avg (Std) Acc & Max Acc & Avg (Std) MI & Max MI & Avg (Std) {0}-Gram MI & Max {0}-Gram MI \\\\'.format(window_size))
+
+        for policy_name in policy_names:
 
             rates: List[float] = []
             accuracy_list: List[float] = []
@@ -91,7 +116,7 @@ if __name__ == '__main__':
                 avg_mut_info_list.append(np.average(trial_mut_info))
                 avg_ngram_list.append(np.average(trial_ngram))
 
-            # Print the aggregate results
+            # Collect the aggregate results
             avg_acc = np.average(accuracy_list)
             max_acc = np.max(accuracy_list)
             std_acc = np.std(avg_accuracy_list)
@@ -104,30 +129,45 @@ if __name__ == '__main__':
             max_ngram = np.max(ngram_mut_info_list)
             std_ngram = np.std(avg_ngram_list)
 
-            print('{} & {:.2f} ({:.4f}) & {:.2f} & {:.4f} ({:.4f}) & {:.4f} & {:.4f} ({:.4f}) & {:.4f} \\\\'.format(policy_name, avg_acc, std_acc, max_acc, avg_mi, std_mi, max_mi, avg_ngram, std_ngram, max_ngram))
+            accuracy_agg.append(avg_acc)
+            accuracy_std_agg.append(std_acc)
+
+            mut_info_agg.append(avg_mi)
+            mut_info_std_agg.append(std_mi)
+            mut_info_max_agg.append(max_mi)
+
+            ngram_mut_info_agg.append(avg_ngram)
+            ngram_mut_info_std_agg.append(std_ngram)
+            ngram_mut_info_max_agg.append(max_ngram)
 
             # Plot the results
-            ax1.errorbar(rates, accuracy_list, yerr=accuracy_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
-            ax2.errorbar(rates, mut_info_list, yerr=mut_info_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
-            ax3.errorbar(rates, ngram_mut_info_list, yerr=ngram_mut_info_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
+            ax.errorbar(rates, accuracy_list, yerr=accuracy_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=POLICY_LABELS[policy_name], color=COLORS[policy_name], capsize=CAPSIZE)
+            #ax2.errorbar(rates, mut_info_list, yerr=mut_info_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
+            #ax3.errorbar(rates, ngram_mut_info_list, yerr=ngram_mut_info_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
 
-        ax1.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
-        ax1.set_ylabel('Accuracy', fontsize=AXIS_FONT)
-        ax1.set_title('Model Accuracy', fontsize=TITLE_FONT)
-        ax1.legend(fontsize=LEGEND_FONT)
-        ax1.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
+        ax.set_xlabel('Fraction of Inputs using the Full Model', fontsize=AXIS_FONT + ADJUSTMENT)
+        ax.set_ylabel('Inference Accuracy (%)', fontsize=AXIS_FONT + ADJUSTMENT)
+        ax.set_title('AdNN Accuracy for Each Target Exit Rate', fontsize=TITLE_FONT + ADJUSTMENT)
+        #ax.legend(fontsize=LEGEND_FONT + ADJUSTMENT, bbox_to_anchor=(1.0, 0.9))
+        ax.legend(fontsize=LEGEND_FONT)
+        ax.tick_params(axis='both', which='major', labelsize=LABEL_FONT + ADJUSTMENT - 0.5)
 
-        ax2.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
-        ax2.set_ylabel('Empirical Mutual Information (bits)', fontsize=AXIS_FONT)
-        ax2.set_title('Mut Info: Label vs Exit', fontsize=TITLE_FONT)
-        ax2.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
+        #ax2.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
+        #ax2.set_ylabel('Empirical Normalized Mutual Information', fontsize=AXIS_FONT)
+        #ax2.set_title('Norm Mut Info: Pred vs Exit', fontsize=TITLE_FONT)
+        #ax2.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
-        ax3.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
-        ax3.set_ylabel('Empirical Mutual Information (bits)', fontsize=AXIS_FONT)
-        ax3.set_title('{}-gram Mut Info: Label vs Exit'.format(window_size), fontsize=TITLE_FONT)
-        ax3.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
+        #ax3.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
+        #ax3.set_ylabel('Empirical Normalized Mutual Information', fontsize=AXIS_FONT)
+        #ax3.set_title('Max 5-gram Norm Mut Info: Pred vs Exit', fontsize=TITLE_FONT)
+        #ax3.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
         plt.tight_layout()
+
+        # Print the result table
+        print('Accuracy & {}'.format(' & '.join(map(lambda t: '{:.2f} ({:.2f})'.format(t[0], t[1]), zip(accuracy_agg, accuracy_std_agg)))))
+        print('Mut Info & {}'.format(' & '.join(map(lambda t: '{:.2f} / {:.2f}'.format(t[0] * 100.0, t[1] * 100.0), zip(mut_info_max_agg, ngram_mut_info_max_agg)))))
+        #print('Ngram Mut Info & {}'.format(' & '.join(map(lambda t: '{:.4f}'.format(t[2]), zip(ngram_mut_info_agg, ngram_mut_info_std_agg, ngram_mut_info_max_agg)))))
 
         if args.output_file is None:
             plt.show()

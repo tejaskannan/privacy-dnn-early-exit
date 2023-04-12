@@ -21,7 +21,7 @@ from privddnn.utils.inference_metrics import compute_metric, InferenceMetric
 TARGET_BOUNDS = {
     2: (0.0, 1.0),
     3: (0.2, 0.7),
-    4: (0.2, 0.4)
+    4: (0.2, 0.3)
 }
 
 
@@ -54,7 +54,7 @@ def execute_for_rate(dataset: Dataset,
                                        dataset=dataset,
                                        pred_probs=test_probs,
                                        window_size=window_size,
-                                       num_reps=num_reps,
+                                       num_reps=1,
                                        fold='test')
     test_result = policy.test(data_iterator=test_iterator,
                               max_num_samples=max_num_samples)
@@ -80,6 +80,10 @@ def execute_for_rate(dataset: Dataset,
         'num_reps': num_reps
     }
 
+    #prob_bias = test_result.monitor_stats['prob_bias']
+    #first_biases = [bias[0] for bias in prob_bias]
+    #print('\nAverage Prob Bias: {:.4f}'.format(np.average(first_biases)))
+
     result['val'][val_iterator.name] = val_dict
     result['test'][test_iterator.name] = test_dict
 
@@ -87,17 +91,20 @@ def execute_for_rate(dataset: Dataset,
     test_summary: Dict[str, float] = dict()
 
     for metric in InferenceMetric:
+        if metric == InferenceMetric.COUNT_NGRAM_MI:
+            continue
+
         val_summary[metric.name.lower()] = compute_metric(preds=val_result.predictions,
                                                           exit_decisions=val_result.output_levels,
                                                           labels=val_result.labels,
                                                           metric=metric,
-                                                          window_size=window_size,
+                                                          window_size=min(window_size, 10),
                                                           num_outputs=len(rates))
         test_summary[metric.name.lower()] = compute_metric(preds=test_result.predictions,
                                                            exit_decisions=test_result.output_levels,
                                                            labels=test_result.labels,
                                                            metric=metric,
-                                                           window_size=window_size,
+                                                           window_size=min(window_size, 10),
                                                            num_outputs=len(rates))
 
     summary['val'][val_iterator.name] = val_summary
@@ -136,11 +143,9 @@ if __name__ == '__main__':
     rand = np.random.RandomState(seed=591)
 
     rates = get_exit_rates(single_rates=single_rates, num_outputs=model.num_outputs)
-    #rates = [[0.5, 0.5]]
 
     # Execute all early stopping policies
     strategies = list(ExitStrategy)
-    #strategies = [ExitStrategy.CGR_MAX_PROB]
 
     # Load the existing test log (if present)
     file_name = os.path.basename(args.model_path).split('.')[0]

@@ -5,7 +5,7 @@ from argparse import ArgumentParser
 from typing import List
 
 from privddnn.analysis.utils.read_logs import get_attack_results
-from privddnn.attack.attack_classifiers import MOST_FREQ, MAJORITY, LOGISTIC_REGRESSION_COUNT, NGRAM
+from privddnn.attack.attack_classifiers import MOST_FREQ, MAJORITY, LOGISTIC_REGRESSION_COUNT, NGRAM, LOGISTIC_REGRESSION_NGRAM
 from privddnn.utils.constants import BIG_NUMBER
 from privddnn.utils.file_utils import read_json_gz
 from privddnn.utils.plotting import to_label, COLORS, AXIS_FONT, TITLE_FONT, LEGEND_FONT
@@ -16,9 +16,9 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--test-log-folder', type=str, required=True)
     parser.add_argument('--metric', type=str, required=True, choices=['accuracy', 'top2', 'top5', 'top10', 'top(k-1)', 'topUntil90', 'correct_rank'])
-    parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION_COUNT, MOST_FREQ, NGRAM, 'best'])
+    parser.add_argument('--attack-model', type=str, required=True, choices=[MAJORITY, LOGISTIC_REGRESSION_COUNT, LOGISTIC_REGRESSION_NGRAM, MOST_FREQ, NGRAM, 'best'])
     parser.add_argument('--dataset-order', type=str, required=True)
-    parser.add_argument('--attack-log-folder', type=str)
+    parser.add_argument('--train-log-folder', type=str)
     parser.add_argument('--train-policy', type=str, default='same')
     parser.add_argument('--fold', type=str, default='test', choices=['train', 'test'])
     parser.add_argument('--should-plot', action='store_true')
@@ -26,13 +26,13 @@ if __name__ == '__main__':
     parser.add_argument('--output-file', type=str)
     args = parser.parse_args()
 
-    attack_log_folder = args.test_log_folder if args.attack_log_folder is None else args.attack_log_folder
+    train_log_folder = args.test_log_folder if args.train_log_folder is None else args.train_log_folder
 
     # Read the attack accuracy
     attack_results = get_attack_results(folder_path=args.test_log_folder,
                                         fold=args.fold,
                                         dataset_order=args.dataset_order,
-                                        attack_train_log=attack_log_folder,
+                                        attack_train_log=train_log_folder,
                                         attack_policy=args.train_policy,
                                         metric=args.metric,
                                         attack_model=args.attack_model,
