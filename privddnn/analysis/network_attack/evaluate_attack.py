@@ -52,3 +52,5 @@ if __name__ == '__main__':
     exit_accuracy, attack_accuracy, inference_accuracy = evaluate_attack(recovered_file=args.recovered_file,
                                                                          true_file=args.true_file,
                                                                          attack_model_file=args.attack_model)
+
+    print('Exit Accuracy: {:.4f}, Attack Accuracy: {:.4f}'.format(exit_accuracy, attack_accuracy))

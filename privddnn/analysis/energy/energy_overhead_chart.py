@@ -1,5 +1,6 @@
 import os.path
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 from typing import List
@@ -9,8 +10,13 @@ from privddnn.utils.plotting import PLOT_STYLE, AXIS_FONT, TITLE_FONT, LABEL_FON
 from privddnn.analysis.energy.extract_operation_energy import get_energy
 
 
+matplotlib.rc('pdf', fonttype=42)
+plt.rcParams['pdf.fonttype'] = 42
+
+
 SERIES = ['', '_dnn_0', '_dnn_1', '_dnn_2']
-SERIES_LABELS = ['Policy Alone', 'Policy + Exit 0', 'Policy + Exit 1', 'Policy + Exit 2']
+SERIES_LABELS = ['Policy Alone', 'Exit 0', 'Exit 1', 'Exit 2']
+ADJUSTMENT = 2
 
 
 if __name__ == '__main__':
@@ -21,13 +27,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     with plt.style.context(PLOT_STYLE):
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(6, 3.5))
 
         xs = np.arange(len(args.policies))
         width = 0.2
         offset = -width * (len(args.policies) - 1) / 2.0
 
-        for policy_idx, policy in enumerate(sorted(args.policies)):
+        for policy_idx, policy in enumerate(args.policies):
             energy_list: List[float] = []
             std_list: List[float] = []
 
@@ -54,12 +60,14 @@ if __name__ == '__main__':
             offset += width
 
         ax.set_xticks(xs)
-        ax.set_xticklabels(SERIES_LABELS, fontsize=LABEL_FONT)
+        ax.set_xticklabels(SERIES_LABELS, fontsize=LABEL_FONT + ADJUSTMENT + 1)
 
-        ax.legend(fontsize=LEGEND_FONT)
-        ax.set_xlabel('Operation', size=AXIS_FONT)
-        ax.set_ylabel('Avg Energy (mJ)', size=AXIS_FONT)
-        ax.set_title('Energy per Operation', size=TITLE_FONT)
+        ax.tick_params(axis='y', labelsize=LABEL_FONT + ADJUSTMENT + 1)
+
+        ax.legend(fontsize=LEGEND_FONT + ADJUSTMENT + 1)
+        ax.set_xlabel('Operation', size=AXIS_FONT + ADJUSTMENT - 0.5)
+        ax.set_ylabel('Avg Energy (mJ)', size=AXIS_FONT + ADJUSTMENT + 2)
+        ax.set_title('Average Energy per Operation', size=TITLE_FONT + ADJUSTMENT)
 
         if args.output_file is None:
             plt.show()

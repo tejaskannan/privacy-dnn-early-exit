@@ -16,6 +16,7 @@ TIME_DELTA = 3.5
 STABLE_THRESHOLD = 0.15
 STABLE_DIST = 1000
 PEAK_HEIGHT = 22
+START_TIME = 5
 
 Point = namedtuple('Point', ['time', 'power'])
 
@@ -177,7 +178,7 @@ def get_energy_per_period(path: str, output_file: Optional[str], should_plot: bo
     end_peaks: List[Point] = []
     proc_energy: List[float] = []
 
-    energy_iterator = extract_energy_per_sample(time_list=time_list, power_list=power_list, energy_list=energy_list, start_time=5.5, time_delta=TIME_DELTA)
+    energy_iterator = extract_energy_per_sample(time_list=time_list, power_list=power_list, energy_list=energy_list, start_time=START_TIME, time_delta=TIME_DELTA)
 
     for proc_start, proc_end, peak_start, peak_end, energy in energy_iterator:
         start_points.append(proc_start)

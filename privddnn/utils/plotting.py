@@ -35,8 +35,8 @@ DATASET_LABELS = {
 POLICY_LABELS = {
     'max_prob': 'Max Prob',
     'entropy': 'Entropy',
-    'label_max_prob': 'Label Max Prob',
-    'label_entropy': 'Label Entropy',
+    'label_max_prob': 'PCE Max Prob',
+    'label_entropy': 'PCE Entropy',
     'cgr_max_prob': 'CGR Max Prob',
     'cgr_entropy': 'CGR Entropy',
     'random': 'Random'

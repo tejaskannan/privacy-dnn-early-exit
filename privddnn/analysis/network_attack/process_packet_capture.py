@@ -115,7 +115,7 @@ if __name__ == '__main__':
         sample_dict = {
             'exit_decision': int(length > SIZE_THRESHOLD),
             'length': length,
-             'time': time
+            'time': time
         }
         results.append(sample_dict)
 

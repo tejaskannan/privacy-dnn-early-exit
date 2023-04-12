@@ -28,7 +28,7 @@ if __name__ == '__main__':
             elif args.field == 'elev_rate':
                 value = np.sum(results[args.dataset_order]['output_levels'])
             elif args.field == 'prob_bias':
-                value = np.sum(results[args.dataset_order]['monitor_stats'].get('prob_bias', 0))
+                value = np.sum(results[args.dataset_order]['monitor_stats']['prob_bias'], axis=0)[0]
             else:
                 value = results[args.dataset_order]['selection_counts'].get(args.field.upper(), 0)
 

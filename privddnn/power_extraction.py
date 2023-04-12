@@ -77,6 +77,9 @@ if __name__ == '__main__':
     energy_per_period = get_energy_per_period(path=args.energy_file, output_file=None, should_plot=False)[:num_samples]
     predicted_decisions = get_exit_points(energy=energy_per_period, num_outputs=num_outputs)
 
+    print(predicted_decisions)
+    print(true_decisions)
+
     # Compute the recovery accuracy on the exit decisions
     recovery_accuracy = accuracy_score(true_decisions, predicted_decisions)
 

@@ -7,7 +7,7 @@ from privddnn.dataset import Dataset, DataFold
 from privddnn.dataset.data_iterators import DataIterator, make_data_iterator
 
 
-DataStats = namedtuple('DataStats', ['distribution', 'window_majority'])
+DataStats = namedtuple('DataStats', ['distribution', 'window_majority', 'most_common_freq'])
 
 
 def print_distribution(distribution: Dict[int, float]):
@@ -20,7 +20,9 @@ def print_distribution(distribution: Dict[int, float]):
 
 def get_label_stats(iterator: DataIterator, window_size: int) -> DataStats:
     label_counts: Counter = Counter()
+    majority_counts: Counter = Counter()
     total_count = 0
+    num_windows = 0
 
     label_window: List[int] = []
     majority_fractions: List[float] = []
@@ -39,6 +41,8 @@ def get_label_stats(iterator: DataIterator, window_size: int) -> DataStats:
             most_common = window_counter.most_common(1)[0]
             majority_frac = most_common[1] / window_size
             majority_fractions.append(majority_frac)
+            majority_counts[most_common[0]] += 1
+            num_windows += 1
 
             label_window = []
 
@@ -46,7 +50,10 @@ def get_label_stats(iterator: DataIterator, window_size: int) -> DataStats:
     for label, count in label_counts.items():
         label_distribution[label] = count / total_count
 
+    (most_common, most_common_count) = majority_counts.most_common(1)[0]
+
     return DataStats(distribution=label_distribution,
+                     most_common_freq=(most_common_count / total_count),
                      window_majority=np.average(majority_fractions))
 
 
@@ -86,6 +93,9 @@ if __name__ == '__main__':
 
         print('Val Avg Majority Fraction: {:.5f}'.format(val_stats.window_majority))
         print('Test Avg Majority Fraction: {:.5f}'.format(test_stats.window_majority))
+
+        print('Val Most Freq Proportion: {:.5f}'.format(val_stats.most_common_freq))
+        print('Test Most Freq Proportion: {:.5f}'.format(val_stats.most_common_freq))
 
         print('Val Distribution')
         print_distribution(distribution=val_stats.distribution)

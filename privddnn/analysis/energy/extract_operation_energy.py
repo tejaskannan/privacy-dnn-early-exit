@@ -60,12 +60,6 @@ def get_energy(path: str, num_trials: int, should_plot: bool):
             start_time = None
             start_energy = None
 
-            #energy = trapz(y=window_power, x=window_times)
-            #baseline_energy = trapz(y=[baseline_power for _ in window_power],
-            #                        x=window_times)
-
-            #energy = energy - baseline_energy
-
             window_power = []
             window_times = []
 
