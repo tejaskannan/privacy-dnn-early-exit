@@ -130,22 +130,32 @@ class BLEManager:
     def send(self, value: bytes, timeout: float = DEFAULT_TIMEOUT):
         assert self._is_connected and self._gatt is not None, 'Must call start() first'
 
-        retry_count = 0
-        did_send = False
-        while not did_send and retry_count < MAX_RETRIES:
-            try:
-                hex_string = value.hex()
-                write_cmd = 'char-write-cmd 0x{0:02x} {1}'.format(self.rw_handle, hex_string)
+        block_size = 20
 
-                self._gatt.sendline(write_cmd)
-                self._gatt.expect(r'.*\[LE\]>', timeout)
+        for start_idx in range(0, len(value), block_size):
+            end_idx = start_idx + block_size
+            block = value[start_idx:end_idx]
 
-                did_send = True
-            except pexpect.TIMEOUT as ex:
-                print('Write timeout after {0} seconds. Command: {1}.'.format(timeout, write_cmd))
+            did_send = False
+            retry_count = 0
 
-                retry_count += 1
-                time.sleep(RETRY_WAIT)
+            while (not did_send) and (retry_count < MAX_RETRIES):
+                try:
+                    hex_string = block.hex()
+                    write_cmd = 'char-write-cmd 0x{0:02x} {1}'.format(self.rw_handle, hex_string)
+                    print(write_cmd)
+
+                    self._gatt.sendline(write_cmd)
+                    self._gatt.expect(r'.*\[LE\]>', timeout)
+
+                    did_send = True
+                except pexpect.TIMEOUT as ex:
+                    print('Write timeout after {0} seconds. Command: {1}.'.format(timeout, write_cmd))
+
+                    retry_count += 1
+                    time.sleep(RETRY_WAIT)
+
+            time.sleep(0.1)
 
     def send_and_expect_byte(self, value: bytes, expected: bytes, timeout: float = DEFAULT_TIMEOUT) -> bool:
         assert self._is_connected and self._gatt is not None, 'Must call start() first'

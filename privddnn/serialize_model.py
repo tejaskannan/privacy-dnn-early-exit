@@ -1,7 +1,7 @@
 import numpy as np
 import h5py
 from argparse import ArgumentParser
-from typing import List
+from typing import List, Tuple
 
 from privddnn.restore import restore_classifier
 from privddnn.classifier import ModelMode
@@ -40,10 +40,10 @@ def serialize_dense_layer(weight_mat: np.ndarray, bias: np.ndarray, is_msp: bool
                                       precision=precision,
                                       dtype='int16_t')
 
-    result.append(bias_data)
-
     if is_msp:
         result.append('#pragma PERSISTENT({}_B_DATA)'.format(name))
+
+    result.append(bias_data)
 
     bias_var = 'static struct matrix {}_B = {{ {}_B_DATA, {}, {} }};'.format(name, name, bias_dims, vec_cols)
     result.append(bias_var)
@@ -51,7 +51,7 @@ def serialize_dense_layer(weight_mat: np.ndarray, bias: np.ndarray, is_msp: bool
     return result
 
 
-def serialize_branchynet_dnn(model_path: str, precision: int, is_msp: bool):
+def serialize_branchynet_dnn(model_path: str, precision: int, is_msp: bool) -> Tuple[str, int]:
     with h5py.File(model_path, 'r') as fin:
         model_parameters = fin['model_weights']
 
@@ -60,13 +60,12 @@ def serialize_branchynet_dnn(model_path: str, precision: int, is_msp: bool):
         biases: Dict[str, np.ndarray] = dict()
 
         for layer_name, layer_params in model_parameters.items():
-            if layer_name.startswith('dense') or layer_name.startswith('output'):
+            if layer_name in ('dense', 'output0'):
                 weight_mat = layer_params[layer_name]['kernel:0'][:]
                 bias = layer_params[layer_name]['bias:0'][:]
 
                 weight_matrices[layer_name] = weight_mat
                 biases[layer_name] = bias
-
     lines: List[str] = []
 
     for layer_name in weight_matrices.keys():
@@ -78,7 +77,7 @@ def serialize_branchynet_dnn(model_path: str, precision: int, is_msp: bool):
         lines.extend(serialized_layer)
         lines.append('\n')
 
-    return '\n'.join(lines)
+    return '\n'.join(lines), weight_matrices['dense'].shape[1]
 
 
 if __name__ == '__main__':
@@ -108,7 +107,7 @@ if __name__ == '__main__':
     num_input_features = clf.dataset.num_features
     num_outputs = clf.num_outputs
 
-    serialized_model = serialize_branchynet_dnn(args.model_path, precision=args.precision, is_msp=args.is_msp)
+    serialized_model, hidden_size = serialize_branchynet_dnn(args.model_path, precision=args.precision, is_msp=args.is_msp)
 
     save_dir = 'msp430' if args.is_msp else 'c_implementation'
 
@@ -124,7 +123,8 @@ if __name__ == '__main__':
         fout.write('#define PRECISION {}\n'.format(args.precision))
         fout.write('#define NUM_LABELS {}\n'.format(num_labels))
         fout.write('#define NUM_INPUT_FEATURES {}\n'.format(num_input_features))
-        fout.write('#define NUM_OUTPUTS {}\n\n'.format(num_outputs))
+        fout.write('#define HIDDEN_SIZE {}\n'.format(hidden_size))
+        #fout.write('#define NUM_OUTPUTS {}\n\n'.format(num_outputs))
 
         fout.write(serialized_model)
 
