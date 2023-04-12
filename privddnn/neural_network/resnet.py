@@ -19,18 +19,18 @@ def residual_block(block_input: Layer, filter_size: int, num_filters: int, dropo
                    padding='same',
                    activation='linear',
                    name='{}/conv0'.format(name))(block_input)
-    batchnorm0 = BatchNormalization()(conv0)
-    conv0 = ReLU()(batchnorm0)
-    dropout0 = Dropout(rate=dropout_rate)(conv0)
+    #batchnorm0 = BatchNormalization()(conv0)
+    conv0 = ReLU()(conv0)
+    #dropout0 = Dropout(rate=dropout_rate)(conv0)
 
     conv1 = Conv2D(filters=num_filters,
                    kernel_size=filter_size,
                    strides=(1, 1),
                    padding='same',
                    activation='linear',
-                   name='{}/conv1'.format(name))(dropout0)
-    batchnorm1 = BatchNormalization()(conv1)
-    conv1 = ReLU()(batchnorm1)
+                   name='{}/conv1'.format(name))(conv0)
+    #batchnorm1 = BatchNormalization()(conv1)
+    conv1 = ReLU()(conv1)
 
     residual_add = Add()([conv1, block_input])
     return residual_add
@@ -43,18 +43,18 @@ def skip_block(block_input: Layer, filter_size: int, num_filters: int, dropout_r
                    padding='same',
                    activation='linear',
                    name='{}/conv0'.format(name))(block_input)
-    batchnorm0 = BatchNormalization()(conv0)
-    conv0 = ReLU()(batchnorm0)
-    dropout0 = Dropout(rate=dropout_rate)(conv0)
+    #batchnorm0 = BatchNormalization()(conv0)
+    conv0 = ReLU()(conv0)
+    #dropout0 = Dropout(rate=dropout_rate)(conv0)
 
     conv1 = Conv2D(filters=num_filters,
                    kernel_size=filter_size,
                    strides=(1, 1),
                    padding='same',
                    activation='linear',
-                   name='{}/conv1'.format(name))(dropout0)
-    batchnorm1 = BatchNormalization()(conv1)
-    conv1 = ReLU()(batchnorm1)
+                   name='{}/conv1'.format(name))(conv0)
+    #batchnorm1 = BatchNormalization()(conv1)
+    conv1 = ReLU()(conv1)
 
     skip_conv = Conv2D(filters=num_filters,
                        kernel_size=filter_size,

@@ -554,19 +554,22 @@ class SklearnClassifier(AttackClassifier):
         preds = np.argmax(probs, axis=-1)
 
         accuracy = accuracy_score(y_true=labels, y_pred=preds)
-        top2 = top_k_accuracy_score(y_true=labels, y_score=probs, k=2, labels=label_space)
+        top2 = top_k_accuracy_score(y_true=labels, y_score=probs, k=2, labels=label_space) if self.num_labels > 2 else 1.0
         top5 = top_k_accuracy_score(y_true=labels, y_score=probs, k=5, labels=label_space) if self.num_labels > 5 else 1.0
         top10 = top_k_accuracy_score(y_true=labels, y_score=probs, k=10, labels=label_space) if self.num_labels > 10 else 1.0
-        top_last = top_k_accuracy_score(y_true=labels, y_score=probs, k=self.num_labels - 1, labels=label_space)
+        top_last = top_k_accuracy_score(y_true=labels, y_score=probs, k=self.num_labels - 1, labels=label_space) if self.num_labels > 2 else 1.0
         weighted_accuracy = accuracy_score(y_true=labels, y_pred=preds, sample_weight=confidence)
         confusion_mat = confusion_matrix(y_true=labels, y_pred=preds).astype(int).tolist()  # [L, L]
 
-        top_until_90 = self.num_labels
-        for topk in range(1, self.num_labels):
-            top_accuracy = top_k_accuracy_score(y_true=labels, y_score=probs, k=topk, labels=label_space)
-            if top_accuracy >= 0.9:
-                top_until_90 = topk
-                break
+        if self.num_labels > 2:
+            top_until_90 = self.num_labels
+            for topk in range(1, self.num_labels):
+                top_accuracy = top_k_accuracy_score(y_true=labels, y_score=probs, k=topk, labels=label_space)
+                if top_accuracy >= 0.9:
+                    top_until_90 = topk
+                    break
+        else:
+            top_until_90 = 1 if accuracy >= 0.9 else 2
 
         correct_rank = compute_avg_correct_rank_from_probs(probs=probs, labels=labels)
 

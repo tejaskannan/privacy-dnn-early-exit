@@ -42,7 +42,7 @@ def get_model_class(name: str) -> Type[NeuralNetwork]:
         return BranchyNetDNNSmallAlt
     elif name == 'vgg':
         return VGG
-    elif name in ('resnet', 'resnet18'):
+    elif name.startswith('resnet'):
         return ResNet18
     elif name == 'speech-cnn':
         return SpeechCNN

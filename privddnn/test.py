@@ -54,7 +54,7 @@ def execute_for_rate(dataset: Dataset,
                                        dataset=dataset,
                                        pred_probs=test_probs,
                                        window_size=window_size,
-                                       num_reps=num_reps,
+                                       num_reps=1,
                                        fold='test')
     test_result = policy.test(data_iterator=test_iterator,
                               max_num_samples=max_num_samples)

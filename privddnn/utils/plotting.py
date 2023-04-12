@@ -30,7 +30,12 @@ DATASET_LABELS = {
     'cifar100': 'Cifar100',
     'wisdm_real': 'WISDM',
     'traffic_signs': 'GTSRB',
-    'speech': 'Speech'
+    'speech': 'Speech',
+    'spoken_digit': 'Spoken Digit',
+    'speech_noisy': 'Speech Noisy',
+    'pen_digits': 'Pen Digits',
+    'wisdm_sim': 'WISDM Sim',
+    'cifar10_corrupted': 'Cifar10 Corrupted'
 }
 
 

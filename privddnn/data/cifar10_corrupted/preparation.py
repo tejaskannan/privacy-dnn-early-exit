@@ -37,7 +37,7 @@ def process_train_val(raw_inputs: np.ndarray, raw_labels: np.ndarray, output_dir
     inputs = np.vstack(inputs_list)
     labels = np.vstack(labels_list).reshape(-1)
 
-    train_idx, val_idx = get_split_indices(num_samples=len(inputs), frac=0.8, is_noisy=False)
+    train_idx, val_idx = get_split_indices(num_samples=len(inputs), frac=0.8, is_noisy=True)
 
     train_inputs, train_labels = inputs[train_idx], labels[train_idx]
     val_inputs, val_labels = inputs[val_idx], labels[val_idx]

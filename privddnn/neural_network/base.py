@@ -198,7 +198,6 @@ class NeuralNetwork(BaseClassifier):
                                   validation_data=(val_inputs, val_labels),
                                   verbose=verbose)
 
-
         # Save the training history
         train_history_path = os.path.join(save_folder, '{}_train-log.pkl.gz'.format(model_name))
 

@@ -76,7 +76,7 @@ class Dataset:
             dataset_name = 'cifar100'
             tf_dataset = tf2.keras.datasets.cifar100
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
-        elif dataset_name in ('traffic_signs', 'speech', 'mnist_corrupted', 'pen_digits', 'spoken_digit', 'speech_background_noise', 'cifar10_corrupted'):
+        elif dataset_name in ('traffic_signs', 'speech', 'mnist_corrupted', 'pen_digits', 'spoken_digit', 'speech_noisy', 'cifar10_corrupted', 'food_quality'):
             X_train, y_train = load_h5_dataset(path=os.path.join('/local', dataset_name, 'train.h5'))
             X_val, y_val = load_h5_dataset(path=os.path.join('/local', dataset_name, 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join('/local', dataset_name, 'test.h5'))
