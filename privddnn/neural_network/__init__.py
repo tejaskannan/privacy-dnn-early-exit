@@ -6,7 +6,7 @@ from privddnn.classifier import OpName, ModelMode
 from .base import NeuralNetwork
 from .vgg import VGG
 from .branchynet_cnn import BranchyNetCNN, BranchyNetCNN3, BranchyNetCNN4, BranchyNetCNNAlt
-from .branchynet_dnn import BranchyNetDNN, BranchyNetDNN3, BranchyNetDNN4, BranchyNetDNNAlt
+from .branchynet_dnn import BranchyNetDNN, BranchyNetDNN3, BranchyNetDNN4, BranchyNetDNNAlt, BranchyNetDNNMinimized
 from .branchynet_dnn_small import BranchyNetDNNSmall, BranchyNetDNNSmall3, BranchyNetDNNSmall4, BranchyNetDNNSmallAlt
 from .branchynet_rnn import BranchyNetRNN
 from .resnet import ResNet18
@@ -28,6 +28,8 @@ def get_model_class(name: str) -> Type[NeuralNetwork]:
         return BranchyNetDNN3
     elif name == 'branchynet-dnn-4':
         return BranchyNetDNN4
+    elif name == 'branchynet-dnn-min':
+        return BranchyNetDNNMinimized
     elif name == 'branchynet-dnn-small':
         return BranchyNetDNNSmall
     elif name == 'branchynet-dnn-small-3':
