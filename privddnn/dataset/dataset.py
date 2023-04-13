@@ -76,12 +76,12 @@ class Dataset:
             dataset_name = 'cifar100'
             tf_dataset = tf2.keras.datasets.cifar100
             (X_train, y_train), (X_test, y_test) = tf_dataset.load_data()
-        elif dataset_name in ('traffic_signs', 'speech', 'mnist_corrupted', 'pen_digits', 'spoken_digit', 'speech_noisy', 'cifar10_corrupted', 'food_quality'):
+        elif dataset_name in ('traffic_signs', 'speech', 'mnist_corrupted', 'pen_digits', 'spoken_digit', 'speech_noisy', 'cifar10_corrupted'):
             X_train, y_train = load_h5_dataset(path=os.path.join('/local', dataset_name, 'train.h5'))
             X_val, y_val = load_h5_dataset(path=os.path.join('/local', dataset_name, 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join('/local', dataset_name, 'test.h5'))
             has_val_split = True
-        elif dataset_name in ('uci_har', 'wisdm_sim', 'emnist', 'wisdm_real', 'fashion_mnist_label_max_prob', 'uci_har_64'):
+        elif dataset_name in ('uci_har', 'wisdm_sim', 'emnist', 'wisdm_real', 'fashion_mnist_label_max_prob', 'uci_har_64', 'food_quality'):
             X_train, y_train = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'train.h5'))
             X_val, y_val = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'val.h5'))
             X_test, y_test = load_h5_dataset(path=os.path.join(dir_path, '..', 'data', dataset_name, 'test.h5'))
