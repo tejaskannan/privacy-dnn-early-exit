@@ -49,7 +49,3 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     dnn = DenseNeuralNetwork(args.weights_path)
-
-    inputs = np.random.uniform(size=(316, ))
-    prediction = dnn(inputs)
-    print(prediction)

@@ -37,8 +37,6 @@ def encode_inputs(inputs: np.ndarray, precision: int) -> bytes:
     # Convert to fixed point
     fp_values = [to_fixed_point(val, precision) for val in inputs]
 
-    print(fp_values)
-    
     # Write into an array of bytes
     encoded_values = [val.to_bytes(2, byteorder='big', signed=True) for val in fp_values]
     
@@ -50,12 +48,8 @@ def encode_inputs(inputs: np.ndarray, precision: int) -> bytes:
 
 
 def decode_response(message: bytes, key: bytes, precision: int) -> Response:
-    print(message)
-
     # Decrypt the message
     plaintext = decrypt_aes128(ciphertext=message, key=key)
-
-    print(plaintext)
 
     # Return the prediction (first byte of the result)
     control_byte = plaintext[0]
@@ -69,7 +63,7 @@ def decode_response(message: bytes, key: bytes, precision: int) -> Response:
         value_list: List[float] = []
 
         for idx in range(0, len(value_bytes), 2):
-            value = int.from_bytes(value_bytes[idx:idx+offset], byteorder='big')
+            value = int.from_bytes(value_bytes[idx:idx+2], byteorder='big', signed=True)
             value_list.append(from_fixed_point(value, precision))
 
         value = np.array(value_list)

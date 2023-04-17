@@ -2,12 +2,13 @@ import sys
 import time
 import os
 from argparse import ArgumentParser
+from subprocess import CalledProcessError
 from typing import List, Dict
 
 from dnn import DenseNeuralNetwork
 from ble_manager import BLEManager
 from result_manager import ResultManager
-from encryption import decrypt_aes128
+from encryption import decrypt_aes128, AES_BLOCK_SIZE
 from decode import encode_inputs, decode_response, ResponseType
 from privddnn.dataset import Dataset
 from privddnn.dataset.data_iterators import make_data_iterator, DataIterator
@@ -26,7 +27,7 @@ MAC_ADDRESS = 'A0:6C:65:CF:81:D4'
 HANDLE = 18
 HCI_DEVICE = 'hci0'
 
-PERIOD = 2
+PERIOD = 1
 
 # Hard coded symmetric encryption key
 AES128_KEY = bytes.fromhex('349fdc00b44d1aaacaa3a2670fd44244')
@@ -55,25 +56,32 @@ def run_server(dnn: DenseNeuralNetwork, dataset_iterator: DataIterator, num_samp
     print('Press any key to start.')
     x = input()
 
+    while not ble_manager.start(max_retries=10):
+        print('Timed out. Trying again to connect.')
+
     # Send the start signal
     sample_count = 0
     for idx, (sample_inputs, _, sample_label) in enumerate(dataset_iterator):
-        if (sample_count >= num_samples):
+        if (idx >= num_samples):
             break
         elif (idx < offset):
             continue
 
+        # Serialize the message into an array of bytes
         message = encode_inputs(sample_inputs, precision=PRECISION)
 
-        while not ble_manager.start(max_retries=10):
-            print('Timed out. Trying again to connect.')
+        # Append the start byte to signal the MSP to begin receiving data
+        message = START_BYTE + message
 
-        did_recv = ble_manager.send_and_expect_byte(value=START_BYTE,
-                                                    expected=START_RESPONSE)
+        #while not ble_manager.start(max_retries=10):
+        #    print('Timed out. Trying again to connect.')
 
-        if not did_recv:
-            print('Could not send {} inputs. Skipping...')
-            continue
+        #did_recv = ble_manager.send_and_expect_byte(value=START_BYTE,
+        #                                            expected=START_RESPONSE)
+
+        #if not did_recv:
+        #    print('Could not send {} inputs. Skipping...')
+        #    continue
 
         response = ble_manager.query(value=message)
 
@@ -81,6 +89,9 @@ def run_server(dnn: DenseNeuralNetwork, dataset_iterator: DataIterator, num_samp
 
         #response = ble_manager.query(value=SEND_BYTE)
         #plaintext = decrypt_aes128(ciphertext=response, key=AES128_KEY)
+
+        while (len(response) == 0) or ((len(response) % AES_BLOCK_SIZE) != 0):
+            response = ble_manager.query(value=message)
 
         result = decode_response(response, key=AES128_KEY, precision=PRECISION)
         message_size = len(response)
@@ -95,8 +106,8 @@ def run_server(dnn: DenseNeuralNetwork, dataset_iterator: DataIterator, num_samp
 
         result_manager.add_result(pred=int(prediction), message_size=int(message_size), label=int(sample_label))
 
-        time.sleep(0.1)
-        ble_manager.stop()
+        #time.sleep(0.1)
+        #ble_manager.stop()
 
         # Pause for half the period. We try connecting again early to 
         # connect quickly once the BT module wakes up.
@@ -119,7 +130,7 @@ if __name__ == '__main__':
     parser.add_argument('--offset', type=int, help='The sample index to start at.')
     args = parser.parse_args()
 
-    if os.path.exists(args.output_path):
+    if os.path.exists(args.output_path) and (args.offset == 0):
         print('You are going to overwrite the file {}. Confirm [Y/N]:'.format(args.output_path), end=' ')
         response = input()
 
@@ -130,11 +141,14 @@ if __name__ == '__main__':
         os.remove(args.output_path)
 
     dataset = Dataset(args.dataset_name)
+    dataset.fit_normalizer()
+    dataset.normalize_data()
+
     dataset_iterator = make_data_iterator(name=args.dataset_order,
                                           dataset=dataset,
                                           pred_probs=None,
                                           window_size=args.window_size,
-                                          num_reps=1,
+                                          num_reps=5,
                                           fold=args.data_fold)
 
     dnn = DenseNeuralNetwork(args.model_path)

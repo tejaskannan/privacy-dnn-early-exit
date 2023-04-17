@@ -130,32 +130,23 @@ class BLEManager:
     def send(self, value: bytes, timeout: float = DEFAULT_TIMEOUT):
         assert self._is_connected and self._gatt is not None, 'Must call start() first'
 
-        block_size = 20
+        did_send = False
+        retry_count = 0
 
-        for start_idx in range(0, len(value), block_size):
-            end_idx = start_idx + block_size
-            block = value[start_idx:end_idx]
+        while (not did_send) and (retry_count < MAX_RETRIES):
+            try:
+                hex_string = value.hex()
+                write_cmd = 'char-write-cmd 0x{0:02x} {1}'.format(self.rw_handle, hex_string)
 
-            did_send = False
-            retry_count = 0
+                self._gatt.sendline(write_cmd)
+                self._gatt.expect(r'.*\[LE\]>', timeout)
 
-            while (not did_send) and (retry_count < MAX_RETRIES):
-                try:
-                    hex_string = block.hex()
-                    write_cmd = 'char-write-cmd 0x{0:02x} {1}'.format(self.rw_handle, hex_string)
-                    print(write_cmd)
+                did_send = True
+            except pexpect.TIMEOUT as ex:
+                print('Write timeout after {0} seconds. Command: {1}.'.format(timeout, write_cmd))
 
-                    self._gatt.sendline(write_cmd)
-                    self._gatt.expect(r'.*\[LE\]>', timeout)
-
-                    did_send = True
-                except pexpect.TIMEOUT as ex:
-                    print('Write timeout after {0} seconds. Command: {1}.'.format(timeout, write_cmd))
-
-                    retry_count += 1
-                    time.sleep(RETRY_WAIT)
-
-            time.sleep(0.1)
+                retry_count += 1
+                time.sleep(RETRY_WAIT)
 
     def send_and_expect_byte(self, value: bytes, expected: bytes, timeout: float = DEFAULT_TIMEOUT) -> bool:
         assert self._is_connected and self._gatt is not None, 'Must call start() first'
@@ -204,7 +195,7 @@ class BLEManager:
                 for start_idx in range(0, len(value), BLOCK_SIZE):
                     block = value[start_idx:start_idx+BLOCK_SIZE]
                     self.send(value=block)
-                    time.sleep(1e-4)
+                    time.sleep(0.1)
 
                 self._gatt.expect('Notification handle = .*? \r', timeout)
                 response_string = self._gatt.after.decode()
