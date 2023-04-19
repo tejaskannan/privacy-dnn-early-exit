@@ -38,7 +38,6 @@ if __name__ == '__main__':
     accuracy_results = test_results[InferenceMetric.ACCURACY]
     mut_info_results = test_results[InferenceMetric.MUTUAL_INFORMATION]
     avg_exit_results = test_results[InferenceMetric.AVG_EXIT]
-    ngram_results = test_results[InferenceMetric.NGRAM_MI]
 
     accuracy_agg: List[float] = []
     accuracy_std_agg: List[float] = []
@@ -46,10 +45,6 @@ if __name__ == '__main__':
     mut_info_agg: List[float] = []
     mut_info_std_agg: List[float] = []
     mut_info_max_agg: List[float] = []
-
-    ngram_mut_info_agg: List[float] = []
-    ngram_mut_info_std_agg: List[float] = []
-    ngram_mut_info_max_agg: List[float] = []
 
     with plt.style.context(PLOT_STYLE):
         #fig, (ax1, ax2, ax3) = plt.subplots(nrows=1, ncols=3, figsize=(12, 6))
@@ -67,8 +62,6 @@ if __name__ == '__main__':
             accuracy_std_list: List[float] = []
             mut_info_list: List[float] = []
             mut_info_std_list: List[float] = []
-            ngram_mut_info_list: List[float] = []
-            ngram_mut_info_std_list: List[float] = []
 
             for rate in sorted(accuracy_results[policy_name].keys()):
                 # Add the accuracy results
@@ -85,13 +78,6 @@ if __name__ == '__main__':
                 mut_info_list.append(avg_mut_info)
                 mut_info_std_list.append(std_mut_info)
 
-                # Add the ngram mutual information results
-                avg_ngram = np.average(ngram_results[policy_name][rate])
-                std_ngram = np.std(ngram_results[policy_name][rate])
-
-                ngram_mut_info_list.append(avg_ngram)
-                ngram_mut_info_std_list.append(std_ngram)
-
                 exit_rate = np.average(avg_exit_results[policy_name][rate])
 
                 rates.append(exit_rate)
@@ -100,21 +86,17 @@ if __name__ == '__main__':
             # Get the deviation for the average result across all trials
             avg_accuracy_list: List[float] = []
             avg_mut_info_list: List[float] = []
-            avg_ngram_list: List[float] = []
 
             for trial in range(num_trials):
                 trial_accuracy: List[float] = []
                 trial_mut_info: List[float] = []
-                trial_ngram: List[float] = []
 
                 for rate in sorted(accuracy_results[policy_name].keys()):
                     trial_accuracy.append(accuracy_results[policy_name][rate][trial])
                     trial_mut_info.append(mut_info_results[policy_name][rate][trial])
-                    trial_ngram.append(ngram_results[policy_name][rate][trial])
 
                 avg_accuracy_list.append(np.average(trial_accuracy))
                 avg_mut_info_list.append(np.average(trial_mut_info))
-                avg_ngram_list.append(np.average(trial_ngram))
 
             # Collect the aggregate results
             avg_acc = np.average(accuracy_list)
@@ -125,10 +107,6 @@ if __name__ == '__main__':
             max_mi = np.max(mut_info_list)
             std_mi = np.std(avg_mut_info_list)
 
-            avg_ngram = np.average(ngram_mut_info_list)
-            max_ngram = np.max(ngram_mut_info_list)
-            std_ngram = np.std(avg_ngram_list)
-
             accuracy_agg.append(avg_acc)
             accuracy_std_agg.append(std_acc)
 
@@ -136,38 +114,20 @@ if __name__ == '__main__':
             mut_info_std_agg.append(std_mi)
             mut_info_max_agg.append(max_mi)
 
-            ngram_mut_info_agg.append(avg_ngram)
-            ngram_mut_info_std_agg.append(std_ngram)
-            ngram_mut_info_max_agg.append(max_ngram)
-
             # Plot the results
             ax.errorbar(rates, accuracy_list, yerr=accuracy_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=POLICY_LABELS[policy_name], color=COLORS[policy_name], capsize=CAPSIZE)
-            #ax2.errorbar(rates, mut_info_list, yerr=mut_info_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
-            #ax3.errorbar(rates, ngram_mut_info_list, yerr=ngram_mut_info_std_list, marker=MARKER, markersize=MARKER_SIZE, linewidth=LINE_WIDTH, label=to_label(policy_name), color=COLORS[policy_name], capsize=CAPSIZE)
 
         ax.set_xlabel('Fraction of Inputs using the Full Model', fontsize=AXIS_FONT + ADJUSTMENT)
         ax.set_ylabel('Inference Accuracy (%)', fontsize=AXIS_FONT + ADJUSTMENT)
-        ax.set_title('AdNN Accuracy for Each Target Exit Rate', fontsize=TITLE_FONT + ADJUSTMENT)
-        #ax.legend(fontsize=LEGEND_FONT + ADJUSTMENT, bbox_to_anchor=(1.0, 0.9))
+        ax.set_title('Inference Accuracy for Target Exit Rates', fontsize=TITLE_FONT + ADJUSTMENT)
         ax.legend(fontsize=LEGEND_FONT)
         ax.tick_params(axis='both', which='major', labelsize=LABEL_FONT + ADJUSTMENT - 0.5)
-
-        #ax2.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
-        #ax2.set_ylabel('Empirical Normalized Mutual Information', fontsize=AXIS_FONT)
-        #ax2.set_title('Norm Mut Info: Pred vs Exit', fontsize=TITLE_FONT)
-        #ax2.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
-
-        #ax3.set_xlabel('Average Exit Point', fontsize=AXIS_FONT)
-        #ax3.set_ylabel('Empirical Normalized Mutual Information', fontsize=AXIS_FONT)
-        #ax3.set_title('Max 5-gram Norm Mut Info: Pred vs Exit', fontsize=TITLE_FONT)
-        #ax3.tick_params(axis='both', which='major', labelsize=LABEL_FONT)
 
         plt.tight_layout()
 
         # Print the result table
         print('Accuracy & {}'.format(' & '.join(map(lambda t: '{:.2f} ({:.2f})'.format(t[0], t[1]), zip(accuracy_agg, accuracy_std_agg)))))
-        print('Mut Info & {}'.format(' & '.join(map(lambda t: '{:.2f} / {:.2f}'.format(t[0] * 100.0, t[1] * 100.0), zip(mut_info_max_agg, ngram_mut_info_max_agg)))))
-        #print('Ngram Mut Info & {}'.format(' & '.join(map(lambda t: '{:.4f}'.format(t[2]), zip(ngram_mut_info_agg, ngram_mut_info_std_agg, ngram_mut_info_max_agg)))))
+        print('Mut Info & {}'.format(' & '.join(map(lambda t: '{:.2f}'.format(t * 100.0), mut_info_max_agg))))
 
         if args.output_file is None:
             plt.show()

@@ -2,14 +2,14 @@
     "num_outputs": [2, 3, 4],
     "dataset_order": "same-label-10",
     "metric": "accuracy",
-    "attack_model": "LogisticRegressionCount",
+    "attack_model": "DecisionTreeCount",
     "model_configs": [
         {
             "dataset_name": "Activity",
             "num_labels": 12,
-            "2": "../../saved_models/uci_har/14-02-2022/branchynet-dnn_14-02-2022-11-13-49_test-logs",
-            "3": "../../saved_models/uci_har/24-05-2022/branchynet-dnn-3_24-05-2022-13-34-01_test-logs",
-            "4": "../../saved_models/uci_har/24-05-2022/branchynet-dnn-4_24-05-2022-13-35-07_test-logs"
+            "2": "../../saved_models/uci_har/16-04-2023/branchynet-dnn_16-04-2023-15-10-14_test-logs",
+            "3": "../../saved_models/uci_har/16-04-2023/branchynet-dnn-3_16-04-2023-15-10-51_test-logs",
+            "4": "../../saved_models/uci_har/16-04-2023/branchynet-dnn-4_16-04-2023-15-11-32_test-logs"
         },
         {
             "dataset_name": "Cifar10",

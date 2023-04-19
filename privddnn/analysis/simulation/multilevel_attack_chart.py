@@ -74,6 +74,7 @@ if __name__ == '__main__':
                                                         metric=metric,
                                                         attack_model=attack_model,
                                                         attack_policy='same',
+                                                        target_pred=None,
                                                         trials=1)
 
                     if metric == 'correct_rank':
@@ -109,9 +110,10 @@ if __name__ == '__main__':
 
         ax.set_xlabel('Dataset', fontsize=AXIS_FONT + ADJUSTMENT)
         ax.set_ylabel(ylabel, fontsize=AXIS_FONT + ADJUSTMENT)
-        ax.set_title('Attack Accuracy for Varying Numbers of DNN Exits', fontsize=TITLE_FONT + ADJUSTMENT)
+        ax.set_title('Attack Accuracy for Varying Numbers of Exits', fontsize=TITLE_FONT + ADJUSTMENT)
 
-        ax.legend(fontsize=LEGEND_FONT + ADJUSTMENT, bbox_to_anchor=(1.0, 0.9))
+        ax.legend(fontsize=LEGEND_FONT, bbox_to_anchor=(0.45, 0.4))
+        plt.tight_layout()
 
         if args.output_file is None:
             plt.show()
