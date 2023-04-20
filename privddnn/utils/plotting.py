@@ -9,17 +9,28 @@ TITLE_FONT = 16
 LABEL_FONT = 12
 LEGEND_FONT = 12
 
+#COLORS = {
+#    'max_prob': '#c7e9b4',
+#    'label_max_prob': '#51b6c4',
+#    'cgr_max_prob': '#2c7fb8',
+#    'random': 'gray',
+#    'entropy': '#9ebcda',
+#    'label_entropy': '#8c96c6',
+#    'cgr_entropy': '#810f7c',
+#    'adaptive_random_max_prob': '#2c7fb8'
+#}
+
 COLORS = {
-    'max_prob': '#c7e9b4',
-    'label_max_prob': '#51b6c4',
-    'cgr_max_prob': '#2c7fb8',
+    'max_prob': '#fc8d59',
+    'label_max_prob': '#d7301f',
+    'cgr_max_prob': '#7f0000',
     'random': 'gray',
-    'entropy': '#9ebcda',
-    'label_entropy': '#8c96c6',
-    'cgr_entropy': '#810f7c',
-    'adaptive_random_max_prob': '#2c7fb8',
-    'fixed': '#c2c2c2'
+    'entropy': '#74a9cf',
+    'label_entropy': '#0570b0',
+    'cgr_entropy': '#023858',
+    'fixed': '#cc0000'
 }
+
 
 
 DATASET_LABELS = {
@@ -36,7 +47,8 @@ DATASET_LABELS = {
     'speech_noisy': 'Speech Noisy',
     'pen_digits': 'Pen Digits',
     'wisdm_sim': 'WISDM Sim',
-    'cifar10_corrupted': 'Cifar10 Corrupted'
+    'cifar10_corrupted': 'Cifar10 Corrupted',
+    'food_quality': 'Food Quality'
 }
 
 

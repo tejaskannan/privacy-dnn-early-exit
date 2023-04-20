@@ -103,7 +103,7 @@ class AttackClassifier:
         labels_array = np.expand_dims(labels, axis=-1)  # [N, 1]
 
         # Compute the confusion matrix
-        confusion_mat = confusion_matrix(y_true=labels, y_pred=rankings[: 0]).astype(int).tolist()  # [L, L]
+        confusion_mat = confusion_matrix(y_true=labels, y_pred=rankings_array[:, 0]).astype(int).tolist()  # [L, L]
 
         top_until_90 = self.num_labels
         for topk in range(1, self.num_labels + 1):
@@ -391,10 +391,8 @@ class WindowNgramClassifier(AttackClassifier):
 
 class MostFrequentClassifier(AttackClassifier):
 
-    def __init__(self, num_labels: int, window: int):
+    def __init__(self):
         self._clf: Dict[int, np.array] = dict()  # Maps output level to an array of predictions ordered by frequency
-        self._num_labels = num_labels
-        self._window = window
 
     @property
     def name(self) -> str:
@@ -408,31 +406,38 @@ class MostFrequentClassifier(AttackClassifier):
     def window(self) -> int:
         return self._window
 
-    def fit(self, inputs: np.ndarray, labels: np.ndarray):
+    def fit(self, inputs: np.ndarray, labels: np.ndarray, num_labels: int):
         """
         Fits the classifier by finding the most frequent
         prediction for each output level.
 
         Args:
-            inputs: Unused (for compatability reasons)
-            labels: A [B, K] array of predictions for each sample (B) and level (K)
+            inputs: A [B, K, L] array of exit decisions (one-hot K) for each window (K) element
+            labels: A [B] array of predictions for each sample (B)
         Returns:
             Nothing. The object saves the results internally.
         """
-        assert len(labels.shape) == 2, 'Must provide a 2d array of validation predictions'
+        assert inputs.shape[-1] <= 2, 'Classifier only works with at most 2 exits.'
+        self._num_labels = num_labels
 
         # Unpack the shape
-        num_samples, num_levels = labels.shape
+        num_samples, window_size, num_levels = inputs.shape
+        self._window = window_size
 
+        exit_decisions = np.argmax(np.sum(inputs, axis=-1), axis=-1)  # [B]
+
+        self._clf: Dict[int, np.ndarray] = dict()
         for level in range(num_levels):
-            level_preds = np.bincount(labels[:, level], minlength=self.num_labels)
-            self._clf[level] = np.argsort(level_preds)[::-1]
+            self._clf[level] = np.zeros(shape=(num_labels, ))
+
+        for exit_decision, label in zip(exit_decisions, labels):
+            self._clf[exit_decision][label] += 1
 
     def predict_rankings(self, inputs: np.ndarray, top_k: int) -> Tuple[List[int], float]:
-        count = np.sum(inputs)
-        level = int(count >= (self.window / 2.0))
-        rankings = self._clf[level]
-        return rankings[0:top_k].astype(int).tolist(), 1.0
+        count = np.sum(inputs, axis=-1)
+        level = np.argmax(count)
+        rankings = np.argsort(self._clf[level])[::-1]
+        return rankings[0:top_k].astype(int), 1.0
 
 
 class SklearnClassifier(AttackClassifier):
