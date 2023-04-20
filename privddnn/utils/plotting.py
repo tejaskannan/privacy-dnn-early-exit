@@ -28,7 +28,7 @@ COLORS = {
     'entropy': '#74a9cf',
     'label_entropy': '#0570b0',
     'cgr_entropy': '#023858',
-    'fixed': '#cc0000'
+    'fixed': '#cccccc'
 }
 
 
