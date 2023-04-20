@@ -654,6 +654,18 @@ class DecisionTreeEnsembleCount(SklearnClassifier):
     def name(self) -> str:
         return DECISION_TREE_COUNT
 
+    @classmethod
+    def restore(cls, path: str):
+        model_dict = read_pickle_gz(path)
+
+        model = cls()
+        model._scaler = model_dict['scaler']
+        model._clf = model_dict['clf']
+        model._window_size = model_dict['window_size']
+        model._num_labels = model_dict['num_labels']
+
+        return model
+
 
 class DecisionTreeEnsembleNgram(SklearnClassifier):
 

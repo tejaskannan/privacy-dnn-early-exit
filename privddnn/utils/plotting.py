@@ -17,7 +17,8 @@ COLORS = {
     'entropy': '#9ebcda',
     'label_entropy': '#8c96c6',
     'cgr_entropy': '#810f7c',
-    'adaptive_random_max_prob': '#2c7fb8'
+    'adaptive_random_max_prob': '#2c7fb8',
+    'fixed': '#c2c2c2'
 }
 
 
@@ -46,7 +47,8 @@ POLICY_LABELS = {
     'label_entropy': 'PCE Entropy',
     'cgr_max_prob': 'CGR Max Prob',
     'cgr_entropy': 'CGR Entropy',
-    'random': 'Random'
+    'random': 'Random',
+    'fixed': 'Fixed'
 }
 
 
