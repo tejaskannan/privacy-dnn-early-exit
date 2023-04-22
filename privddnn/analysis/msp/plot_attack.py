@@ -58,9 +58,9 @@ if __name__ == '__main__':
 
     for policy_name in POLICIES:
         packet_trace_path = os.path.join(args.msp_results_folder, '{}.csv'.format(policy_name)) 
-        message_sizes, _ = extract_message_sizes(packet_trace_path, rand=rand)
+        message_times, start_time, end_time = extract_message_sizes(packet_trace_path, rand=rand)
 
-        exit_decisions = classify_decisions(message_sizes)
+        exit_decisions = classify_decisions(message_times, start_time=start_time, end_time=end_time, period=1.2)
 
         server_trace_path = os.path.join(args.msp_results_folder, '{}.jsonl.gz'.format(policy_name))
         server_results: List[Dict[str, int]] = list(read_jsonl_gz(server_trace_path))
