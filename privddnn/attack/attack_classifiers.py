@@ -412,7 +412,7 @@ class MostFrequentClassifier(AttackClassifier):
         prediction for each output level.
 
         Args:
-            inputs: A [B, K, L] array of exit decisions (one-hot K) for each window (K) element
+            inputs: A [B, K, L] array of exit decisions (one-hot L) for each window (K) element
             labels: A [B] array of predictions for each sample (B)
         Returns:
             Nothing. The object saves the results internally.
@@ -424,7 +424,8 @@ class MostFrequentClassifier(AttackClassifier):
         num_samples, window_size, num_levels = inputs.shape
         self._window = window_size
 
-        exit_decisions = np.argmax(np.sum(inputs, axis=-1), axis=-1)  # [B]
+        summed = np.sum(inputs, axis=1)  # [B, L]
+        exit_decisions = np.argmax(np.sum(inputs, axis=1), axis=-1)  # [B]
 
         self._clf: Dict[int, np.ndarray] = dict()
         for level in range(num_levels):
@@ -434,8 +435,8 @@ class MostFrequentClassifier(AttackClassifier):
             self._clf[exit_decision][label] += 1
 
     def predict_rankings(self, inputs: np.ndarray, top_k: int) -> Tuple[List[int], float]:
-        count = np.sum(inputs, axis=-1)
-        level = np.argmax(count)
+        count = np.sum(inputs, axis=1)  # [L]
+        level = int(np.argmax(count))  # Scalar
         rankings = np.argsort(self._clf[level])[::-1]
         return rankings[0:top_k].astype(int), 1.0
 
