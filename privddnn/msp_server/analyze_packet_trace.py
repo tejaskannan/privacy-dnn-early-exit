@@ -3,7 +3,7 @@ import numpy as np
 from argparse import ArgumentParser
 from sklearn.cluster import KMeans
 from sklearn.metrics import accuracy_score
-from typing import List
+from typing import List, Tuple
 
 from privddnn.attack.attack_classifiers import ACCURACY, DecisionTreeEnsembleCount
 from privddnn.utils.file_utils import read_jsonl_gz
@@ -12,14 +12,18 @@ from privddnn.utils.file_utils import read_jsonl_gz
 MAC_ADDRESS = 'A0:6C:65:CF:81:D4'
 PROTOCOL = 'ATT'
 TIME_THRESHOLD = 0.5
-DROP_RATE = 0.01
+DROP_RATE = 0.05
+
+SIZE_CUTOFF= 100
 
 
-def extract_message_sizes(path: str, rand: np.random.RandomState) -> List[int]:
+def extract_message_sizes(path: str, rand: np.random.RandomState) -> Tuple[List[int], int, int]:
     prev_time = None
     current_size = 0
-    result: List[int] = []
     result_times: List[float] = []
+
+    start_time = None
+    end_time = None
 
     gaps = []
 
@@ -45,30 +49,69 @@ def extract_message_sizes(path: str, rand: np.random.RandomState) -> List[int]:
                 prev_time = packet_time
 
             if (packet_time - prev_time) >= TIME_THRESHOLD:
-                gaps.append(packet_time - prev_time)
 
-                result.append(current_size)
-                result_times.append(prev_time)
+                if start_time is None:
+                    start_time = prev_time
+
+                if current_size > SIZE_CUTOFF:
+                    gaps.append(packet_time - prev_time)
+
+                    result_times.append(prev_time)
+               
                 prev_time = packet_time
                 current_size = 0
 
             current_size += packet_length
 
-    if current_size > 0:
-        result.append(current_size)
+    if (current_size > SIZE_CUTOFF):
+        result_times.append(prev_time)
 
-    return result, result_times
+    end_time = prev_time
+
+    return result_times, start_time, end_time
 
 
-def classify_decisions(message_sizes: List[int]) -> List[int]:
-    clf = KMeans(n_clusters=2)
-    clusters = clf.fit_predict(np.array(message_sizes).reshape(-1, 1))
+#def classify_decisions(message_sizes: List[int]) -> List[int]:
+#    clf = KMeans(n_clusters=2)
+#    clusters = clf.fit_predict(np.array(message_sizes).reshape(-1, 1))
+#
+#    # Rename the clusters based on sizes
+#    centers = clf.cluster_centers_
+#    max_idx = int(centers[0] < centers[1])
+#
+#    return [int(c == max_idx) for c in clusters]
 
-    # Rename the clusters based on sizes
-    centers = clf.cluster_centers_
-    max_idx = int(centers[0] < centers[1])
 
-    return [int(c == max_idx) for c in clusters]
+def classify_decisions(result_times: List[int], start_time: int, end_time: int, period: float):
+    exit_decisions: List[int] = []
+
+    # Handle the start
+    gap = result_times[0] - start_time
+    num_early = max(int(gap / period), 0)
+
+    for _ in range(num_early):
+        exit_decisions.append(0)
+
+    exit_decisions.append(1)
+
+    # Handle the gaps between result times
+    for idx in range(1, len(result_times)):
+        gap = result_times[idx] - result_times[idx - 1]
+        
+        num_early = max(int(gap / period) - 1, 0)
+        for _ in range(num_early):
+            exit_decisions.append(0)
+
+        exit_decisions.append(1)
+
+    # Handle the end
+    gap = end_time - result_times[-1]
+    num_early = max(int(gap / period), 0)
+
+    for _ in range(num_early):
+        exit_decisions.append(0)
+
+    return exit_decisions
 
 
 if __name__ == '__main__':
@@ -79,20 +122,22 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     rand = np.random.RandomState(2523)
-    message_sizes, message_times = extract_message_sizes(args.trace_path, rand=rand)
-    print('Number of Messages: {}'.format(len(message_sizes)))
+    message_times, start_time, end_time = extract_message_sizes(args.trace_path, rand=rand)
+    print('Number of Messages: {}'.format(len(message_times)))
 
-    exit_decisions = classify_decisions(message_sizes)
+    exit_decisions = classify_decisions(message_times, start_time, end_time, period=1.2)
 
-    # Apply the classifier
+    server_results = list(read_jsonl_gz(args.log_path))
+    true_exit_decisions = [int(record['message_size'] == 128) for record in server_results]
+
+    # Restore the attack model
     clf = DecisionTreeEnsembleCount.restore(args.attack_model_path)
+
+    model_preds: List[int] = [int(record['pred']) for record in server_results]
+    num_labels = clf.num_labels
 
     exit_decision_blocks: List[np.ndarray] = []
     labels: List[int] = []
-
-    server_results = list(read_jsonl_gz(args.log_path))
-    model_preds: List[int] = [int(record['pred']) for record in server_results]
-    num_labels = clf.num_labels
 
     for start_idx in range(0, len(exit_decisions), clf.window_size):
         end_idx = start_idx + clf.window_size

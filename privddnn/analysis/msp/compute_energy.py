@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 from typing import List, Tuple
 
+from privddnn.utils.file_utils import save_json_gz
+
 
 POWER_THRESHOLD = 0.41
 PEAK_THRESHOLD = 40
@@ -80,6 +82,9 @@ if __name__ == '__main__':
     start_times, end_times, period_energy = split_periods(times=times, power=power, energy=energy)
 
     period_energy = remove_outliers(period_energy)
+
+    output_file = args.energy_trace_file.replace('.csv', '.json.gz')
+    save_json_gz(period_energy, output_file)
 
     fig, ax = plt.subplots()
     ax.hist(period_energy)

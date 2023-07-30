@@ -58,9 +58,9 @@ if __name__ == '__main__':
 
     for policy_name in POLICIES:
         packet_trace_path = os.path.join(args.msp_results_folder, '{}.csv'.format(policy_name)) 
-        message_sizes, _ = extract_message_sizes(packet_trace_path, rand=rand)
+        message_times, start_time, end_time = extract_message_sizes(packet_trace_path, rand=rand)
 
-        exit_decisions = classify_decisions(message_sizes)
+        exit_decisions = classify_decisions(message_times, start_time=start_time, end_time=end_time, period=1.2)
 
         server_trace_path = os.path.join(args.msp_results_folder, '{}.jsonl.gz'.format(policy_name))
         server_results: List[Dict[str, int]] = list(read_jsonl_gz(server_trace_path))
@@ -98,16 +98,16 @@ if __name__ == '__main__':
                 xoffset = -0.17
                 yoffset = 2.0
             elif idx == 1:
-                xoffset = -0.13
+                xoffset = -0.14
                 yoffset = 2.0
             elif idx == 2:
-                xoffset = -0.09
+                xoffset = -0.1
                 yoffset = 2.0
             else:
-                xoffset = -0.05
+                xoffset = -0.07
                 yoffset = 2.0
 
-            ax.annotate('{:.2f}'.format(inference_accuracy), (xs[0] + offset, inference_accuracy), (xs[0] + offset + xoffset, inference_accuracy + yoffset), fontsize=font_size)
+            ax.annotate('{:.2f}'.format(inference_accuracy), (xs[0] + offset, inference_accuracy), (xs[0] + offset + xoffset, inference_accuracy + yoffset), fontsize=TITLE_FONT)
 
             if idx == 0:
                 xoffset = -0.14
@@ -122,12 +122,12 @@ if __name__ == '__main__':
                 xoffset = -0.09
                 yoffset = 2.0
 
-            ax.annotate('{:.2f}'.format(attack_accuracy), (xs[1] + offset, attack_accuracy), (xs[1] + offset + xoffset, attack_accuracy + yoffset), fontsize=font_size)
+            ax.annotate('{:.2f}'.format(attack_accuracy), (xs[1] + offset, attack_accuracy), (xs[1] + offset + xoffset, attack_accuracy + yoffset), fontsize=TITLE_FONT)
 
             ax.bar(xs + offset, [inference_accuracy, attack_accuracy], width=width, label=POLICY_LABELS[policy], edgecolor='black', linewidth=1, color=COLORS[policy])
             offset += width
 
-        ax.legend(fontsize=font_size, bbox_to_anchor=(0.45, 0.42))
+        ax.legend(fontsize=TITLE_FONT, bbox_to_anchor=(0.5, 0.5))
 
         ax.set_xticks(xs)
         ax.set_xticklabels(['Inference Accuracy', 'Attack Accuracy'], fontsize=font_size)
@@ -138,7 +138,7 @@ if __name__ == '__main__':
         ax.set_yticklabels(yticks, fontsize=font_size)
 
         ax.set_ylabel('Accuracy (%)', fontsize=font_size)
-        ax.set_title('Distributed AdNNs on the {} Dataset'.format(DATASET_LABELS[dataset_name]), fontsize=TITLE_FONT + ADJUSTMENT)
+        ax.set_title('MCU Results for the {} Dataset'.format(DATASET_LABELS[dataset_name]), fontsize=TITLE_FONT + ADJUSTMENT)
 
         if args.output_file is None:
             plt.show()
