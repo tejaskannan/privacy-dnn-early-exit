@@ -23,8 +23,8 @@ class ExitStrategy(Enum):
     MAX_PROB = auto()
     LABEL_ENTROPY = auto()
     LABEL_MAX_PROB = auto()
-    CGR_MAX_PROB = auto()
     CGR_ENTROPY = auto()
+    CGR_MAX_PROB = auto()
 
 
 # A hard coded dictionary about whether each policy has randomness associated with it.

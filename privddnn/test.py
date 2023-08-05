@@ -31,10 +31,12 @@ def execute_for_rate(dataset: Dataset,
                      test_probs: np.ndarray,
                      data_iterator_name: str,
                      window_size: Optional[int],
+                     noise_rate: Optional[float],
                      rates: List[float],
                      model_path: str,
                      strategy: ExitStrategy,
                      num_reps: int,
+                     num_test_reps: int,
                      max_num_samples: Optional[int]) -> Dict[str, Dict[str, Any]]:
     # Make the exit policy
     policy = make_policy(strategy=strategy, rates=rates, model_path=model_path)
@@ -45,6 +47,7 @@ def execute_for_rate(dataset: Dataset,
                                       dataset=dataset,
                                       pred_probs=val_probs,
                                       window_size=window_size,
+                                      noise_rate=noise_rate,
                                       num_reps=num_reps,
                                       fold='val')
     val_result = policy.test(data_iterator=val_iterator,
@@ -54,7 +57,8 @@ def execute_for_rate(dataset: Dataset,
                                        dataset=dataset,
                                        pred_probs=test_probs,
                                        window_size=window_size,
-                                       num_reps=1,
+                                       noise_rate=noise_rate,
+                                       num_reps=num_test_reps,
                                        fold='test')
     test_result = policy.test(data_iterator=test_iterator,
                               max_num_samples=max_num_samples)
@@ -91,7 +95,7 @@ def execute_for_rate(dataset: Dataset,
     test_summary: Dict[str, float] = dict()
 
     for metric in InferenceMetric:
-        if metric == InferenceMetric.COUNT_NGRAM_MI:
+        if metric in (InferenceMetric.NGRAM_MI, InferenceMetric.COUNT_NGRAM_MI):
             continue
 
         val_summary[metric.name.lower()] = compute_metric(preds=val_result.predictions,
@@ -120,8 +124,10 @@ if __name__ == '__main__':
     parser.add_argument('--reps', type=int, default=1, help='The number of repetitions of the dataset.')
     parser.add_argument('--trials', type=int, default=1, help='The number of independent trials.')
     parser.add_argument('--window-size', type=int, help='The window size used to build the dataset.')
+    parser.add_argument('--noise-rate', type=float, help='The optional noise rate to use for the dataset order.')
     parser.add_argument('--max-num-samples', type=int, help='Optional maximum number of samples (for testing)')
     parser.add_argument('--should-approx-softmax', action='store_true', help='Whether to use an approximate softmax function to mimic fixed point arithmetic.')
+    parser.add_argument('--num-test-reps', type=int, default=1, help='The number of repetitions to apply to the test set. In almost all cases, this should be 1.')
     args = parser.parse_args()
 
     assert args.reps >= 1, 'Must provide a positive number of dataset repititions'
@@ -194,7 +200,9 @@ if __name__ == '__main__':
                                                              strategy=strategy,
                                                              data_iterator_name=args.dataset_order,
                                                              window_size=args.window_size,
+                                                             noise_rate=args.noise_rate,
                                                              num_reps=args.reps,
+                                                             num_test_reps=args.num_test_reps,
                                                              max_num_samples=args.max_num_samples)
 
                 # Log the results

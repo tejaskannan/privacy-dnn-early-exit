@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import DefaultDict, List, Tuple, Dict
 
 from privddnn.attack.attack_dataset import make_similar_dataset, make_noisy_dataset, make_sequential_dataset
-from privddnn.attack.attack_classifiers import DecisionTreeEnsembleCount, DecisionTreeEnsembleNgram, MostFrequentClassifier
+from privddnn.attack.attack_classifiers import DecisionTreeEnsembleCount, DecisionTreeEnsembleNgram, MostFrequentClassifier, LogisticRegressionCount
 from privddnn.classifier import BaseClassifier, ModelMode, OpName
 from privddnn.exiting import ALL_POLICY_NAMES
 from privddnn.restore import restore_classifier
@@ -100,7 +100,10 @@ if __name__ == '__main__':
                     print('Starting {} on {}. # Train: {}, # Test: {}'.format(policy_name, rate_str, len(train_attack_inputs), len(test_attack_inputs)), end='\r')
 
                 # Fit and evaluate the classifiers
-                classifiers = [DecisionTreeEnsembleCount(), DecisionTreeEnsembleNgram(), MostFrequentClassifier()]
+                if model.num_outputs == 2:
+                    classifiers = [DecisionTreeEnsembleCount(), DecisionTreeEnsembleNgram(), MostFrequentClassifier(), LogisticRegressionCount()]
+                else:
+                    classifiers = [DecisionTreeEnsembleCount(), DecisionTreeEnsembleNgram()]
 
                 for clf in classifiers:
                     clf.fit(train_attack_inputs, train_attack_outputs, num_labels=num_labels)
@@ -112,10 +115,11 @@ if __name__ == '__main__':
                     test_attack_results[clf.name][rate_str] = test_acc
 
                     #if rate.startswith('0.5') and trial == 0 and (isinstance(clf, DecisionTreeEnsembleCount)):
-                    #    model_output_path = 'saved_models/uci_har/16-04-2023/{}-attack-model.pkl.gz'.format(policy_name)
+                    #    model_output_path = 'saved_models/uci_har/30-04-2023/{}-attack-model.pkl.gz'.format(policy_name)
                     #    clf.save(model_output_path)
 
-            print()
+            if args.should_print:
+                print()
 
             if attack_key not in output_log:
                 output_log[attack_key] = dict()

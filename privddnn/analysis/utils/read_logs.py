@@ -61,6 +61,12 @@ def get_summary_results(folder_path: str,
                 results[metric][strategy_name] = defaultdict(list)
 
             for rate_str, rate_results in log_results.items():
+                if dataset_order not in rate_results:
+                    continue
+
+                if (metric.name.lower() not in rate_results[dataset_order]):
+                    continue
+
                 results[metric][strategy_name][rate_str].append(rate_results[dataset_order][metric.name.lower()])
 
     return results
@@ -175,6 +181,10 @@ def get_attack_results(folder_path: str, fold: str, dataset_order: str, attack_t
         log = read_json_gz(log_path)
         if attack_key not in log:
             print('Could not find key {} in {}'.format(attack_key, log_path))
+            continue
+
+        if dataset_order not in log[attack_key]:
+            print('Could not find order {} in {}'.format(dataset_order, log_path))
             continue
 
         log_results = log[attack_key][dataset_order][fold_name]

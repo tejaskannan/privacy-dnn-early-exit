@@ -7,6 +7,7 @@ from typing import List, Tuple, Optional, Dict, Any, DefaultDict
 from privddnn.classifier import BaseClassifier, OpName
 from privddnn.dataset import Dataset
 from privddnn.dataset.build_nearest_neighbor_index import NUM_COMPONENTS
+from privddnn.utils.constants import SMALL_NUMBER
 from privddnn.utils.file_utils import read_pickle_gz
 
 
@@ -154,7 +155,7 @@ class NearestNeighborIterator(DataIterator):
 
 class SameLabelIterator(DataIterator):
 
-    def __init__(self, dataset: Dataset, pred_probs: Optional[np.ndarray], window_size: int, num_reps: int, fold: str):
+    def __init__(self, dataset: Dataset, pred_probs: Optional[np.ndarray], window_size: int, noise_rate: float, num_reps: int, fold: str):
         assert window_size >= 1, 'Must provide a positive window size.'
 
         super().__init__(dataset=dataset, num_reps=num_reps, fold=fold, pred_probs=pred_probs)
@@ -163,7 +164,7 @@ class SameLabelIterator(DataIterator):
         self._window_size = window_size
         self._current_window: List[int] = []
         self._window_idx = 0
-        self._noise_rate = 0.2
+        self._noise_rate = noise_rate
 
         # Get the indices that have the same label
         self._same_label_indices: DefaultDict[int, List[int]] = defaultdict(list)
@@ -176,8 +177,15 @@ class SameLabelIterator(DataIterator):
         return self._window_size
 
     @property
+    def noise_rate(self) -> float:
+        return self._noise_rate
+
+    @property
     def name(self) -> str:
-        return 'same-label-{}'.format(self.window_size)
+        if abs(self._noise_rate - 0.2) < SMALL_NUMBER:
+            return 'same-label-{}'.format(self.window_size)
+        else:
+            return 'same-label-{}-{}'.format(self.window_size, int(self.noise_rate * 100.0))
 
     def __next__(self) -> Tuple[np.ndarray, Optional[np.ndarray], int]:
         if self._idx >= (self.num_samples * self._num_reps):
@@ -190,7 +198,7 @@ class SameLabelIterator(DataIterator):
 
             self._current_window: List[int] = []
 
-            same_rate = (1.0 - self._noise_rate)
+            same_rate = (1.0 - self.noise_rate)
             same_label_idx = self._rand.choice(self._same_label_indices[base_label], size=int(same_rate * self._window_size))
             self._current_window.extend(same_label_idx)
 
@@ -259,10 +267,9 @@ def make_data_iterator(name: str, dataset: Dataset, pred_probs: Optional[np.ndar
         return NearestNeighborIterator(dataset=dataset, pred_probs=pred_probs, num_reps=num_reps, fold=fold, window_size=int(kwargs['window_size']))
     elif name in ('same-label', 'same_label'):
         assert kwargs.get('window_size') is not None, 'Must provide a window size.'
-        return SameLabelIterator(dataset=dataset, pred_probs=pred_probs, num_reps=num_reps, fold=fold, window_size=int(kwargs['window_size']))
+        return SameLabelIterator(dataset=dataset, pred_probs=pred_probs, num_reps=num_reps, fold=fold, window_size=int(kwargs['window_size']), noise_rate=float(kwargs.get('noise_rate', 0.2)))
     elif name in ('same-data', 'same_data'):
         assert kwargs.get('window_size') is not None, 'Must provide a window size.'
         return SameDataIterator(dataset=dataset, pred_probs=pred_probs, num_reps=num_reps, fold=fold, window_size=int(kwargs['window_size']))
-
     else:
         raise ValueError('Unknown iterator for name: {}'.format(name))
